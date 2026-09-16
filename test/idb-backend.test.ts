@@ -110,3 +110,12 @@ describe('createBrowserFileSystem：目录、存在性与错误映射（Plan 7b 
 		await expect(fs.cleanup(CTX)).resolves.toBeUndefined();
 	});
 });
+
+describe('错误码针对性覆盖（复审 P1：not_directory）', () => {
+	it('listDir 穿过文件 → not_directory（FileError，不抛）', async () => {
+		await fs.writeFile('/f.txt', 'x', CTX);
+		const r = await fs.listDir('/f.txt', CTX);
+		expect(r.ok).toBe(false);
+		expect(r.ok === false && r.error.code).toBe('not_directory');
+	});
+});
