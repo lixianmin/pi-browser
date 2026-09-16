@@ -94,3 +94,27 @@ describe('createMountTable：跨 mount 与挂载根合成', () => {
 		expect((await tmp.fileInfo('/tmp', CTX)).ok).toBe(false);
 	});
 });
+
+// 17 方法的其余几个走一遍：委托必须传**绝对**路径（不然后端各自按自己的 cwd 解析相对路径，两份 cwd 漂移）
+describe('createMountTable：其余方法的委托与错误码', () => {
+	it('路径工具、读写、行、二进制、建删目录、规范路径都按前缀分派', async () => {
+		expect(getOrFail(await table.absolutePath('rel.txt', CTX))).toBe('/rel.txt');
+		expect(getOrFail(await table.joinPath(['/d', 'b', '..', 'a.txt'], CTX))).toBe('/d/a.txt');
+		expect((await table.writeFile('/d/a.txt', 'l1\nl2\n', CTX)).ok).toBe(true);
+		expect((await table.appendFile('/d/a.txt', 'l3\n', CTX)).ok).toBe(true);
+		expect(getOrFail(await table.readTextFile('/d/a.txt', CTX))).toBe('l1\nl2\nl3\n');
+		expect(getOrFail(await table.readTextLines('/d/a.txt', { maxLines: 2 }, CTX))).toEqual(['l1', 'l2']);
+		expect((await table.writeFile('/d/b.bin', new Uint8Array([7, 8]), CTX)).ok).toBe(true);
+		expect([...getOrFail(await table.readBinaryFile('/d/b.bin', CTX))]).toEqual([7, 8]);
+		expect(getOrFail(await root.exists('/d/a.txt', CTX))).toBe(true);   // 相对路径经表解析后落在 '/' 挂载
+		expect(getOrFail(await table.canonicalPath('/d/../d/a.txt', CTX))).toBe('/d/a.txt');
+		expect((await table.createDir('/nd/sub', { recursive: true }, CTX)).ok).toBe(true);
+		expect(getOrFail(await table.fileInfo('/nd/sub', CTX)).kind).toBe('directory');
+		const notEmpty = await table.remove('/d', undefined, CTX);   // 非递归删非空目录 → is_directory（不落 unknown）
+		expect(notEmpty.ok).toBe(false);
+		if (!notEmpty.ok) expect(notEmpty.error.code).toBe('is_directory');
+		expect((await table.remove('/d/b.bin', undefined, CTX)).ok).toBe(true);
+		expect((await table.remove('/d', { recursive: true }, CTX)).ok).toBe(true);
+		expect(getOrFail(await table.exists('/d', CTX))).toBe(false);
+	});
+});
