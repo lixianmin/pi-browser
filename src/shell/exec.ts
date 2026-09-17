@@ -5,8 +5,7 @@
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
 import { ExecutionError, err, ok, toError, type Context, type Result, type Shell, type ShellExecOptions, type ShellExecResult } from '@earendil-works/pi-agent-core';
-import { run, type RunResult } from 'wasi-sh';
-import { spawn, type Session } from 'wasi-sh/spawn';
+import { run, spawn, type RunResult, type Session } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
 import { normalizePath } from '../env/path';
 import { ShellCapture } from './capture';
