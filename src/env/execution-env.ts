@@ -7,6 +7,7 @@ import type { MountEntry } from './types';
 import { createBrowserFileSystem } from './backend-idb';
 import { createMemoryFileSystem } from './backend-memory';
 import { createBusyboxShell } from '../shell/exec';
+import type { HostCommandRegistry } from '../shell/host-commands';
 
 export interface BrowserExecutionEnvOptions {
 	/** IndexedDB 库名（默认挂载 '/' 用）；默认 'spice-sessions'（沿用以减少漂移面，见 BrowserFileSystemOptions） */
@@ -17,6 +18,11 @@ export interface BrowserExecutionEnvOptions {
 	shell?: 'busybox' | false;
 	/** 浏览器下的 worker 模块 URL（打包器产物）；node/vitest 走 inline 路径，不需要（见 BusyboxShellOptions） */
 	workerUrl?: URL | string;
+	/**
+	 * 宿主命令（S2.1 §3.3）：名字 → 主线程处理器；与 applet/内建同名会在创建时抛错。
+	 * inline 路径只支持同步纯处理器（无第二线程可停靠）；异步或有 FS 效果的处理器只在 worker 路径可用。
+	 */
+	hostCommands?: HostCommandRegistry;
 }
 
 export function createBrowserExecutionEnv(o: BrowserExecutionEnvOptions = {}): ExecutionEnv {
@@ -26,7 +32,7 @@ export function createBrowserExecutionEnv(o: BrowserExecutionEnvOptions = {}): E
 	];
 	const table = createMountTable(mounts);
 	// 不预造 ShellBackend 接口（AGENTS §2）：有真实现就直接接线，接口等第二个真实实现出现时再提
-	const shell = o.shell === false ? undefined : createBusyboxShell({ mounts }, { workerUrl: o.workerUrl });
+	const shell = o.shell === false ? undefined : createBusyboxShell({ mounts }, { workerUrl: o.workerUrl, hostCommands: o.hostCommands });
 	return {
 		// fs 17 方法与 cleanup 全表委托（cleanup 的 best-effort 吞错在 MountTable 里，此处不重复实现）
 		...table,

@@ -57,8 +57,15 @@ export interface ChangesResponse {
 export interface WasiFileSystem extends FileSystem {
 	/** 把挂载树读进同步缓存（清空后重载），并把读到的树设为变更基线；run 前调用一次 */
 	seed(): Promise<void>;
-	/** 自上次 seed/exportChanges 起的差异（**drain**：导出即把当前树立为新基线，不会重复回写） */
+	/** 自上次 seed/exportChanges/applyChanges 起的差异（**drain**：导出即把当前树立为新基线，不会重复回写） */
 	exportChanges(): WasiFsChanges;
+	/**
+	 * 宿主侧变更集 → 缓存（宿主命令返回后的对账，S2.1 §3.3 第 ③ 步），并把基线重置到落盘后的树。
+	 *
+	 * 同步是必需的：调用它的是 wasi-sh 的同步 builtin（guest 是同步 wasm 帧，没有可 await 的地方）。
+	 * 基线必须一起重置：否则宿主自己的写会在下一次 exportChanges 里被当成 guest 的变更再回传一遍。
+	 */
+	applyChanges(changes: WasiFsChanges): void;
 }
 
 /** 节点：目录看 `children`、文件看 `data`，两者互斥 */
@@ -231,6 +238,40 @@ export function createWasiFileSystem(store: ShellFsStore): WasiFileSystem {
 		return { deleted: top, dirs, written };
 	};
 
+	/** 删一个节点及其整棵子树（applyChanges 的 deleted 段；目录只报最上层，子项还要一起清） */
+	const removeNode = (path: string): void => {
+		const node = nodes.get(path);
+		if (!node) return;
+		if (isDirNode(node)) for (const key of [...nodes.keys()]) if (key.startsWith(`${path}/`)) nodes.delete(key);
+		nodes.delete(path);
+		detach(path, node);
+	};
+
+	const applyChanges = (changes: WasiFsChanges): void => {
+		for (const path of changes.deleted) removeNode(normalizePath(path));
+		for (const path of changes.dirs) {
+			const abs = normalizePath(path);
+			if (abs === '/' || nodes.has(abs)) continue;
+			const node = dirNode();
+			nodes.set(abs, node);
+			attach(abs, node);
+		}
+		for (const { path, data } of changes.written) {
+			const abs = normalizePath(path);
+			const existing = nodes.get(abs);
+			if (existing && !isDirNode(existing)) {
+				existing.data = data.slice();
+				touch(existing);
+				continue;
+			}
+			const node = fileNode();
+			node.data = data.slice();
+			nodes.set(abs, node);
+			attach(abs, node);
+		}
+		baseline = sample();
+	};
+
 	return {
 		statSync: (path) => statOf(requireNode(path)),
 		readdirSync: (path) => [...requireDir(path).children!],
@@ -373,5 +414,6 @@ export function createWasiFileSystem(store: ShellFsStore): WasiFileSystem {
 
 		seed,
 		exportChanges,
+		applyChanges,
 	};
 }

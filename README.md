@@ -52,6 +52,33 @@ tools[0].parameters;                                                  // typebox
 - **compaction**：本库**不直接调** `compact`/`prepareCompaction`（那两条会引入 pi-ai 运行时依赖）。`AgentHarness` 自带自动压缩，由构造选项 `compaction: CompactionSettings` 驱动，产物是会话里的 `compaction` 条目（`summary` + `retainedTail`）；事件面 `compaction_start`/`compaction_end`（`reason: manual | threshold | overflow`），`before_compaction` 钩子可返回 `{ decline: true }` 拦截。
 - **必须显式给设置**：上游默认 `DEFAULT_COMPACTION_SETTINGS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 }`。`contextWindow` 小于 `reserveTokens` 时必须自己收窄 `reserveTokens`，否则 `contextWindow - reserveTokens` 为负、阈值恒真（每轮都压）。实测（`test/compaction-integration.test.ts`）：`contextWindow: 2048` + `{ enabled: true, reserveTokens: 256, keepRecentTokens: 128 }`，两轮各约 700 token 的对话即触发 `reason: "threshold"`，产出 `retainedTail` 非空的 `compaction` 条目。
 
+## 宿主命令（S2.1）
+
+宿主可以注册新的 shell 命令（名字 → JS 处理器），guest 像 applet 一样调用它们（可被管道/重定向/`$()`/`if` 组合）。seam 与具体命令无关（spice 的 `git` 只是第一个消费者）。
+
+```ts
+const env = createBrowserExecutionEnv({
+  workerUrl: new URL('@lixianmin/pi-browser/shell/worker', import.meta.url),   // 浏览器路径
+  hostCommands: {
+    // 处理器在**主线程**执行，允许 async（这是 seam 的价值：宿主可以用任意异步库）
+    countBytes: async (req, fs) => {
+      const text = await fs.readTextFile(req.args[0] ?? '/dev/null', BACKGROUND_CONTEXT);
+      if (!text.ok) return { exitCode: 1, stderr: `${text.error.code}: ${req.args[0]}\n` };
+      return { exitCode: 0, stdout: `${text.value.length}\n` };
+    },
+  },
+});
+// guest：`countBytes /a.txt | wc -c`
+```
+
+- **权限边界**：处理器跑在**宿主权限**下（可读写权威 FS、可发网络请求）——它等价于「宿主自己写的代码」，不是沙箱逃生；guest 侧拿不到任何额外权限。
+- **名字**：与 busybox applet / ash 内建同名（`ls`、`cd`、`grep`…）在创建 env 时**抛错**——ash 先解析 applet，注册了也永远轮不到你（静默失效比报错更糟）。新名字（如 `git`）照常。
+- **两条路径**：浏览器（worker）走 SAB 通道，处理器可 async、可读写权威 FS；node/vitest（inline）**只支持同步纯处理器**——没有第二个线程可停靠，异步处理器与任何 `fs` 访问都会明确报错（有 FS 效果的命令必须走 worker 路径）。
+- **FS 对账**（单写者协议的延伸，S2.1 §3.3）：每次调用前把 guest 变更集落进权威 store（+flush）→ 处理器直接读写权威 store → 返回后把 store 的净变化推回 worker 内缓存。因此处理器看得到 guest 刚写下的内容，guest 也立即读得到处理器的写；IDB 仍然只由主线程写。
+- **上限**：SAB 定长 8MB/方向；应答超出 → 截断 stdout 并在 stderr 追加说明，变更集本身超出则该次应答失败（exitCode 1）。请求超出同样失败。
+- **stdin**：本 shell 没有活 stdin（exec 从不写 stdin），fd 0 恒 EOF；`echo x | hostcmd` 走管道 fd、`hostcmd < f` 走文件 fd，都照常读到。处理器拿到的 `stdin` 在无输入时是 `undefined`。
+- **超时**：guest 等待宿主应答的上限取 exec 的 `timeout`（未设 30s）；真正卡死仍由 exec 既有硬杀语义收尾（返回 `timeout`）。
+
 ## 开发
 
 ```sh

@@ -10,6 +10,11 @@ import { isDir } from 'wasi-sh/fs';
 import { createMountTable } from '../env/mount';
 import { normalizePath } from '../env/path';
 import { ShellCapture } from './capture';
+import {
+	createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer, createInlineHostBuiltins,
+	DEFAULT_HOST_COMMAND_TIMEOUT_MS, hostCommandNames, HOST_COMMAND_SAB_MESSAGE,
+	type HostCommandRegistry, type HostCommandSabMessage,
+} from './host-commands';
 import { applyChanges, createSyncSession } from './sync-session';
 import {
 	PULL_CHANGES, readMountTree,
@@ -23,6 +28,11 @@ export interface BusyboxShellOptions {
 	 * 浏览器下必须给：fs 是活对象、不能结构化克隆进 worker，只能由自建 worker 模块 `serve({fs})` 注册。
 	 */
 	workerUrl?: URL | string;
+	/**
+	 * 宿主命令（S2.1 §3）：名字 → 主线程处理器。inline 路径只支持同步纯处理器（无第二线程可停靠），
+	 * 有 FS 效果或异步的处理器只在 worker 路径可用；与 applet/内建同名会在创建时抛错。
+	 */
+	hostCommands?: HostCommandRegistry;
 }
 
 /** 拉取 worker 变更集的等待上限：worker 死在回传前也不能把主线程挂住 */
@@ -41,6 +51,9 @@ function quoteForShell(value: string): string {
 export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOptions = {}): Shell {
 	/** 活着的 worker（浏览器路径）：cleanup 要能把它杀掉，否则页面刷新前一直挂着 */
 	let liveWorker: Worker | undefined;
+	// 注册表校验一次就够（与 applet/内建同名 → 抛错）；worker 消息与 builtins 的 lookup 都用这份名单
+	const hostCommands: HostCommandRegistry = options.hostCommands ?? {};
+	const hostNames = hostCommandNames(hostCommands);
 
 	const makeCapture = (execOptions: ShellExecOptions | undefined, context: Context): ShellCapture =>
 		// capture.spill（超限全文落盘）不支持：pi-browser 没有 execution-environment-local 落盘面，传了忽略（spec §6）
@@ -77,6 +90,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 				fs: session.guestFs,
 				inline: true,
 				env: envFor(execOptions),
+				builtins: hostNames.length > 0 ? createInlineHostBuiltins(hostCommands) : undefined,
 				onOutput: (bytes) => capture.push(bytes),
 			});
 		} catch (e) {
@@ -112,13 +126,26 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		context.abortSignal?.addEventListener('abort', onAbort, { once: true });
 		const worker = new Worker(options.workerUrl, { type: 'module' });
 		liveWorker = worker;
+		// 宿主命令通道（S2.1 §3.2）：SAB 分配与本端应答循环都在这里；guest 侧的 builtin 在 worker 里等它
+		const timeoutMs = (execOptions?.timeout ?? DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000) * 1000;
+		const sab = hostNames.length > 0 ? createHostCommandSharedBuffer() : undefined;
+		const channel = sab ? createHostCommandChannel(sab, { timeoutMs }) : undefined;
+		let serving: Promise<void> | undefined;
 		try {
+			if (sab && channel) {
+				// 先投消息再 spawn：spawn 的启动消息在其后入队，worker 模块收到 SAB 时 shell 还没开始跑
+				worker.postMessage({ type: HOST_COMMAND_SAB_MESSAGE, sab, timeoutMs, names: hostNames } satisfies HostCommandSabMessage);
+				serving = channel.hostSide.serve(createHostCommandResponder(store, hostCommands));
+			}
 			// 活着的 guest 收不到 postMessage，整树只能随启动消息（files）推给 worker；回传在 run 结束后拉
 			const pushed = await readMountTree(store);
 			const files: Record<string, string | Uint8Array> = {};
 			for (const { path, data } of pushed.written) files[path] = data;
 			// spawn() 依赖 SharedArrayBuffer/crossOriginIsolated——浏览器部署需 COOP/COEP 响应头（README「浏览器部署」节）
 			session = await spawn({ worker, command: withCwd(command, cwd), env: envFor(execOptions), files });
+			// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
+			// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
+			if (channel) session.end();
 			session.onOutput((bytes) => capture.push(bytes));
 			const exitCode = await session.exited;
 			capture.finish();
@@ -130,6 +157,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			capture.finish();
 			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
 		} finally {
+			channel?.hostSide.stop();
+			if (serving) await serving;   // stop() 递增请求序号唤醒等待中的应答循环，这里等它收尾
 			if (timer) clearTimeout(timer);
 			context.abortSignal?.removeEventListener('abort', onAbort);
 			worker.terminate();   // 一次 exec 一个 worker（与 run() 同构），杀掉不留悬挂线程

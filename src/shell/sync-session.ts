@@ -51,6 +51,10 @@ export async function applyChanges(store: ShellFsStore, changes: WasiFsChanges):
 		const written = await table.writeFile(path, data, ctx);
 		if (!written.ok) throw fail('writeFile', path, written.error);
 	}
-	// flush 按后端去重：默认表里 '/'（IDB，500ms debounce）与 '/tmp'（内存 no-op）各一个后端
+	await flushMounts(store);
+}
+
+/** 按后端去重的 flush（默认表 '/' 是 IDB：超级块 500ms debounce；flush 契约见 BrowserFileSystem） */
+export async function flushMounts(store: ShellFsStore): Promise<void> {
 	for (const fs of new Set(store.mounts.map((m) => m.fs))) await fs.flush();
 }
