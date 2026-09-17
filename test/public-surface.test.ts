@@ -2,10 +2,13 @@
 // 类型导出（BrowserFileSystem / MountEntry / Skill / CompactionSettings …）在类型层，不进这两张运行时表。
 // 新增导出必须同步本表与 README 的公开面表格。
 import { describe, it, expect } from 'vitest';
+import { Type } from 'typebox';
 import * as api from '../src/index';
+import type { ComposedToolset, ComposeToolsetOptions, ExtensionSpec } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 
 const RUNTIME_EXPORTS = [
+	'composeToolset',
 	'createBrowserExecutionEnv',
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',
@@ -21,11 +24,13 @@ const RUNTIME_EXPORTS = [
 	'createShellTool',
 	'createWasiFileSystem',
 	'createWriteTool',
+	'defineExtension',
 	'formatSkillInvocation',
 	'formatSkillsForSystemPrompt',
 	'loadBrowserSkills',
 	'loadSkillsFromEnv',
 	'normalizePath',
+	'toHarnessTool',
 ];
 
 /** 运行时导出里的非函数（re-export 的上游常量） */
@@ -58,5 +63,23 @@ describe('公开面（src/index.ts）', () => {
 			api.createGlobTool({ fs }).name,
 		];
 		expect(names).toEqual(['Read', 'Write', 'Edit', 'Grep', 'Ls', 'Glob']);
+	});
+
+	it('S5 扩展面从包入口可用（合成产物形状 = AgentTool[]，类型导出齐）', () => {
+		const spec: ExtensionSpec = api.defineExtension({
+			name: 'ext-a',
+			tools: [{
+				name: 'Echo',
+				description: '回显',
+				parameters: Type.Object({ text: Type.String() }),
+				execute: async (_toolCallId, input) => ({ content: [{ type: 'text', text: input.text }], details: undefined }),
+			}],
+		});
+		const options: ComposeToolsetOptions = { extensions: [spec] };
+		const toolset: ComposedToolset = api.composeToolset(options);
+
+		expect(toolset.tools.map((t) => t.name)).toEqual(['Echo']);
+		expect(toolset.providerOf.Echo).toBe('ext-a');
+		expect(api.toHarnessTool(toolset.tools[0]).name).toBe('Echo');
 	});
 });

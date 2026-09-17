@@ -28,3 +28,10 @@ export {
 	type HostCommandGuestSide, type HostCommandHandler, type HostCommandHostSide, type HostCommandRequest,
 	type HostCommandRegistry, type HostCommandResponder, type HostCommandResult,
 } from './shell/host-commands';
+// S5 extensions（spec §3.1）：只做「工具注册」这一子集——扩展是宿主自己的对象（不经 jiti、不做 fs 发现），
+// 校验/归一 → 与内置合成一份工具集；产物是上游 `AgentTool[]`（交给 `Agent`/`AgentContext`），
+// 要进 `AgentHarness` 得过一层 `toHarnessTool`（两侧 execute 签名不同）。
+// 不支持的 pi 扩展面（事件/commands/providers/UI/热重载…）见 README「扩展（仅工具注册子集）」节。
+export { defineExtension, type ExtensionSpec, type ExtensionToolSpec } from './extensions/define';
+export { composeToolset, type ComposeToolsetOptions, type ComposedToolset } from './extensions/compose';
+export { toHarnessTool } from './extensions/harness-tool';
