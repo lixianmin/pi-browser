@@ -199,11 +199,23 @@ function envFor(execOptions: ShellExecOptions | undefined): Record<string, strin
 	return execOptions?.env;
 }
 
-/** 拉 worker 侧整树，并对账删除：worker 的变更基线是空的，删除只能由「推出去的 − 拉回来的」得出 */
+/**
+ * 拉 worker 侧变更集，并对账删除：worker 的变更基线是空的，删除只能由「推出去的 − 拉回来的」得出。
+ * **「拉回来的」必须是全量快照**（worker 的 PULL_CHANGES 回 `store.snapshot()`）——run 中间跑过宿主命令时
+ * drain 基线已被推进，用 drain 回传会让差集为空，这里就会把推出去的整棵树当成已删除
+ *（实测事故，回归测试 = test/worker-pull.test.ts）。
+ */
 async function pulledChanges(worker: Worker, pushed: WasiFsChanges): Promise<WasiFsChanges> {
-	const pulled = await requestChanges(worker);
+	return reconcilePulled(pushed, await requestChanges(worker));
+}
+
+/**
+ * 对账的纯函数部分（从 `pulledChanges` 拆出仅为可测：真 worker 在 node 下起不来）。
+ * 删除集 = 推出去的 − 现在还在的；目录也要对账（guest `rm -rf`/`mv` 目录后宿主不留空壳），
+ * 按深度降序删，保证到父目录时已空。
+ */
+export function reconcilePulled(pushed: WasiFsChanges, pulled: WasiFsChanges): WasiFsChanges {
 	const alive = new Set<string>([...pulled.dirs, ...pulled.written.map((w) => w.path)]);
-	// 目录也要对账（guest rm -rf/mv 目录后宿主不留空壳）；按深度降序删，保证到父目录时已空
 	const candidates = [...pushed.written.map((w) => w.path), ...pushed.dirs].sort((a, b) => b.split('/').length - a.split('/').length);
 	return { deleted: candidates.filter((p) => !alive.has(p)), dirs: pulled.dirs, written: pulled.written };
 }

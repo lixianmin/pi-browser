@@ -29,7 +29,10 @@ self.addEventListener('message', (event: MessageEvent<HostCommandSabMessage | Pu
 		return;
 	}
 	if (data?.type !== PULL_CHANGES) return;
-	self.postMessage({ type: 'pi-browser:changes', changes: store.exportChanges() } satisfies ChangesResponse);
+	// 必须是全量快照（**不是 drain**）：主线程拿它算「推出去的树 − 现在还在的」用于删除对账，
+	// 而 run 中间每跑一次宿主命令都会 drain 一次基线——用 drain 回传会让收尾那次成为空差集，
+	// 宿主侧把整棵工作区当已删除递归清掉（实测事故，见 test/worker-pull.test.ts）。
+	self.postMessage({ type: 'pi-browser:changes', changes: store.snapshot() } satisfies ChangesResponse);
 });
 
 serve({

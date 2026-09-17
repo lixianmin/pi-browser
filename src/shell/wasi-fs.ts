@@ -60,6 +60,14 @@ export interface WasiFileSystem extends FileSystem {
 	/** 自上次 seed/exportChanges/applyChanges 起的差异（**drain**：导出即把当前树立为新基线，不会重复回写） */
 	exportChanges(): WasiFsChanges;
 	/**
+	 * 当前全树（`deleted` 恒空），**不动 drain 基线**。
+	 *
+	 * 用途是 exec 收尾的拉取（worker 的 `PULL_CHANGES`）：那次对账要的是「guest 现在到底有什么」，
+	 * 而 drain 给的只是「自上次 drain 起的差」——run 中间跑过宿主命令（builtin 会 drain 一次），
+	 * 收尾那次 drain 就是空差集，宿主侧会把推出去的树当成全删了（实测事故，见 test/worker-pull.test.ts）。
+	 */
+	snapshot(): WasiFsChanges;
+	/**
 	 * 宿主侧变更集 → 缓存（宿主命令返回后的对账，S2.1 §3.3 第 ③ 步），并把基线重置到落盘后的树。
 	 *
 	 * 同步是必需的：调用它的是 wasi-sh 的同步 builtin（guest 是同步 wasm 帧，没有可 await 的地方）。
@@ -238,6 +246,23 @@ export function createWasiFileSystem(store: ShellFsStore): WasiFileSystem {
 		return { deleted: top, dirs, written };
 	};
 
+	/**
+	 * 当前全树快照（`deleted` 恒空），**不推进 drain 基线**。语义与 `readMountTree`（挂载树版本）一致，
+	 * 只是数据源换成缓存内的节点——worker 内没有挂载树可读（mounts 为空）。
+	 */
+	const snapshot = (): WasiFsChanges => {
+		const dirs: string[] = [];
+		const written: { path: string; data: Uint8Array }[] = [];
+		for (const [path, entry] of sample()) {
+			if (path === '/') continue;
+			if (entry.dir) dirs.push(path);
+			else written.push({ path, data: entry.data! });
+		}
+		dirs.sort(depthFirst);
+		written.sort((a, b) => depthFirst(a.path, b.path));
+		return { deleted: [], dirs, written };
+	};
+
 	/** 删一个节点及其整棵子树（applyChanges 的 deleted 段；目录只报最上层，子项还要一起清） */
 	const removeNode = (path: string): void => {
 		const node = nodes.get(path);
@@ -414,6 +439,7 @@ export function createWasiFileSystem(store: ShellFsStore): WasiFileSystem {
 
 		seed,
 		exportChanges,
+		snapshot,
 		applyChanges,
 	};
 }
