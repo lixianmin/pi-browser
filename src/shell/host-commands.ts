@@ -312,8 +312,14 @@ function diffTree(before: WasiFsChanges, after: WasiFsChanges): WasiFsChanges {
 	});
 	const dirs = after.dirs.filter((path) => !before.dirs.includes(path));
 	const gone = [...beforeFiles.keys(), ...before.dirs].filter((path) => !afterFiles.has(path) && !after.dirs.includes(path));
+	// 类型变了（文件↔目录）的路径也在 deleted 里：契约要求先删旧节点再建新节点，否则会在文件上建目录
+	const kindChanged = [
+		...[...beforeFiles.keys()].filter((path) => after.dirs.includes(path)),
+		...before.dirs.filter((path) => afterFiles.has(path)),
+	];
 	// 目录只报最上层：删掉的目录其子项也一起不见了，逐条报只是噪音（应用顺序要求父先于子）
-	const deleted = gone.filter((path) => !gone.some((other) => other !== path && path.startsWith(`${other}/`)));
+	const candidates = [...gone, ...kindChanged];
+	const deleted = candidates.filter((path) => !candidates.some((other) => other !== path && path.startsWith(`${other}/`)));
 	return { deleted: deleted.sort(), dirs: dirs.sort(), written };
 }
 

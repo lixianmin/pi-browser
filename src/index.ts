@@ -21,3 +21,10 @@ export { loadBrowserSkills, loadSkillsFromEnv, type SkillsLoadResult } from './s
 // S4 compaction（spec §3.4）：只透出设置与消息构造（`compact`/`prepareCompaction` 不 re-export——
 // 直接调那两条会引入 pi-ai 运行时依赖；harness 自带自动压缩）
 export { createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '@earendil-works/pi-agent-core';
+// S2.1 宿主命令 seam（通用件）：注册表类型 + 双端通道（可脱离 exec 自建宿主/单测）——seam 不认具体命令语义
+export {
+	createGuestHostBuiltins, createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer,
+	type HostCommandChannel, type HostCommandExchangeRequest, type HostCommandExchangeResult,
+	type HostCommandGuestSide, type HostCommandHandler, type HostCommandHostSide, type HostCommandRequest,
+	type HostCommandRegistry, type HostCommandResponder, type HostCommandResult,
+} from './shell/host-commands';

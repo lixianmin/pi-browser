@@ -6,11 +6,11 @@
 
 ## 当前状态
 
-M2：S2 完成（v0.2.0）——七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` 适配器 + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，spec §3.2 单写者同步）。M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。S4（skills/compaction）已在本版交付；S5（extensions 兼容面）未开始。
+M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。S5（extensions 兼容面）未开始。
 
 ## 公开面 API
 
-S1 五导出 + S2 七工具工厂 + 适配器/挂载类型（`src/index.ts`）；消费者一律从包入口 import（浏览器产物面禁 deep import）。
+S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 seam（`src/index.ts`）；消费者一律从包入口 import（浏览器产物面禁 deep import）。
 
 | 导出 | 签名 | 用途 |
 |---|---|---|
@@ -28,6 +28,17 @@ S1 五导出 + S2 七工具工厂 + 适配器/挂载类型（`src/index.ts`）�
 | `createLsTool` | 同上 | 目录列表（`recursive?`），目录带尾斜杠、按名排序 |
 | `createGlobTool` | 同上 | picomatch glob 找文件（`*`/`?` 不跨 `/`，`**` 匹配多层） |
 | `createShellTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明 |
+| `loadBrowserSkills` | `(o?: { dbName?; mounts?; roots? }) => Promise<{ skills; diagnostics }>` | 自建 env 跑上游 `loadSkills`；默认 roots `['/skills','/.pi/skills']` |
+| `loadSkillsFromEnv` | `(env: ExecutionEnv, roots?: string[]) => Promise<{ skills; diagnostics }>` | 在已有 env 上加载（已有 IDB 会话时不必再建一个） |
+| `formatSkillsForSystemPrompt` | `(skills: Skill[]) => string` | 上游 re-export：清单块（含 `<location>`，过滤 `disableModelInvocation`） |
+| `formatSkillInvocation` | `(skill: Skill, additionalInstructions?) => string` | 上游 re-export：按需调用块 |
+| `createCompactionSummaryMessage` | `(summary, tokensBefore, timestamp) => CompactionSummaryMessage` | 上游 re-export：`compaction` 条目的消息投影（role `compactionSummary`） |
+| `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | 上游默认值（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下） |
+| `createBrowserExecutionEnv`（续） | `hostCommands?: Record<string, HostCommandHandler>` | 宿主命令注册表（见「宿主命令」节） |
+| `createHostCommandChannel` | `(sab: SharedArrayBuffer, o?: { timeoutMs? }) => { hostSide; guestSide }` | SAB/futex 双端协议（可脱离 exec 自建宿主/单测） |
+| `createHostCommandSharedBuffer` | `(o?: { capacity? }) => SharedArrayBuffer` | 按容量分配通道内存（默认 8MB/方向） |
+| `createHostCommandResponder` | `(store: { mounts }, handlers) => HostCommandResponder` | 宿主侧 glue：§3.3 对账 + 派发处理器 |
+| `createGuestHostBuiltins` | `(guestFs, guestSide, names) => HostBuiltins` | guest 侧 glue：把宿主命令装成 wasi-sh builtins（worker 内） |
 
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 

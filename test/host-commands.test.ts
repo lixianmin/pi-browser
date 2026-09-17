@@ -121,6 +121,32 @@ describe('宿主命令协议（假宿主驱动两端）', () => {
 		hostSide.stop();
 	});
 
+	it('FS 对账：文件 → 目录的类型变化先删后建（deleted 里带该路径）', async () => {
+		const hostFs = createMemoryFileSystem();
+		await hostFs.writeFile('/x', 'file', CTX);
+		const guestFs = createWasiFileSystem({ mounts: [] });
+		guestFs.createFileSync('/x', { uid: 0, gid: 0, mode: 0o644 });
+		guestFs.writeSync('/x', ENC.encode('file'), 0);
+
+		const respond = createHostCommandResponder(storeOf(hostFs), {
+			swap: async (_req, fs) => {
+				await fs.remove('/x', { recursive: true }, CTX);
+				await fs.createDir('/x', { recursive: false }, CTX);
+				return { exitCode: 0 };
+			},
+		});
+		const { hostSide, guestSide } = createHostCommandChannel(createHostCommandSharedBuffer());
+		const seq = guestSide.send({ name: 'swap', args: [], cwd: '/', changes: guestFs.exportChanges() });
+		await hostSide.respondOnce(respond);
+		const response = guestSide.read(seq);
+		guestFs.applyChanges(response.changes);
+
+		expect(response.changes.deleted).toContain('/x');
+		expect(response.changes.dirs).toContain('/x');
+		expect(guestFs.readdirSync('/x')).toEqual([]);   // guest 侧已经是目录
+		hostSide.stop();
+	});
+
 	it('未注册的名字 → 127（worker 里的名字清单与主线程注册表一致，这是兜底）', async () => {
 		const { hostSide, guestSide } = createHostCommandChannel(createHostCommandSharedBuffer());
 		const respond = createHostCommandResponder(storeOf(), {});
