@@ -4,9 +4,10 @@
 //   node/vitest（无 Worker 全局）→ `run({inline:true, fs: guestFs})`：主线程同步跑，run 边界同步见 sync-session。
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
-import { ExecutionError, err, ok, toError, type Context, type Result, type Shell, type ShellExecOptions, type ShellExecResult } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT, ExecutionError, err, ok, toError, type Context, type Result, type Shell, type ShellExecOptions, type ShellExecResult } from '@earendil-works/pi-agent-core';
 import { run, spawn, type RunResult, type Session } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
+import { createMountTable } from '../env/mount';
 import { normalizePath } from '../env/path';
 import { ShellCapture } from './capture';
 import { applyChanges, createSyncSession } from './sync-session';
@@ -53,7 +54,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			: await execInWorker(command, execOptions, context, capture, cwd);
 	};
 
-	/** 清空 guest 树并读回宿主 fs（run 边界的两端都在这里发生） */
+	/** inline 路径：run 边界的两个端点都在这里——seed（宿主树 → guest 缓存）与 pullAndApply（guest 变更 → 宿主 fs） */
 	async function execInline(command: string, execOptions: ShellExecOptions | undefined, context: Context, capture: ShellCapture, cwd: string): Promise<Result<ShellExecResult, ExecutionError>> {
 		const session = createSyncSession(store);
 		try {
@@ -95,6 +96,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		if (options.workerUrl === undefined) {
 			return err(new ExecutionError('shell_unavailable', '浏览器下的 busybox 需要 workerUrl：fs 不能跨 postMessage，必须由自建 worker 模块 serve({fs}) 注册'));
 		}
+		// cwd 校验走宿主挂载表（worker 内的 store 此刻还没拿到树），口径与 inline 路径一致：不存在 → spawn_error
+		const cwdInfo = await createMountTable(store.mounts).fileInfo(cwd, BACKGROUND_CONTEXT);
+		if (!cwdInfo.ok || cwdInfo.value.kind !== 'directory') return err(new ExecutionError('spawn_error', `Working directory does not exist: ${cwd}`));
 		// 硬杀语义（spec §3.2）：被杀运行的**文件变更整体丢弃**（变更集没拉），已发布的输出保留
 		let killed: 'timeout' | 'aborted' | undefined;
 		let session: Session | undefined;
