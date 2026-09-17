@@ -126,3 +126,49 @@ describe('toHarnessTool：真 harness 端到端', () => {
 		await fs.cleanup(CTX);
 	});
 });
+
+describe('toHarnessTool：端到端取消（S5 spec §7.3）', () => {
+	it('父 run 取消 → 工具内的 signal 被 abort（否则适配器只是形状转换）', async () => {
+		const fs = createBrowserFileSystem({ dbName: 'extensions-harness-tool-abort', memory: true });
+		const repo = new JsonlSessionRepo({ fileSystem: fs, sessionsRoot: '/sessions' });
+		const session = await repo.create({ id: 's-abort', cwd: '/' }, CTX);
+
+		const faux = fauxProvider({ models: [{ id: 'faux', contextWindow: 128_000, maxTokens: 512 }] });
+		const models = createModels();
+		models.setProvider(faux.provider);
+		faux.setResponses([fauxAssistantMessage([fauxToolCall('Wait', {})], { stopReason: 'toolUse' })]);
+
+		let captured: AbortSignal | undefined;
+		let entered!: () => void;
+		const enteredP = new Promise<void>((resolve) => { entered = resolve; });
+		const wait = toHarnessTool({
+			name: 'Wait',
+			label: 'Wait',
+			description: '阻塞直到父 run 取消',
+			parameters: Type.Object({}),
+			execute: async (_toolCallId, _input, signal) => {
+				captured = signal;
+				entered();
+				await new Promise<void>((resolve) => {
+					if (signal?.aborted) { resolve(); return; }
+					signal?.addEventListener('abort', () => { resolve(); }, { once: true });
+				});
+				throw new Error('aborted by parent run');
+			},
+		});
+
+		const { harness } = await AgentHarness.create(
+			{ session, models, model: faux.getModel(), tools: [wait], systemPrompt: 'sys' },
+			CTX,
+		);
+		const lane = await harness.lane('main', { createAt: null }, CTX);
+		const prompting = lane.prompt('等一等', undefined, CTX);
+		await enteredP;                     // 工具确实进入了执行
+		// 注意：取消必须走 harness 原生 `lane.abort(CTX)`——把应用侧 signal 经 `withAbortSignal`
+		// 塞进 prompt 的 context **不会**穿透到工具内的 `context.abortSignal`（实测：captured.aborted 仍为 false）。
+		await lane.abort(CTX);
+		await prompting.catch(() => {});    // 取消向上传播（run 以 aborted/错误收场）
+		expect(captured).toBeDefined();
+		expect(captured?.aborted).toBe(true);
+	});
+});
