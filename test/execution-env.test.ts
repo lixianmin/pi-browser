@@ -1,5 +1,6 @@
 // @vitest-environment node
-// spec §3：createBrowserExecutionEnv —— 默认挂载 '/'→IDB、'/tmp'→内存；exec 恒 shell_unavailable。
+// spec §3：createBrowserExecutionEnv —— 默认挂载 '/'→IDB、'/tmp'→内存；shell 默认 busybox。
+// 本文件只钉装配面：exec 的 busybox 行为在 shell-exec.test.ts，占位语义在这里用显式 `shell:false` 断言。
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, type ExecutionEnv, type FileError, type Result } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
@@ -11,9 +12,9 @@ const getOrFail = <T>(r: Result<T, FileError>): T => {
 	return r.value;
 };
 
-describe('createBrowserExecutionEnv：exec 占位', () => {
-	it('exec 恒返回 shell_unavailable（不抛）', async () => {
-		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createMemoryFileSystem() }] });
+describe('createBrowserExecutionEnv：shell:false 占位', () => {
+	it('shell:false 时 exec 恒返回 shell_unavailable（不抛）', async () => {
+		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createMemoryFileSystem() }], shell: false });
 		const r = await env.exec('ls -la', undefined, CTX);
 		expect(r.ok).toBe(false);
 		if (r.ok) return;
