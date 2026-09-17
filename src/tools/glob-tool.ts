@@ -2,7 +2,7 @@
 // 匹配用 picomatch（micromatch 语义；spec §3.4 的第三方理由：glob 事实标准、MIT、零传递依赖）。
 // 语义差异写进 description：`*`/`?` 不跨 `/`，`**` 匹配零或多层目录，前导通配不匹配点文件（同 bash 默认）。
 // 输出：相对 cwd 的文件路径、按名排序；只返回文件（目录由 Ls 负责）。
-import picomatch from 'picomatch';
+import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
 import { FileError, type AgentTool } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';

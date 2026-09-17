@@ -5,7 +5,7 @@
 // 故意偏离 spice（spec §3.3 明示）：spice 只扫 DEFAULT_GREP_PATHS 白名单且非递归（spice 域特化）；
 //   本工具递归全目录 + 新增 `include` glob 过滤（相对被搜目录匹配）。
 // 实现：listDir 栈式遍历（fs-ops.listTree）+ readTextFile；读不动的文件（二进制）跳过——同 spice 跳过未注册资源的语义。
-import picomatch from 'picomatch';
+import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
 import { FileError, type AgentTool, type AgentToolResult, type Context } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
