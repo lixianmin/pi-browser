@@ -19,7 +19,7 @@ import {
 export interface BusyboxShellOptions {
 	/**
 	 * 浏览器 worker 模块 URL（宿主打包器产物，形如
-	 * `new Worker(new URL('@lixianmin/pi-browser/src/shell/worker.ts', import.meta.url), { type: 'module' })`）。
+	 * `new Worker(new URL('@lixianmin/pi-browser/shell/worker', import.meta.url), { type: 'module' })`）。
 	 * 浏览器下必须给：fs 是活对象、不能结构化克隆进 worker，只能由自建 worker 模块 `serve({fs})` 注册。
 	 */
 	workerUrl?: URL | string;
@@ -106,6 +106,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			killed ??= why;
 			session?.terminate();
 		};
+		if (context.abortSignal?.aborted) return err(new ExecutionError('aborted', 'aborted'));   // 调用前已中止：不启动 worker（与 inline 入口检查对齐）
 		const timer = execOptions?.timeout === undefined ? undefined : setTimeout(() => kill('timeout'), execOptions.timeout * 1000);
 		const onAbort = (): void => kill('aborted');
 		context.abortSignal?.addEventListener('abort', onAbort, { once: true });
@@ -116,6 +117,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			const pushed = await readMountTree(store);
 			const files: Record<string, string | Uint8Array> = {};
 			for (const { path, data } of pushed.written) files[path] = data;
+			// spawn() 依赖 SharedArrayBuffer/crossOriginIsolated——浏览器部署需 COOP/COEP 响应头（README「浏览器部署」节）
 			session = await spawn({ worker, command: withCwd(command, cwd), env: envFor(execOptions), files });
 			session.onOutput((bytes) => capture.push(bytes));
 			const exitCode = await session.exited;
@@ -170,7 +172,9 @@ function envFor(execOptions: ShellExecOptions | undefined): Record<string, strin
 async function pulledChanges(worker: Worker, pushed: WasiFsChanges): Promise<WasiFsChanges> {
 	const pulled = await requestChanges(worker);
 	const alive = new Set<string>([...pulled.dirs, ...pulled.written.map((w) => w.path)]);
-	return { deleted: pushed.written.map((w) => w.path).filter((p) => !alive.has(p)), dirs: pulled.dirs, written: pulled.written };
+	// 目录也要对账（guest rm -rf/mv 目录后宿主不留空壳）；按深度降序删，保证到父目录时已空
+	const candidates = [...pushed.written.map((w) => w.path), ...pushed.dirs].sort((a, b) => b.split('/').length - a.split('/').length);
+	return { deleted: candidates.filter((p) => !alive.has(p)), dirs: pulled.dirs, written: pulled.written };
 }
 
 function requestChanges(worker: Worker): Promise<WasiFsChanges> {

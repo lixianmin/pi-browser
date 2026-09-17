@@ -51,3 +51,7 @@ tools[0].parameters;                                                  // typebox
 ```sh
 bun install && bunx vitest run
 ```
+
+## 浏览器部署
+
+Shell 能力（busybox exec）的 worker 路径依赖 `SharedArrayBuffer`：宿主页面需带 COOP/COEP 响应头（`Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp`），并把 `@lixianmin/pi-browser/shell/worker` 打包为 worker 入口传给 `createBrowserExecutionEnv({ workerUrl })`。Node/测试环境走 inline 路径，无此要求（硬超时仅在 worker 路径生效）。

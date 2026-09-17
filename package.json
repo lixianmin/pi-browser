@@ -3,7 +3,8 @@
   "version": "0.2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./shell/worker": "./src/shell/worker.ts"
   },
   "main": "./src/index.ts",
   "scripts": {

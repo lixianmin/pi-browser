@@ -118,7 +118,7 @@ describe('常见任务用例集（50 条）', () => {
 		it(c.n, async () => {
 			const { exitCode, output } = await runCase(c);
 			if (c.failLoud) {
-				expect(exitCode !== 0 || output.length > 0, `期望响亮失败，实际 exit=${exitCode} 且无任何输出（静默成功）`).toBe(true);
+				expect(exitCode !== 0, `期望响亮失败（非零退出），实际 exit=${exitCode}（输出合并视图不算证据——X02 类静默成功也曾有 stdout）`).toBe(true);
 				return;
 			}
 			if (c.exitNonzero) expect(exitCode, `exit=${exitCode}`).not.toBe(0);
