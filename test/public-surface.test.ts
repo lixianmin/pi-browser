@@ -16,6 +16,10 @@ const RUNTIME_EXPORTS = [
 	'createShellTool',
 	'createWasiFileSystem',
 	'createWriteTool',
+	'formatSkillInvocation',
+	'formatSkillsForSystemPrompt',
+	'loadBrowserSkills',
+	'loadSkillsFromEnv',
 	'normalizePath',
 ];
 
