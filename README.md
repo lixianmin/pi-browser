@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-M2：S2 完成（v0.2.0）——七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` 适配器 + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，spec §3.2 单写者同步）。M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。S4（skills/compaction）、S5（extensions 兼容面）未开始。
+M2：S2 完成（v0.2.0）——七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` 适配器 + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，spec §3.2 单写者同步）。M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。S4（skills/compaction）已在本版交付；S5（extensions 兼容面）未开始。
 
 ## 公开面 API
 
@@ -45,6 +45,12 @@ await fs.flush();                                                     // 每回�
 const tools = [createReadTool({ fs }), createShellTool({ env })];      // 交给 AgentHarness 注册
 tools[0].parameters;                                                  // typebox schema（校验由上游做）
 ```
+
+## skills 与 compaction（S4）
+
+- **skills**：加载用 `loadBrowserSkills(o?)`（自建 ExecutionEnv）或 `loadSkillsFromEnv(env, roots?)`（复用已有 env）——都是上游 `loadSkills` 的薄封装，默认 roots `['/skills', '/.pi/skills']`，`diagnostics` 原样透出。清单渲染用上游 `formatSkillsForSystemPrompt(skills)`（含 `<location>`、过滤 `disableModelInvocation`），按需调用块用 `formatSkillInvocation(skill)`；产物直接放进 `AgentHarnessResources.skills`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）全归上游，本库不复刻。
+- **compaction**：本库**不直接调** `compact`/`prepareCompaction`（那两条会引入 pi-ai 运行时依赖）。`AgentHarness` 自带自动压缩，由构造选项 `compaction: CompactionSettings` 驱动，产物是会话里的 `compaction` 条目（`summary` + `retainedTail`）；事件面 `compaction_start`/`compaction_end`（`reason: manual | threshold | overflow`），`before_compaction` 钩子可返回 `{ decline: true }` 拦截。
+- **必须显式给设置**：上游默认 `DEFAULT_COMPACTION_SETTINGS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 }`。`contextWindow` 小于 `reserveTokens` 时必须自己收窄 `reserveTokens`，否则 `contextWindow - reserveTokens` 为负、阈值恒真（每轮都压）。实测（`test/compaction-integration.test.ts`）：`contextWindow: 2048` + `{ enabled: true, reserveTokens: 256, keepRecentTokens: 128 }`，两轮各约 700 token 的对话即触发 `reason: "threshold"`，产出 `retainedTail` 非空的 `compaction` 条目。
 
 ## 开发
 

@@ -18,3 +18,6 @@ export { createShellTool } from './tools/shell-tool';
 // S4 skills（spec §3.4）：加载是本地薄封装，渲染直接 re-export 上游（不自建渲染器：会丢 `<location>`）
 export { formatSkillInvocation, formatSkillsForSystemPrompt, type Skill, type SkillDiagnostic, type SkillDiagnosticCode } from '@earendil-works/pi-agent-core';
 export { loadBrowserSkills, loadSkillsFromEnv, type SkillsLoadResult } from './skills/loader';
+// S4 compaction（spec §3.4）：只透出设置与消息构造（`compact`/`prepareCompaction` 不 re-export——
+// 直接调那两条会引入 pi-ai 运行时依赖；harness 自带自动压缩）
+export { createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '@earendil-works/pi-agent-core';
