@@ -121,4 +121,18 @@ describe('变更集往返（run 边界的两个方向）', () => {
 		expect(fs.statSync('/b/f').ino).toBe(ino);
 		expect(fs.readdirSync('/b')).toEqual(['f']);
 	});
+
+	// 回归：sed -i 就是「写 temp → rename 覆盖原名」。曾用 `existing.children!.size` 直接判空，
+	// 但同名 existing 是**文件**时没有 children（TS 的非空断言拦不住运行时）→ TypeError → shim 报 EIO。
+	it('rename 覆盖已存在的文件（sed -i 的写入路径）', () => {
+		const fs = createWasiFileSystem({ mounts: [{ prefix: '/', fs: createMemoryFileSystem() }] });
+		fs.mkdirSync('/p', NEW_DIR);
+		fs.createFileSync('/p/1.txt', NEW_FILE);
+		fs.writeSync('/p/1.txt', enc('old\n'), 0);
+		fs.createFileSync('/p/1.txtaaaaaa', NEW_FILE);
+		fs.writeSync('/p/1.txtaaaaaa', enc('new\n'), 0);
+		fs.renameSync('/p/1.txtaaaaaa', '/p/1.txt');
+		expect(readAll(fs, '/p/1.txt')).toBe('new\n');
+		expect(fs.readdirSync('/p')).toEqual(['1.txt']);
+	});
 });

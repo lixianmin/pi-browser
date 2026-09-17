@@ -285,9 +285,12 @@ export function createWasiFileSystem(store: ShellFsStore): WasiFileSystem {
 			// 所有拒绝都在动手之前判完：抛出的 rename 必须把树原样留下
 			const existing = nodes.get(dst);
 			if (existing) {
-				if (isDirNode(existing) && !isDirNode(node)) throw fsError('EISDIR', to);
-				if (!isDirNode(existing) && isDirNode(node)) throw fsError('ENOTDIR', to);
-				if (existing.children!.size) throw fsError('ENOTEMPTY', to);
+				const existingIsDir = isDirNode(existing);
+				if (existingIsDir && !isDirNode(node)) throw fsError('EISDIR', to);
+				if (!existingIsDir && isDirNode(node)) throw fsError('ENOTDIR', to);
+				// 只有同类型目录才看空不空——文件没有 children（踩过：sed -i 的 temp→原名 rename
+				// 会打到这里，用 `existing.children!.size` 非空断言会漏成 TypeError，shim 只能报 EIO）
+				if (existingIsDir && existing.children!.size) throw fsError('ENOTEMPTY', to);
 				existing.nlink--;
 				nodes.delete(dst);
 				detach(dst, existing);
