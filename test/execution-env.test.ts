@@ -32,7 +32,7 @@ describe('createBrowserExecutionEnv：fs 代理', () => {
 	});
 
 	it('默认挂载表：/ 可写读，createTempDir 落 /tmp 挂载（跨 mount rename 拒绝）', async () => {
-		// vitest 下默认 '/'→createBrowserFileSystem 自动走内存后端（无 indexedDB）；这里只验挂载装配与路由
+		// 这里只验挂载装配与路由；需要特定后端的测试显式选择它。
 		const env: ExecutionEnv = createBrowserExecutionEnv();
 		expect((await env.writeFile('/notes/a.txt', 'v1', CTX)).ok).toBe(true);
 		expect(getOrFail(await env.readTextFile('/notes/a.txt', CTX))).toBe('v1');

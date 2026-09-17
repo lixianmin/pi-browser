@@ -16,19 +16,15 @@ const MemoryBackend = (LightningFS as unknown as { MemoryBackend: MemoryBackendC
  *
  * 判据在**每次创建实例时**求值，不用模块级快照——踩过的坑：web 单测里有的文件会 `vi.stubGlobal('indexedDB', …)`
  * 再撤销，模块级快照可能落在「stub 存在」的窗口里，之后真用时 indexedDB 已消失 → ReferenceError。
- * 另外 vitest（jsdom 无真 IndexedDB）一律走内存后端：测试确定性优先，浏览器持久化行为由 e2e 覆盖。
+ * 没有 IndexedDB 的运行环境一律走内存后端；测试如果需要特定后端，应显式传入 memory 选项。
  *
- * 计划内偏离①：`memory: false` 必须**直达 lightning-fs**——显式 false 优先于 VITEST/无 indexedDB 的
- * 自动内存判定（即「走内存」= `o.memory !== false && (VITEST 或无 indexedDB)`），否则 spec §3 测试 3 的
- * 真 IDB durability（fake-indexeddb + flush）在 vitest 下永远走不到 lightning-fs，flush 契约就只剩浏览器 e2e 一条闸门。
- * （spice 原实现靠 `if (explicit !== undefined) return explicit;` 顺带满足，这里拆成两行把优先级摆明、防漂。）
+ * 显式 `memory: false` 优先于无 IndexedDB 的自动内存判定，允许测试和调用方强制验证 lightning-fs/IDB 路径。
  */
 function useMemoryBackend(explicit?: boolean): boolean {
 	if (explicit === false) return false;
 	if (explicit === true) return true;
 	if (typeof indexedDB === 'undefined') return true;
-	const vitest = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VITEST;
-	return Boolean(vitest);
+	return false;
 }
 
 type LfsStats = { type?: string; size?: number; mtimeMs?: number; isDirectory?: () => boolean; isFile?: () => boolean };
