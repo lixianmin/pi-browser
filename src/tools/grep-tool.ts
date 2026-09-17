@@ -7,7 +7,7 @@
 // 实现：listDir 栈式遍历（fs-ops.listTree）+ readTextFile；读不动的文件（二进制）跳过——同 spice 跳过未注册资源的语义。
 import picomatch from 'picomatch';
 import { type Static, Type } from 'typebox';
-import { FileError, type AgentTool } from '@earendil-works/pi-agent-core';
+import { FileError, type AgentTool, type AgentToolResult, type Context } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine, type TruncationResult } from './truncate';
 import { resolveToCwd } from './path-utils';
@@ -51,85 +51,125 @@ export function createGrepTool(opts: GrepToolOptions): AgentTool<typeof grepSche
 		async execute(_toolCallId, input, signal) {
 			throwIfAborted(signal);
 			const context = contextFor(signal);
-			const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
-			const contextLines = Math.max(0, input.context ?? 0);
 			// 正则/glob 先编译：语法错的输入不该等扫完目录才报（也保证扫描循环里只剩纯匹配）
-			const re = input.literal ? null : compilePattern(input.pattern, input.ignoreCase);
+			const matcher = createMatcher(input.pattern, input.ignoreCase, input.literal);
 			const includeMatch = input.include === undefined ? undefined : compileGlob(input.include);
-			const root = resolveToCwd(input.path ?? '.', cwd);
-			const rootInfo = await statPath(fs, root, context);
-			const targets = rootInfo.kind === 'directory'
-				? (await listTree(fs, root, context))
-					.filter((e) => e.kind !== 'directory')
-					.filter((e) => includeMatch === undefined || includeMatch(displayPath(e.path, root)))
-					.map((e) => e.path)
-				: [root];
-
-			const out: string[] = [];
-			let matchCount = 0;
-			let matchLimitReached: number | undefined;
-			let linesTruncated = false;
-			const matchesLine = (line: string): boolean => {
-				if (re === null) return input.ignoreCase ? line.toLowerCase().includes(input.pattern.toLowerCase()) : line.includes(input.pattern);
-				return re.test(line);
-			};
-			const resetMatcher = (): void => { if (re) re.lastIndex = 0; };
-
-			for (const target of targets) {
-				throwIfAborted(signal);
-				const rel = displayPath(target, cwd);
-				let text: string;
-				try {
-					text = await readText(fs, target, context);
-				} catch {
-					continue;   // 读不动（二进制等）的文件跳过，不打断整次搜索
-				}
-				const lines = text.replace(/\r\n/g, '\n').split('\n');
-				for (let i = 0; i < lines.length; i++) {
-					if (matchesLine(lines[i])) {
-						if (matchCount >= effectiveLimit) {
-							matchLimitReached = effectiveLimit;
-							break;
-						}
-						matchCount++;
-						const lineNum = i + 1;
-						const start = Math.max(1, lineNum - contextLines);
-						const end = Math.min(lines.length, lineNum + contextLines);
-						if (contextLines > 0) {
-							for (let k = start; k <= end; k++) {
-								const isMatch = k === lineNum;
-								const t = truncateLine(lines[k - 1] ?? '');
-								if (t.wasTruncated) linesTruncated = true;
-								const prefix = isMatch ? `${rel}:${k}:` : `${rel}-${k}-`;
-								out.push(`${prefix} ${t.text}`);
-							}
-						} else {
-							const t = truncateLine(lines[i]);
-							if (t.wasTruncated) linesTruncated = true;
-							out.push(`${rel}:${lineNum}: ${t.text}`);
-						}
-					}
-					resetMatcher();
-				}
-				if (matchLimitReached !== undefined) break;
-			}
+			const limit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
+			const targets = await resolveTargets(fs, input, cwd, context, includeMatch);
+			const found = await scanTargets(fs, targets, { matcher, limit, contextLines: Math.max(0, input.context ?? 0) }, cwd, context, signal);
 			throwIfAborted(signal);
-
-			const rawOut = out.join('\n');
-			const truncation = truncateHead(rawOut);
-			let content = truncation.content;
-			const notices: string[] = [];
-			if (matchLimitReached !== undefined) notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern.`);
-			if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached.`);
-			if (linesTruncated) notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use Read to see full lines.`);
-			if (notices.length) content += `\n\n[${notices.join(' ')}]`;
-			return textResult(matchCount === 0 ? 'No matches found.' : content, {
-				matchLimitReached,
-				truncation: truncation.truncated ? truncation : undefined,
-				linesTruncated,
-			});
+			return formatScanResult(found, limit);
 		},
 	};
+}
+
+interface GrepMatcher {
+	matchesLine(line: string): boolean;
+	/** 全局正则的 `lastIndex` 在 test() 后前进：逐行复位（spice 同款），否则会漏行 */
+	reset(): void;
+}
+
+function createMatcher(pattern: string, ignoreCase: boolean | undefined, literal: boolean | undefined): GrepMatcher {
+	if (literal) {
+		const needle = ignoreCase ? pattern.toLowerCase() : pattern;
+		return { matchesLine: (line) => (ignoreCase ? line.toLowerCase() : line).includes(needle), reset: () => {} };
+	}
+	const re = compilePattern(pattern, ignoreCase);
+	return { matchesLine: (line) => re.test(line), reset: () => { re.lastIndex = 0; } };
+}
+
+/** 搜索目标（绝对路径，按目录树顺序）：文件路径 → 自身；目录 → 递归全树，`include` 相对被搜目录过滤 */
+async function resolveTargets(
+	fs: BrowserFileSystem,
+	input: GrepToolInput,
+	cwd: string,
+	context: Context,
+	includeMatch: ((input: string) => boolean) | undefined,
+): Promise<string[]> {
+	const root = resolveToCwd(input.path ?? '.', cwd);
+	const rootInfo = await statPath(fs, root, context);
+	if (rootInfo.kind !== 'directory') return [root];
+	return (await listTree(fs, root, context))
+		.filter((e) => e.kind !== 'directory')
+		.filter((e) => includeMatch === undefined || includeMatch(displayPath(e.path, root)))
+		.map((e) => e.path);
+}
+
+interface ScanOptions {
+	matcher: GrepMatcher;
+	limit: number;
+	contextLines: number;
+}
+
+interface ScanResult {
+	lines: string[];
+	matchCount: number;
+	matchLimitReached: number | undefined;
+	linesTruncated: boolean;
+}
+
+/** 逐文件扫描：批次结果累积到 `found`（读不动的文件跳过，不打断整次搜索） */
+async function scanTargets(
+	fs: BrowserFileSystem,
+	targets: string[],
+	options: ScanOptions,
+	cwd: string,
+	context: Context,
+	signal: AbortSignal | undefined,
+): Promise<ScanResult> {
+	const found: ScanResult = { lines: [], matchCount: 0, matchLimitReached: undefined, linesTruncated: false };
+	for (const target of targets) {
+		throwIfAborted(signal);
+		let text: string;
+		try {
+			text = await readText(fs, target, context);
+		} catch {
+			continue;   // 读不动（二进制等）的文件跳过，不打断整次搜索
+		}
+		scanFile(found, target, text, options, cwd);
+		if (found.matchLimitReached !== undefined) break;
+	}
+	return found;
+}
+
+/** 单文件扫描：命中行/上下文行按 spice 格式累积（`file:line: text` 与 `file-line- text`） */
+function scanFile(found: ScanResult, target: string, text: string, options: ScanOptions, cwd: string): void {
+	const { matcher, limit, contextLines } = options;
+	const rel = displayPath(target, cwd);
+	const fileLines = text.replace(/\r\n/g, '\n').split('\n');
+	for (let i = 0; i < fileLines.length; i++) {
+		if (matcher.matchesLine(fileLines[i])) {
+			if (found.matchCount >= limit) {
+				found.matchLimitReached = limit;
+				return;
+			}
+			found.matchCount++;
+			const lineNum = i + 1;
+			const start = contextLines > 0 ? Math.max(1, lineNum - contextLines) : lineNum;
+			const end = contextLines > 0 ? Math.min(fileLines.length, lineNum + contextLines) : lineNum;
+			for (let k = start; k <= end; k++) {
+				const truncated = truncateLine(fileLines[k - 1] ?? '');
+				if (truncated.wasTruncated) found.linesTruncated = true;
+				found.lines.push(`${k === lineNum ? `${rel}:${k}:` : `${rel}-${k}-`} ${truncated.text}`);
+			}
+		}
+		matcher.reset();
+	}
+}
+
+function formatScanResult(found: ScanResult, limit: number): AgentToolResult<GrepToolDetails> {
+	const truncation = truncateHead(found.lines.join('\n'));
+	let content = truncation.content;
+	const notices: string[] = [];
+	if (found.matchLimitReached !== undefined) notices.push(`${limit} matches limit reached. Use limit=${limit * 2} for more, or refine pattern.`);
+	if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached.`);
+	if (found.linesTruncated) notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use Read to see full lines.`);
+	if (notices.length) content += `\n\n[${notices.join(' ')}]`;
+	return textResult(found.matchCount === 0 ? 'No matches found.' : content, {
+		matchLimitReached: found.matchLimitReached,
+		truncation: truncation.truncated ? truncation : undefined,
+		linesTruncated: found.linesTruncated,
+	});
 }
 
 function compilePattern(pattern: string, ignoreCase: boolean | undefined): RegExp {

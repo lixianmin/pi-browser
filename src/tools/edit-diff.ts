@@ -77,6 +77,25 @@ interface MatchedEdit {
 }
 
 /**
+ * 定位一处 oldText：精确优先，未命中退 fuzzy 归一。多命中直接挖（并列每处执行号）。
+ * fuzzy 归一只做 1-1 替换（smart quote/dash/space），字符串长度不变 → idx 在 fuzzy 与原串完全一致，
+ * matchLength = oldText.length 可直接应用于原串（P2 修：不甩字）。
+ */
+function locateEdit(base: string, oldText: string, path: string): { matchIndex: number; matchLength: number } {
+	const exact = base.indexOf(oldText);
+	const usedFuzzy = exact === -1;
+	const haystack = usedFuzzy ? normalizeForFuzzyMatch(base) : base;
+	const needle = usedFuzzy ? normalizeForFuzzyMatch(oldText) : oldText;
+	const matchIndex = usedFuzzy ? haystack.indexOf(needle) : exact;
+	if (matchIndex === -1) throw new FileError('not_found', `Could not find edits[${oldText}] in file. The oldText must match exactly (or fuzzy-normalized).`, path);
+	const occ = countOccurrences(haystack, needle);
+	if (occ > 1) {
+		throw new FileError('invalid', `Found ${occ} occurrences of edits[${oldText}] (lines ${matchLineNumbers(haystack, needle).join(', ')}). The text must be unique in the file.`, path);
+	}
+	return { matchIndex, matchLength: oldText.length };
+}
+
+/**
  * 一次调用内多次 search/replace。匹配在 LF 归一化 + BOM 剥离后的 content 上做。
  * - oldText 必须唯一匹配（精确优先，再 fuzzy 归一化）
  * - 不允许重叠
@@ -92,30 +111,9 @@ export function applyEditsToNormalizedContent(
 		if (e.oldText.length === 0) throw new FileError('invalid', 'Edit oldText must not be empty', path);
 	}
 
-	// 精确匹配；如未命中则尝试 fuzzy
+	// 匹配全在原始（base）串上做，不看已应用的结果：多替换不增量（与 spice/pi 一致）
 	const baseForReplace = normalizedContent;
-	const matched: MatchedEdit[] = [];
-	for (const e of normalized) {
-		let idx = baseForReplace.indexOf(e.oldText);
-		let usedFuzzy = false;
-		if (idx === -1) {
-			// P2 修：fuzzy 归一只做 1-1 替换（smart quote/dash/space），字符串长度不变 → idx 在
-			// fuzzy 与原串完全一致，matchLength = e.oldText.length 可直接应用于原串。
-			const fb = normalizeForFuzzyMatch(baseForReplace);
-			const ft = normalizeForFuzzyMatch(e.oldText);
-			idx = fb.indexOf(ft);
-			if (idx === -1) throw new FileError('not_found', `Could not find edits[${e.oldText}] in file. The oldText must match exactly (or fuzzy-normalized).`, path);
-			usedFuzzy = true;
-		}
-		const haystack = usedFuzzy ? normalizeForFuzzyMatch(baseForReplace) : baseForReplace;
-		const needle = usedFuzzy ? normalizeForFuzzyMatch(e.oldText) : e.oldText;
-		const occ = countOccurrences(haystack, needle);
-		if (occ > 1) {
-			const lines = matchLineNumbers(haystack, needle);
-			throw new FileError('invalid', `Found ${occ} occurrences of edits[${e.oldText}] (lines ${lines.join(', ')}). The text must be unique in the file.`, path);
-		}
-		matched.push({ matchIndex: idx, matchLength: e.oldText.length, newText: e.newText });
-	}
+	const matched: MatchedEdit[] = normalized.map((e) => ({ ...locateEdit(baseForReplace, e.oldText, path), newText: e.newText }));
 
 	matched.sort((a, b) => a.matchIndex - b.matchIndex);
 	for (let i = 1; i < matched.length; i++) {
