@@ -90,6 +90,21 @@ describe('宿主命令协议（假宿主驱动两端）', () => {
 		hostSide.stop();
 	});
 
+	it('处理器永不 settle → 按截止时间回 exitCode=1 + stderr（不挂死 exec；终审 P1）', async () => {
+		const { hostSide, guestSide } = createHostCommandChannel(createHostCommandSharedBuffer(), { timeoutMs: 40 });
+		const respond = createHostCommandResponder(storeOf(), {
+			hang: () => new Promise<never>(() => { /* 永不 settle */ }),
+		});
+
+		const seq = guestSide.send({ name: 'hang', args: [], cwd: '/', changes: EMPTY });
+		await hostSide.respondOnce(respond);   // 关键：必须在截止时间内返回，而不是永远挂着
+
+		const answer = guestSide.read(seq);
+		expect(answer.exitCode).toBe(1);
+		expect(answer.stderr).toContain('处理超过');
+		hostSide.stop();
+	});
+
 	it('FS 对账（§3.3）：guest 写 → 处理器读到；处理器写 → guest 立即读到', async () => {
 		const hostFs = createMemoryFileSystem();
 		const guestFs = createWasiFileSystem({ mounts: [] });   // worker 内 store 的替身（纯内存）

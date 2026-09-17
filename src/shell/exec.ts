@@ -158,7 +158,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
 		} finally {
 			channel?.hostSide.stop();
-			if (serving) await serving;   // stop() 递增请求序号唤醒等待中的应答循环，这里等它收尾
+			// 应答循环可能仍挂在处理器上（超时后处理器仍在后台跑、无法取消）——收尾**不阻塞**，
+			// 否则宿主处理器永不 settle 会把 exec 一起挂住（终审 P1）；stop() 已保证循环不会再有新请求。
+			void serving?.catch(() => {});
 			if (timer) clearTimeout(timer);
 			context.abortSignal?.removeEventListener('abort', onAbort);
 			worker.terminate();   // 一次 exec 一个 worker（与 run() 同构），杀掉不留悬挂线程

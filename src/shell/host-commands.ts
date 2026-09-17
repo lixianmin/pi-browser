@@ -163,6 +163,24 @@ export function createHostCommandSharedBuffer(options: { capacity?: number } = {
  * 所以能跑异步处理器）→ 写应答 + 递增已应答序号 + notify → guest 侧 `Atomics.wait` 醒来。
  * 两端都不依赖真 Worker，可以同线程单测（guest 的阻塞等待只在超时那条用例里跑）。
  */
+/**
+ * 宿主处理器是任意用户代码（spec 明说可用任意异步库）——永不 settle 时不能让应答循环
+ * 与 exec 一起卡死（终审 P1）：超时按协议层失败处理，回 exitCode=1 + stderr 摘要。
+ */
+async function raceWithTimeout<T>(work: Promise<T>, timeoutMs: number, name: string): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			work,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => { reject(new Error(`宿主命令 ${name} 处理超过 ${timeoutMs}ms 未返回`)); }, timeoutMs);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
 export function createHostCommandChannel(sab: SharedArrayBuffer, options: { timeoutMs?: number } = {}): HostCommandChannel {
 	const payloadBytes = sab.byteLength - CTRL_BYTES;
 	if (payloadBytes < 2 || payloadBytes % 2 !== 0) {
@@ -255,7 +273,7 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 		) as HostCommandRequest & { changes: WireChanges };
 		let response: { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges };
 		try {
-			const exchange = await responder(command, decodeChanges(guestChanges));
+			const exchange = await raceWithTimeout(responder(command, decodeChanges(guestChanges)), timeoutMs, command.name);
 			response = fitResponse({ exitCode: exchange.exitCode, stdout: exchange.stdout, stderr: exchange.stderr }, encodeChanges(exchange.changes));
 		} catch (e) {
 			// 协议层失败（处理器自己的异常已在 responder 里变成 exitCode=1）：也不能让 guest 挂死

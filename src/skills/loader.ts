@@ -24,7 +24,9 @@ export function loadSkillsFromEnv(env: ExecutionEnv, roots: string[] = DEFAULT_S
  * 需要 `.agents/skills` 之类的额外布局时，调用方直接在自己的 `roots` 里给路径——规则由上游处理，
  * 这里不加「布局开关」（S4 spec §3.1）。
  */
-export async function loadBrowserSkills(options: BrowserExecutionEnvOptions & { roots?: string[] } = {}): Promise<SkillsLoadResult> {
+export async function loadBrowserSkills(
+	options: Pick<BrowserExecutionEnvOptions, 'dbName' | 'mounts'> & { roots?: string[] } = {},
+): Promise<SkillsLoadResult> {
 	const env = createBrowserExecutionEnv({ dbName: options.dbName, mounts: options.mounts });
 	return await loadSkillsFromEnv(env, options.roots);
 }
