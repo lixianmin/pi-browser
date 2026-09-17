@@ -283,3 +283,31 @@ describe('worker 侧 glue（假通道，不起 worker）', () => {
 		expect(readGuest(guestFs, '/from-host.txt')).toBe('host');
 	});
 });
+
+// 2026-09-17（spice 侧首个真浏览器消费者实测暴露）：Chrome 的 `TextDecoder.decode()` 收到
+// **SharedArrayBuffer 视图**时直接抛 "The provided ArrayBufferView value must not be shared"
+// （Node 不抛 → 本仓测试全绿，浏览器里整条宿主命令链路静默超时）。协议必须在解码前把字节拷成非共享视图。
+describe('decode 不得直接吃 SAB 视图（Chrome 限制）', () => {
+	/** 把 Chrome 的限制搬进 Node：decode 拿到 SAB 视图就抛 */
+	const patchDecode = (): (() => void) => {
+		const original = TextDecoder.prototype.decode;
+		TextDecoder.prototype.decode = function (this: TextDecoder, input?: ArrayBufferView | ArrayBuffer, options?: TextDecodeOptions) {
+			if (input && ArrayBuffer.isView(input) && input.buffer instanceof SharedArrayBuffer) {
+				throw new TypeError("Failed to execute 'decode' on 'TextDecoder': The provided ArrayBufferView value must not be shared.");
+			}
+			return original.call(this, input as never, options);
+		};
+		return () => { TextDecoder.prototype.decode = original; };
+	};
+
+	it('请求/响应往返在该限制下仍成立（host 解请求 + guest 读应答两处都要拷贝）', async () => {
+		const restore = patchDecode();
+		try {
+			const { hostSide, guestSide } = createHostCommandChannel(createHostCommandSharedBuffer());
+			const respond = createHostCommandResponder(storeOf(), { hello: () => ({ exitCode: 0, stdout: 'hello\n' }) });
+			const seq = guestSide.send({ name: 'hello', args: [], cwd: '/', changes: EMPTY });
+			await expect(hostSide.respondOnce(respond)).resolves.toBe(true);
+			expect(guestSide.read(seq).stdout).toBe('hello\n');
+		} finally { restore(); }
+	});
+});

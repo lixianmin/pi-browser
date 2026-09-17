@@ -95,6 +95,14 @@ const SLOT_RESPONSE_LENGTH = 3;
 const ENC = new TextEncoder();
 const DEC = new TextDecoder();
 
+/**
+ * 从 SAB 视图解码前**必须拷成非共享视图**：Chrome 的 `TextDecoder.decode()` 拒绝 SharedArrayBuffer 视图
+ * （抛 "The provided ArrayBufferView value must not be shared"）。Node 不抛——所以本仓单测全绿、
+ * 浏览器里表现为「宿主命令全部 30s 超时」（spice 侧首个真浏览器消费者实测暴露，回归测试见
+ * test/host-commands.test.ts 的「decode 不得直接吃 SAB 视图」）。
+ */
+const decodeShared = (bytes: Uint8Array, length: number): string => DEC.decode(new Uint8Array(bytes.subarray(0, length)));
+
 /** thenable 判定：inline 路径靠它把「异步处理器」和「同步结果」分开（返回值类型上是联合） */
 const isThenable = (value: unknown): value is Promise<unknown> => typeof (value as { then?: unknown } | undefined)?.then === 'function';
 
@@ -248,7 +256,7 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 	};
 	const read = (seq: number): HostCommandExchangeResult => {
 		if (Atomics.load(ctrl, SLOT_ANSWER_SEQ) !== seq) throw new Error(`宿主命令应答未就绪（seq ${seq}）`);
-		const decoded = JSON.parse(DEC.decode(responseBytes.subarray(0, Atomics.load(ctrl, SLOT_RESPONSE_LENGTH)))) as HostCommandResult & { changes: WireChanges };
+		const decoded = JSON.parse(decodeShared(responseBytes, Atomics.load(ctrl, SLOT_RESPONSE_LENGTH))) as HostCommandResult & { changes: WireChanges };
 		return { exitCode: decoded.exitCode, stdout: decoded.stdout, stderr: decoded.stderr, changes: decodeChanges(decoded.changes) };
 	};
 
@@ -270,7 +278,7 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 		served = seq;
 		// 载荷里 changes 是 JSON 形态（字节数组），解出来换成领域类型再交给 responder
 		const { changes: guestChanges, ...command } = JSON.parse(
-			DEC.decode(requestBytes.subarray(0, Atomics.load(ctrl, SLOT_REQUEST_LENGTH))),
+			decodeShared(requestBytes, Atomics.load(ctrl, SLOT_REQUEST_LENGTH)),
 		) as HostCommandRequest & { changes: WireChanges };
 		let response: { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges };
 		try {
