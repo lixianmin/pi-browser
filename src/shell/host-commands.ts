@@ -9,6 +9,7 @@
 //     主线程跑异步处理器（这才是这个 seam 的价值：宿主可以用任意异步库），并按 §3.3 对账 FS：
 //     调用前把 guest 变更集落进权威 store，处理器直接读写权威 store，返回后把 store 的净变化推回 guest 缓存。
 import { toError } from '@earendil-works/pi-agent-core';
+import { atomics } from './atomics';
 import type { HostBuiltins, BuiltinContext } from 'wasi-sh';
 import type { BrowserFileSystem } from '../env/types';
 import { createMountTable } from '../env/mount';
@@ -260,7 +261,7 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 			const current = Atomics.load(ctrl, SLOT_REQUEST_SEQ);
 			if (stopped) return undefined;
 			if (current !== served) return current;
-			await Atomics.waitAsync(ctrl, SLOT_REQUEST_SEQ, served).value;
+			await atomics.waitAsync(ctrl, SLOT_REQUEST_SEQ, served).value;
 		}
 	};
 	const respondOnce = async (responder: HostCommandResponder): Promise<boolean> => {
