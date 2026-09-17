@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.85.1",
-    "@isomorphic-git/lightning-fs": "4.7.0"
+    "@isomorphic-git/lightning-fs": "4.7.0",
+    "wasi-sh": "0.11.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.3",

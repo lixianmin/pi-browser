@@ -8,13 +8,7 @@
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
 import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
-import type { BrowserFileSystem } from './types';
-
-export interface MountEntry {
-	/** 挂载前缀（绝对路径，如 '/'、'/tmp'） */
-	prefix: string;
-	fs: BrowserFileSystem;
-}
+import type { BrowserFileSystem, MountEntry } from './types';
 
 export interface MountTable extends FileSystem {
 	/** 挂载顶层名（'/tmp' → 'tmp'；'/' 不入列），供 `listDir('/')` 合成挂载根 */

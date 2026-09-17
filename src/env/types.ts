@@ -15,3 +15,15 @@ export type { FileSystem, FileError, FileInfo, Result, ExecutionEnv };
 export interface BrowserFileSystem extends FileSystem {
 	flush(): Promise<void>;
 }
+
+/**
+ * 挂载条目：绝对前缀 → 后端 fs（spec §3.1 的公开面登记类型；`mount.ts` 与 `shell/` 共用一份）。
+ *
+ * 定义在 types.ts 而不是 mount.ts：shell 适配器的注入面就是它（`{ mounts: MountEntry[] }`），
+ * 类型住在谁实现路由无关，只跟「谁要用」有关。
+ */
+export interface MountEntry {
+	/** 挂载前缀（绝对路径，如 '/'、'/tmp'） */
+	prefix: string;
+	fs: BrowserFileSystem;
+}

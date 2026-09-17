@@ -2,7 +2,8 @@
 // 装配默认挂载表（'/'→lightning-fs/IDB 持久面、'/tmp'→内存临时面），fs 各方法全部委托 MountTable；
 // exec 在 S1 没有实现，恒返回 `shell_unavailable`（上游认可的 ExecutionErrorCode，不是 hack）。
 import { ExecutionError, err, type ExecutionEnv } from '@earendil-works/pi-agent-core';
-import { createMountTable, type MountEntry } from './mount';
+import { createMountTable } from './mount';
+import type { MountEntry } from './types';
 import { createBrowserFileSystem } from './backend-idb';
 import { createMemoryFileSystem } from './backend-memory';
 
