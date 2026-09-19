@@ -4,8 +4,16 @@
 // 不支持的事件**注册即抛**（错误消息必须列出支持清单，不静默丢弃）。
 import { describe, it, expect, vi } from 'vitest';
 import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import type { Extension, ExtensionAPI } from '../src/index';
 import { ExtensionRunner } from '../src/extensions/runner';
+import type { ExtensionEventMap } from '../src/extensions/api';
 import { SUPPORTED_EVENTS, UNSUPPORTED_EVENTS } from '../src/extensions/contract';
+
+/**
+ * 绕过类型门去注册任意事件名。类型门（`ExtensionEventMap` 的键集合）已经挡住了这些名字，
+ * 这里要验的是**运行期检查仍在**（注册即抛，错误里带支持清单），所以必须刻意绕过去。
+ */
+const onAny = (pi: ExtensionAPI) => pi.on as unknown as (event: string, handler: () => void) => void;
 
 function fakes() {
 	const harness = {
@@ -67,14 +75,37 @@ describe('on(event, handler) 映射', () => {
 	it('不支持的事件注册即抛，错误里带支持清单；支持清单里的事件全部可注册', async () => {
 		const f = fakes();
 		const runner = makeRunner(f);
-		await expect(runner.load([{ name: 'ext-a', factory: (pi) => { pi.on('ui_prompt_start', () => {}); } }]))
+		await expect(runner.load([{ name: 'ext-a', factory: (pi) => { onAny(pi)('ui_prompt_start', () => {}); } }]))
 			.rejects.toThrow(/不支持/);
 
 		const f2 = fakes();
 		const runner2 = makeRunner(f2);
-		await runner2.load([{ name: 'ext-b', factory: (pi) => { for (const e of Object.keys(SUPPORTED_EVENTS)) pi.on(e, () => {}); } }]);
+		await runner2.load([{ name: 'ext-b', factory: (pi) => {
+			for (const e of Object.keys(SUPPORTED_EVENTS) as (keyof ExtensionEventMap)[]) pi.on(e, () => {});
+		} }]);
 		expect(runner2).toBeTruthy();
 		expect(UNSUPPORTED_EVENTS).toContain('ui_prompt_start');
+	});
+
+	// 类型层用例：不跑扩展工厂，只让 `tsc --noEmit` 判卷（`it` 只为进 typecheck 的 include 范围）。
+	it('类型层：事件名是封闭集合，载荷 = pi-agent-core 的实际交付形状', () => {
+		const ext: Extension = (pi) => {
+			// @ts-expect-error 不支持的事件名（TUI 提示）必须编译期就红，而不是等到运行期才抛
+			pi.on('ui_prompt_start', () => {});
+			// @ts-expect-error 未知事件名同理
+			pi.on('not_an_event', () => {});
+			// 载荷 = `hooks.on('before_tool')` 的形状：`args`（不是 pi 的 `input`）、带 lane/runId；返回值同源
+			pi.on('tool_call', (event) => {
+				const toolName: string = event.toolName;
+				const args: Record<string, unknown> = event.args;
+				// @ts-expect-error 载荷不是 any：不存在的字段必须报错（否则上面的字段断言全是假的）
+				void event.notAField;
+				return { block: { reason: `${toolName}: ${Object.keys(args).length}` } };
+			});
+			// `session_start` 是宿主自造事件：只有 type（pi 的 SessionStartEvent 还有 reason，本仓不交付）
+			pi.on('session_start', (event) => { void (event.type satisfies 'session_start'); });
+		};
+		expect(typeof ext).toBe('function');
 	});
 
 	it('session_start 在装载完成后发给订阅者（宿主生命周期）', async () => {

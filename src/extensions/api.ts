@@ -7,7 +7,7 @@
 //      外部绕过 API 改值的场景不在本仓用例内（已在类型注释写明）。
 //   ③ **相位门**：注册期（扩展工厂执行中）调用运行期成员 → 响亮抛错（对齐 pi 的 `assertActive()`），
 //      绝不静默用旧 context。
-import type { AgentHarness, AgentLane, Context, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { AgentHarness, AgentLane, Context, HarnessEvent, HookInvocation, HookMap, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { validateToolDefinition, type ToolDefinition } from './tool';
 import type { ExtensionContext } from './context';
@@ -86,8 +86,70 @@ export interface ExtensionHostHooks {
 /** 宿主生命周期事件的订阅表（`session_start` / `session_shutdown` 由 runner 自己发）。 */
 export type HostLifecycleListener = (event: { type: 'session_start' | 'session_shutdown' }) => void | Promise<void>;
 
+/**
+ * 事件 handler 的签名（上游 `ExtensionHandler` 同名同形）：载荷 + 本次调用的 `ctx`，可返回结果。
+ * `R` 缺省 `undefined`（无返回值的事件）。
+ */
+export type ExtensionHandler<E, R = undefined> = (event: E, ctx: ExtensionContext) => Promise<R | void> | R | void;
+
+/**
+ * `on(event, handler)` 的事件表：**只列「支持」的事件**（名单真源 `contract.ts` 的 `SUPPORTED_EVENTS`）。
+ * 事件名逐字取自上游（不新增自造名）；但**载荷与返回值类型取自 pi-agent-core 的实际交付**，
+ * 不是 pi 的同名事件类型——两者形状确实不同，拿 pi 的类型标注等于给使用者假信息：
+ *   · `tool_call` → `hooks.on('before_tool')`：交付 `{toolCallId, toolName, args, lane, runId}`，
+ *     而 pi 的 `ToolCallEvent` 是 `{type, toolCallId, toolName, input}`（`input` vs `args`，还多一个 `type`）；
+ *     返回值同理（core 要 `{args?, block?}`，pi 靠原地改 `input`）。
+ *   · `session_start` / `session_shutdown` 是宿主自造事件，只有 `type`（pi 的 `SessionStartEvent` 还有 `reason`）。
+ * 事件名是**封闭集合**：不在这里的名字编译期就红（运行期检查见 `runner.route()`，是第二道网）。
+ */
+export interface ExtensionEventMap {
+	// —— hook 路由（落点 = `harness.hooks`）——
+	context: { event: HookInvocation<'transform_context'>; result: HookMap['transform_context']['result'] };
+	before_agent_start: { event: HookInvocation<'before_run'>; result: HookMap['before_run']['result'] };
+	tool_call: { event: HookInvocation<'before_tool'>; result: HookMap['before_tool']['result'] };
+	tool_result: { event: HookInvocation<'after_tool'>; result: HookMap['after_tool']['result'] };
+	session_before_compact: { event: HookInvocation<'before_compaction'>; result: HookMap['before_compaction']['result'] };
+	session_before_tree: { event: HookInvocation<'before_navigation'>; result: HookMap['before_navigation']['result'] };
+	before_provider_request: { event: HookInvocation<'before_request'>; result: HookMap['before_request']['result'] };
+	// `before_provider_headers` 与 `before_provider_request` 同落点：headers 的增删靠同一个 streamOptions patch
+	before_provider_headers: { event: HookInvocation<'before_request'>; result: HookMap['before_request']['result'] };
+	after_provider_response: { event: HookInvocation<'after_response'>; result: HookMap['after_response']['result'] };
+
+	// —— event 路由（落点 = `harness.events`）——
+	agent_start: { event: Extract<HarnessEvent, { type: 'run_start' }> };
+	agent_end: { event: Extract<HarnessEvent, { type: 'run_end' }> };
+	turn_start: { event: Extract<HarnessEvent, { type: 'turn_start' }> };
+	turn_end: { event: Extract<HarnessEvent, { type: 'turn_end' }> };
+	message_start: { event: Extract<HarnessEvent, { type: 'message_start' }> };
+	message_update: { event: Extract<HarnessEvent, { type: 'message_update' }> };
+	message_end: { event: Extract<HarnessEvent, { type: 'message_end' }> };
+	tool_execution_start: { event: Extract<HarnessEvent, { type: 'tool_start' }> };
+	tool_execution_update: { event: Extract<HarnessEvent, { type: 'tool_update' }> };
+	tool_execution_end: { event: Extract<HarnessEvent, { type: 'tool_end' }> };
+	session_compact: { event: Extract<HarnessEvent, { type: 'compaction_end' }> };
+	session_tree: { event: Extract<HarnessEvent, { type: 'navigation_end' }> };
+	// 落点同为 `config_update`，靠 `property` 区分（runner.route() 里过滤）
+	model_select: { event: Extract<HarnessEvent, { type: 'config_update'; property: 'model' }> };
+	thinking_level_select: { event: Extract<HarnessEvent, { type: 'config_update'; property: 'thinkingLevel' }> };
+
+	// —— 宿主生命周期（`ExtensionRunner` 自己发）——
+	session_start: { event: { type: 'session_start' } };
+	session_shutdown: { event: { type: 'session_shutdown' } };
+}
+
+/** 取某个事件的返回值类型：表里没写 `result` 的事件 = 无结果（`undefined`）。 */
+type EventResult<E extends keyof ExtensionEventMap> =
+	ExtensionEventMap[E] extends { result: infer R } ? R : undefined;
+
 export interface ExtensionAPI {
-	on(event: string, handler: (event: unknown, context: ExtensionContext) => unknown | Promise<unknown>): void;
+	/**
+	 * 订阅事件。事件名是封闭集合（`ExtensionEventMap` 的键），载荷与返回值类型 = pi-agent-core 的实际交付。
+	 * 不支持 / 未知事件名**编译期**就红；运行期仍有一道检查（`runner.route()`，注册即抛并列出支持清单）。
+	 */
+	on<E extends keyof ExtensionEventMap>(
+		event: E,
+		handler: ExtensionHandler<ExtensionEventMap[E]['event'], EventResult<E>>,
+	): void;
 	registerTool(definition: ToolDefinition): void;
 	getActiveTools(): string[];
 	getAllTools(): ToolInfo[];
@@ -123,7 +185,8 @@ export function createExtensionAPI(
 
 	return {
 		on(event, handler) {
-			hooks.onEvent(event, (e) => handler(e, contextFor()));
+			// 运行期仍是 string 路由（相位门与分派在 runner）；这里的 cast 只补类型：载荷由 pi-agent-core 交付
+			hooks.onEvent(event, (e) => handler(e as ExtensionEventMap[typeof event]['event'], contextFor()));
 		},
 
 		registerTool(definition) {

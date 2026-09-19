@@ -139,9 +139,18 @@ await runner.load([{ name: 'demo-echo', factory: echo }]);  // 装载后自动�
 
 ### 事件：`on(event, handler)` 支持 25 / 不支持 11
 
+**事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷与返回值类型取自 **pi-agent-core 的实际交付**，不是 pi 的同名事件类型（两者形状确实不同：`tool_call` 交付的是 `{toolCallId, toolName, args, lane, runId}`，而 pi 的 `ToolCallEvent` 是 `{type, toolCallId, toolName, input}`；`session_start` 只有 `type`，pi 的还有 `reason`）——拿 pi 的类型标注这些 handler 等于给使用者假信息。
+
+```ts
+pi.on('tool_call', (event) => {            // event.args: Record<string, JsonValue>，event.toolName: string
+  if (event.toolName === 'Write') return { block: { reason: '越权' } };   // 返回值同源：before_tool 的 result
+});
+pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件名
+```
+
 支持项按 pi 事件名逐条映射到 pi-agent-core 的 hooks / events（`tool_call`→`before_tool`、`tool_result`→`after_tool`、`context`→`transform_context`、`agent_start`→`run_start`、`agent_end`→`run_end`、`turn_start`/`turn_end`、`message_*`、`tool_execution_*`、`session_before_compact`→`before_compaction`、`session_compact`→`compaction_end`、`session_before_tree`→`before_navigation`、`session_tree`→`navigation_end`、`model_select`/`thinking_level_select`→`config_update`（按 `property` 过滤）、`before_provider_request`/`before_provider_headers`→`before_request`、`after_provider_response`→`after_response`、`session_start`/`session_shutdown` 由宿自己发）。
 
-不支持（注册即抛，错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled`。
+不支持（**编译期**拒，且注册期运行期也会抛、错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled`。
 
 ### 工具重名
 
