@@ -80,6 +80,9 @@ describe('公开面（src/index.ts）', () => {
 
 		expect(toolset.tools.map((t) => t.name)).toEqual(['Echo']);
 		expect(toolset.providerOf.Echo).toBe('ext-a');
-		expect(api.toHarnessTool(toolset.tools[0]).name).toBe('Echo');
+		// S6 T3：适配器改签名（多一个 ExtensionContext 构造器）；该文件的 S5 面清理见 T5
+		expect(api.toHarnessTool(toolset.tools[0], () => ({
+			cwd: '/w', model: undefined, signal: undefined, abort: () => {}, compact: () => {},
+		})).name).toBe('Echo');
 	});
 });

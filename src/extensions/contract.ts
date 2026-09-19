@@ -103,18 +103,18 @@ export const EXTENSION_CONTEXT_MEMBERS = [
 	'getSystemPrompt',
 ] as const;
 
-/** 支持的 API 成员（落点见 spec §3.2 表）。 */
+/**
+ * 支持的 API 成员（14）：声明/查询工具、事件、账本条目、发用户消息、会话名/标签、模型与思考档位。
+ * 落点见表（S6 spec §3.2）。
+ */
 export const SUPPORTED_API_MEMBERS = [
 	'on',
 	'registerTool',
 	'getActiveTools',
 	'getAllTools',
 	'setActiveTools',
-	'registerProvider',
-	'unregisterProvider',
 	'events',
 	'appendEntry',
-	'sendMessage',
 	'sendUserMessage',
 	'setSessionName',
 	'getSessionName',
@@ -122,10 +122,16 @@ export const SUPPORTED_API_MEMBERS = [
 	'setModel',
 	'getThinkingLevel',
 	'setThinkingLevel',
-	'exec',
 ] as const;
 
-/** 不支持的 API 成员：浏览器无 slash 命令面 / 无 TUI 键位与 CLI flag / 无 TUI 渲染器。 */
+/**
+ * 不支持的 API 成员（12）：
+ *   · 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag`
+ *     / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`；
+ *   · 本仓无对应物，不发明形状：`registerProvider` / `unregisterProvider`（provider 由 app 配置）/ `exec`
+ *     （pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display`
+ *     是 TUI 渲染函数，进不了 `JsonValue`）。
+ */
 export const UNSUPPORTED_API_MEMBERS = [
 	'registerCommand',
 	'getCommands',
@@ -135,25 +141,28 @@ export const UNSUPPORTED_API_MEMBERS = [
 	'registerMessageRenderer',
 	'registerMarkdownTransformer',
 	'registerEntryRenderer',
+	'registerProvider',
+	'unregisterProvider',
+	'sendMessage',
+	'exec',
 ] as const;
 
-/** 支持的 Context 成员（7）：实际可兑现的只有这七个（`context.ts` 逐字段对齐）。 */
+/** 支持的 Context 成员（5）：实际可兑现的只有这五个（`context.ts` 逐字段对齐）。 */
 export const SUPPORTED_CONTEXT_MEMBERS = [
 	'cwd',
 	'model',
-	'isIdle',
 	'signal',
 	'abort',
-	'getContextUsage',
 	'compact',
 ] as const;
 
 /**
- * 不支持的 Context 成员（10）。两类理由：
+ * 不支持的 Context 成员（12）。四类理由：
  *   · TUI / 宿主进程概念：`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`；
- *   · 上游是 CLI 专属复合对象或本仓无对应操作，**不发明形状**：`sessionManager`（pi 的 SessionManager 大对象）/
- *     `modelRegistry` / `scopedModels` / `hasPendingMessages`（lane 无队列数 getter）/ `getSystemPrompt`
- *     （harness 无 systemPrompt getter）。将来真有用例时再按当时核实到的形状加（S6 spec §3.4 规则）。
+ *   · **同步/异步错位**：`isIdle` / `getContextUsage` / `getSystemPrompt`——上游是同步值，
+ *     pi-agent-core 的对应操作是 `Promise`；要有真用例时由宿主另建缓存（本仓现在不用，不造假同步 API）；
+ *   · 上游是 CLI 专属复合对象，**不发明形状**：`sessionManager` / `modelRegistry` / `scopedModels`；
+ *   · 本仓无对应操作：`hasPendingMessages`（lane 无队列数 getter）。
  */
 export const UNSUPPORTED_CONTEXT_MEMBERS = [
 	'ui',
@@ -162,9 +171,11 @@ export const UNSUPPORTED_CONTEXT_MEMBERS = [
 	'sessionManager',
 	'modelRegistry',
 	'scopedModels',
+	'isIdle',
 	'isProjectTrusted',
 	'hasPendingMessages',
 	'shutdown',
+	'getContextUsage',
 	'getSystemPrompt',
 ] as const;
 
