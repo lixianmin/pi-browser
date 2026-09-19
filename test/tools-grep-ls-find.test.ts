@@ -8,7 +8,7 @@ import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createGrepTool } from '../src/tools/grep-tool';
 import { createLsTool } from '../src/tools/ls-tool';
-import { createGlobTool } from '../src/tools/glob-tool';
+import { createFindTool } from '../src/tools/find-tool';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -181,7 +181,7 @@ describe('Ls tool', () => {
 	});
 });
 
-describe('Glob tool', () => {
+describe('find tool', () => {
 	let fs: BrowserFileSystem;
 	beforeEach(async () => {
 		fs = createMemoryFileSystem();
@@ -189,47 +189,47 @@ describe('Glob tool', () => {
 	});
 
 	it('**/*.ts 递归匹配（含根层文件）', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: '**/*.ts' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.ts' }));
 		expect(out).toBe(['a.ts', 'ab.ts', 'src/b.ts', 'src/nested/c.ts'].join('\n'));
 	});
 
 	it('* 不跨 /（只匹配根层）', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: '*.md' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '*.md' }));
 		expect(out).toBe('a.md');
 	});
 
 	it('? 匹配单字符', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: 'a?.ts' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: 'a?.ts' }));
 		expect(out).toBe('ab.ts');
 	});
 
 	it('path 选项：相对被搜目录匹配、相对 cwd 输出', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: '**/*.ts', path: 'src' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.ts', path: 'src' }));
 		expect(out).toBe(['src/b.ts', 'src/nested/c.ts'].join('\n'));
 	});
 
 	it('只返回文件（目录不入选）', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: '*' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '*' }));
 		expect(out).toBe(['a.md', 'a.ts', 'ab.ts'].join('\n'));
 	});
 
 	it('无匹配 → No files matched.', async () => {
-		const out = textOf(await createGlobTool({ fs }).execute('id', { pattern: '**/*.py' }));
+		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.py' }));
 		expect(out).toBe('No files matched.');
 	});
 
 	it('base 是文件 → not_directory', async () => {
-		const t = createGlobTool({ fs });
+		const t = createFindTool({ fs });
 		expect(await rejectionCode(t.execute('id', { pattern: '*.ts', path: 'a.ts' }))).toBe('not_directory');
 	});
 
 	it('非法 pattern（空串）→ invalid', async () => {
-		const t = createGlobTool({ fs });
+		const t = createFindTool({ fs });
 		expect(await rejectionCode(t.execute('id', { pattern: '' }))).toBe('invalid');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createGlobTool({ fs });
+		const t = createFindTool({ fs });
 		expect(await rejectionCode(t.execute('id', { pattern: '*.ts' }, AbortSignal.abort()))).toBe('aborted');
 	});
 });

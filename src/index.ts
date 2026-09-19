@@ -13,8 +13,8 @@ export { createWriteTool } from './tools/write-tool';
 export { createEditTool } from './tools/edit-tool';
 export { createGrepTool } from './tools/grep-tool';
 export { createLsTool } from './tools/ls-tool';
-export { createGlobTool } from './tools/glob-tool';
-export { createShellTool } from './tools/shell-tool';
+export { createFindTool } from './tools/find-tool';
+export { createBashTool } from './tools/bash-tool';
 // S4 skills（spec §3.4）：加载是本地薄封装，渲染直接 re-export 上游（不自建渲染器：会丢 `<location>`）
 export { formatSkillInvocation, formatSkillsForSystemPrompt, type Skill, type SkillDiagnostic, type SkillDiagnosticCode } from '@earendil-works/pi-agent-core';
 export { loadBrowserSkills, loadSkillsFromEnv, type SkillsLoadResult } from './skills/loader';

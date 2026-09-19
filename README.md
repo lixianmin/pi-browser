@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
+M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`read`/`write`/`edit`/`grep`/`ls`/`find`/`bash`，fs 背书；名字 1:1 对齐上游 pi-coding-agent `core/tools/`，wire-level `name`/`label` 与公开 export 名全部一致）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
 
 ## 公开面 API
 
@@ -26,8 +26,8 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createEditTool` | 同上 | `edits: [{ oldText, newText }]` 精确替换（多命中报错并列位置；出 diff/patch） |
 | `createGrepTool` | 同上 | 正则/字面量搜索：递归全目录 + `include` glob + 上下文行 + `file:line: text` 格式 |
 | `createLsTool` | 同上 | 目录列表（`recursive?`），目录带尾斜杠、按名排序 |
-| `createGlobTool` | 同上 | picomatch glob 找文件（`*`/`?` 不跨 `/`，`**` 匹配多层） |
-| `createShellTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明 |
+| `createFindTool` | 同上 | picomatch glob 找文件（`*`/`?` 不跨 `/`，`**` 匹配多层）；工具 wire-level `name` = `find`（对齐上游） |
+| `createBashTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明；wire-level `name` = `bash`（对齐上游） |
 | `loadBrowserSkills` | `(o?: { dbName?; mounts?; roots? }) => Promise<{ skills; diagnostics }>` | 自建 env 跑上游 `loadSkills`；默认 roots `['/skills','/.pi/skills']` |
 | `loadSkillsFromEnv` | `(env: ExecutionEnv, roots?: string[]) => Promise<{ skills; diagnostics }>` | 在已有 env 上加载（已有 IDB 会话时不必再建一个） |
 | `formatSkillsForSystemPrompt` | `(skills: Skill[]) => string` | 上游 re-export：清单块（含 `<location>`，过滤 `disableModelInvocation`） |
@@ -47,7 +47,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 
 ```ts
 import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
-import { createBrowserExecutionEnv, createBrowserFileSystem, createReadTool, createShellTool } from '@lixianmin/pi-browser';
+import { createBrowserExecutionEnv, createBrowserFileSystem, createReadTool, createBashTool } from '@lixianmin/pi-browser';
 
 const env = createBrowserExecutionEnv();                        // '/'→IDB（持久）、'/tmp'→内存（临时）
 await env.writeFile('/spice-sessions/s1/main.jsonl', line, BACKGROUND_CONTEXT);
@@ -56,7 +56,7 @@ const tmp = await env.createTempDir(undefined, BACKGROUND_CONTEXT);   // 固定�
 const fs = createBrowserFileSystem({ dbName: 'spice-sessions' });      // 会话存储用这个（含 flush 契约）
 await fs.flush();                                                     // 每回合末调用，否则刷新页面丢会话
 
-const tools = [createReadTool({ fs }), createShellTool({ env })];      // 形状 = 上游 AgentTool[]：交给 Agent/AgentContext
+const tools = [createReadTool({ fs }), createBashTool({ env })];      // 形状 = 上游 AgentTool[]：交给 Agent/AgentContext
                                                                       // （要进 AgentHarness 得用 toHarnessTool 适配，见「扩展」节）
 tools[0].parameters;                                                  // typebox schema（校验由上游做）
 ```

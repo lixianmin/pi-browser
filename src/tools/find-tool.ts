@@ -1,4 +1,4 @@
-// src/tools/glob-tool.ts —— Glob 工具（Task 6；spec §3.3 表第六行，spice 无基线，新写）。
+// src/tools/find-tool.ts —— Find 工具（Task 6；spec §3.3 表第六行；上游同名对齐，spice 无基线，新写）。
 // 匹配用 picomatch（micromatch 语义；spec §3.4 的第三方理由：glob 事实标准、MIT、零传递依赖）。
 // 语义差异写进 description：`*`/`?` 不跨 `/`，`**` 匹配零或多层目录，前导通配不匹配点文件（同 bash 默认）。
 // 输出：相对 cwd 的文件路径、按名排序；只返回文件（目录由 Ls 负责）。
@@ -9,30 +9,30 @@ import type { BrowserFileSystem } from '../env/types';
 import { resolveToCwd } from './path-utils';
 import { contextFor, displayPath, listTree, statPath, textResult, throwIfAborted } from './fs-ops';
 
-const globSchema = Type.Object({
+const findSchema = Type.Object({
 	pattern: Type.String({ description: 'Glob pattern matched against file paths relative to `path`, e.g. "**/*.ts". `*` and `?` do not cross "/", `**` matches zero or more directories, and a leading wildcard does not match dotfiles.' }),
 	path: Type.Optional(Type.String({ description: 'Base directory to search (relative to cwd or absolute). Default: cwd.' })),
 });
 
-export type GlobToolInput = Static<typeof globSchema>;
+export type FindToolInput = Static<typeof findSchema>;
 
 /** 结果的 details 为空：匹配结果本身就在 content 里 */
-export type GlobToolDetails = Record<string, never>;
+export type FindToolDetails = Record<string, never>;
 
-export interface GlobToolOptions {
+export interface FindToolOptions {
 	fs: BrowserFileSystem;
 	/** 相对路径基准（默认 fs.cwd） */
 	cwd?: string;
 }
 
-export function createGlobTool(opts: GlobToolOptions): AgentTool<typeof globSchema, GlobToolDetails> {
+export function createFindTool(opts: FindToolOptions): AgentTool<typeof findSchema, FindToolDetails> {
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Glob',
-		label: 'Glob',
+		name: 'find',
+		label: 'find',
 		description: 'Find files by glob pattern (matched against paths relative to the searched directory). Returns matching file paths relative to cwd, sorted by name. Directories are not returned (use Ls for directories).',
-		parameters: globSchema,
+		parameters: findSchema,
 		async execute(_toolCallId, input, signal) {
 			throwIfAborted(signal);
 			const context = contextFor(signal);

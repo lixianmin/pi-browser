@@ -9,13 +9,15 @@ import { Type } from 'typebox';
 import * as api from '../src/index';
 import type { Extension, ExtensionAPI } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
+import { createBrowserExecutionEnv } from '../src/env/execution-env';
 
 const RUNTIME_EXPORTS = [
 	'createBrowserExecutionEnv',
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',
+	'createBashTool',
 	'createEditTool',
-	'createGlobTool',
+	'createFindTool',
 	'createGrepTool',
 	'createGuestHostBuiltins',
 	'createHostCommandChannel',
@@ -23,7 +25,6 @@ const RUNTIME_EXPORTS = [
 	'createHostCommandSharedBuffer',
 	'createLsTool',
 	'createReadTool',
-	'createShellTool',
 	'createWasiFileSystem',
 	'createWriteTool',
 	'defineTool',
@@ -54,17 +55,19 @@ describe('公开面（src/index.ts）', () => {
 		expect(typeof api.DEFAULT_COMPACTION_SETTINGS.enabled).toBe('boolean');
 	});
 
-	it('七工具工厂返回的 name 与工具面一致', () => {
+	it('七工具工厂返回的 name 与上游对齐（全小写：read/write/edit/grep/ls/find/bash）', () => {
 		const fs = createMemoryFileSystem();
+		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs }] });
 		const names = [
 			api.createReadTool({ fs }).name,
 			api.createWriteTool({ fs }).name,
 			api.createEditTool({ fs }).name,
 			api.createGrepTool({ fs }).name,
 			api.createLsTool({ fs }).name,
-			api.createGlobTool({ fs }).name,
+			api.createFindTool({ fs }).name,
+			api.createBashTool({ env }).name,
 		];
-		expect(names).toEqual(['Read', 'Write', 'Edit', 'Grep', 'Ls', 'Glob']);
+		expect(names).toEqual(['read', 'write', 'edit', 'grep', 'ls', 'find', 'bash']);
 	});
 
 	it('S6 扩展面从包入口可用：宿主类是类，扩展是工厂（类型导出齐）', () => {

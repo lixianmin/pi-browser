@@ -30,8 +30,8 @@ export function createWriteTool(opts: WriteToolOptions): AgentTool<typeof writeS
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Write',
-		label: 'Write',
+		name: 'write',
+		label: 'write',
 		description: 'Write content to a file. Creates the file if it does not exist (creating missing parent directories), overwrites it if it exists. Prefer Edit for partial changes; use Write for new files and complete rewrites.',
 		parameters: writeSchema,
 		async execute(_toolCallId, input, signal) {

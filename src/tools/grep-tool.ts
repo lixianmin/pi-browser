@@ -44,8 +44,8 @@ export function createGrepTool(opts: GrepToolOptions): AgentTool<typeof grepSche
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Grep',
-		label: 'Grep',
+		name: 'grep',
+		label: 'grep',
 		description: `Search files for a pattern. Recursively searches the given path (default: the whole workspace) and returns matching lines with file paths and line numbers. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB whichever is hit first. Long lines truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
 		parameters: grepSchema,
 		async execute(_toolCallId, input, signal) {

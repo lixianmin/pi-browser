@@ -31,8 +31,8 @@ export function createReadTool(opts: ReadToolOptions): AgentTool<typeof readSche
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Read',
-		label: 'Read',
+		name: 'read',
+		label: 'read',
 		description: `Read the contents of a text file. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB whichever is hit first. Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		parameters: readSchema,
 		async execute(

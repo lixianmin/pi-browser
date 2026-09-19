@@ -42,8 +42,8 @@ export function createEditTool(opts: EditToolOptions): AgentTool<typeof editSche
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Edit',
-		label: 'Edit',
+		name: 'edit',
+		label: 'edit',
 		description: 'Edit a file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. If two changes touch the same block, merge them into one edit. Do not pad with large unchanged regions to connect distant changes.',
 		parameters: editSchema,
 		async execute(_toolCallId, input, signal) {

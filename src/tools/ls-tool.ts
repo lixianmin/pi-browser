@@ -27,8 +27,8 @@ export function createLsTool(opts: LsToolOptions): AgentTool<typeof lsSchema, Ls
 	const { fs } = opts;
 	const cwd = opts.cwd ?? fs.cwd;
 	return {
-		name: 'Ls',
-		label: 'Ls',
+		name: 'ls',
+		label: 'ls',
 		description: 'List a directory: direct children by default (directories suffixed with "/"), the whole subtree with recursive=true. Entries are sorted by name and paths are shown relative to cwd.',
 		parameters: lsSchema,
 		async execute(_toolCallId, input, signal) {
