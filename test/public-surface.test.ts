@@ -1,14 +1,16 @@
-// Task 7：公开面定稿（spec §3.4）。运行时导出 = S1 五导出 + 七工具工厂 + `createWasiFileSystem` + S4（skills/compaction）；
-// 类型导出（BrowserFileSystem / MountEntry / Skill / CompactionSettings …）在类型层，不进这两张运行时表。
+// Task 7：公开面定稿（spec §3.4）。运行时导出 = S1 五导出 + 七工具工厂 + `createWasiFileSystem` + S4（skills/compaction）
+// + S6（扩展宿主）；类型导出（BrowserFileSystem / MountEntry / Skill / ExtensionAPI …）在类型层，不进这两张运行时表。
 // 新增导出必须同步本表与 README 的公开面表格。
+//
+// S6 变化：删 `defineExtension` / `composeToolset` / `toHarnessTool`（S5 自造名，`harness-tool.ts` 降为内部件），
+// 新增 `ExtensionRunner`（宿主类，pi 同名）。扩展面换成 pi 的工厂式注册：`(pi: ExtensionAPI) => void`。
 import { describe, it, expect } from 'vitest';
 import { Type } from 'typebox';
 import * as api from '../src/index';
-import type { ComposedToolset, ComposeToolsetOptions, ExtensionSpec } from '../src/index';
+import type { Extension, ExtensionAPI } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 
 const RUNTIME_EXPORTS = [
-	'composeToolset',
 	'createBrowserExecutionEnv',
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',
@@ -24,13 +26,13 @@ const RUNTIME_EXPORTS = [
 	'createShellTool',
 	'createWasiFileSystem',
 	'createWriteTool',
-	'defineExtension',
+	'defineTool',
+	'ExtensionRunner',
 	'formatSkillInvocation',
 	'formatSkillsForSystemPrompt',
 	'loadBrowserSkills',
 	'loadSkillsFromEnv',
 	'normalizePath',
-	'toHarnessTool',
 ];
 
 /** 运行时导出里的非函数（re-export 的上游常量） */
@@ -41,7 +43,7 @@ describe('公开面（src/index.ts）', () => {
 		expect(Object.keys(api).sort()).toEqual([...RUNTIME_EXPORTS, ...RUNTIME_CONSTANTS].sort());
 	});
 
-	it('函数导出都是函数', () => {
+	it('函数导出都是函数（ExtensionRunner 是类，也是 function）', () => {
 		for (const name of RUNTIME_EXPORTS) {
 			expect(typeof (api as Record<string, unknown>)[name], name).toBe('function');
 		}
@@ -65,24 +67,20 @@ describe('公开面（src/index.ts）', () => {
 		expect(names).toEqual(['Read', 'Write', 'Edit', 'Grep', 'Ls', 'Glob']);
 	});
 
-	it('S5 扩展面从包入口可用（合成产物形状 = AgentTool[]，类型导出齐）', () => {
-		const spec: ExtensionSpec = api.defineExtension({
-			name: 'ext-a',
-			tools: [{
+	it('S6 扩展面从包入口可用：宿主类是类，扩展是工厂（类型导出齐）', () => {
+		expect(typeof api.ExtensionRunner).toBe('function');
+		// 类型层 smoke：写一个扩展要能编过（`ToolDefinition` / `ExtensionAPI` / `Extension` 都在入口）
+		const echo: Extension = (pi: ExtensionAPI) => {
+			// `defineTool` 顶住参数推断：`input` 是 `{ text: string }` 而不是 `unknown`（上游同款辅助）
+			const def = api.defineTool({
 				name: 'Echo',
-				description: '回显',
+				label: 'Echo',
+				description: '回显 text 参数',
 				parameters: Type.Object({ text: Type.String() }),
 				execute: async (_toolCallId, input) => ({ content: [{ type: 'text', text: input.text }], details: undefined }),
-			}],
-		});
-		const options: ComposeToolsetOptions = { extensions: [spec] };
-		const toolset: ComposedToolset = api.composeToolset(options);
-
-		expect(toolset.tools.map((t) => t.name)).toEqual(['Echo']);
-		expect(toolset.providerOf.Echo).toBe('ext-a');
-		// S6 T3：适配器改签名（多一个 ExtensionContext 构造器）；该文件的 S5 面清理见 T5
-		expect(api.toHarnessTool(toolset.tools[0], () => ({
-			cwd: '/w', model: undefined, signal: undefined, abort: () => {}, compact: () => {},
-		})).name).toBe('Echo');
+			});
+			pi.registerTool(def);
+		};
+		expect(typeof echo).toBe('function');
 	});
 });

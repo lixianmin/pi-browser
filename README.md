@@ -2,11 +2,11 @@
 
 浏览器等价的 pi coding agent **能力层**（纯库，无 UI、无产品语义）。Spice 是它的第一个消费者，反向依赖它。
 
-设计文档：`spice/docs/superpowers/specs/2026-09-16-pi-browser-s1s3-design.md`（S1+S3/S4/S2.1 基座）、`spice/docs/superpowers/specs/2026-09-17-pi-browser-s5-extensions-design.md`（S5 扩展「工具注册」兼容面）。
+设计文档：`spice/docs/superpowers/specs/2026-09-16-pi-browser-s1s3-design.md`（S1+S3/S4/S2.1 基座）、`spice/docs/superpowers/specs/2026-09-19-pi-browser-extension-api-alignment-design.md`（S6 扩展面接口级对齐，**取代** S5 的「工具注册」兼容面）。
 
 ## 当前状态
 
-M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（`defineExtension` 校验/归一 → `composeToolset` 与内置合成 → `toHarnessTool` 适配进 `AgentHarness`；**仅工具注册子集**，不支持项见「扩展」节）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
+M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`Read`/`Write`/`Edit`/`Grep`/`Ls`/`Glob`/`Shell`，fs 背书）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
 
 ## 公开面 API
 
@@ -39,10 +39,9 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createHostCommandSharedBuffer` | `(o?: { capacity? }) => SharedArrayBuffer` | 按容量分配通道内存（默认 8MB/方向） |
 | `createHostCommandResponder` | `(store: { mounts }, handlers) => HostCommandResponder` | 宿主侧 glue：§3.3 对账 + 派发处理器 |
 | `createGuestHostBuiltins` | `(guestFs, guestSide, names) => HostBuiltins` | guest 侧 glue：把宿主命令装成 wasi-sh builtins（worker 内） |
-| `defineExtension` | `(spec: ExtensionSpec) => ExtensionSpec` | S5：校验并归一扩展声明（`name`/`description` 非空、`parameters` 存在、`execute` 是函数、同批重名抛错）；`label` 缺省取 `name` |
-| `composeToolset` | `(o?: ComposeToolsetOptions) => { tools: AgentTool[]; providerOf }` | S5：内置 + 扩展合成一份工具集（重名默认抛错，`overrideBuiltins` 显式列名才可覆盖内置；顺序稳定） |
-| `toHarnessTool` | `(tool: AgentTool) => AgentHarnessTool` | S5：适配进 `AgentHarness`（`signal` ← `context.abortSignal`，`onUpdate` 原样透传，异常不吞） |
-| `ExtensionSpec` / `ExtensionToolSpec` / `ComposeToolsetOptions` / `ComposedToolset` | 类型 | S5 扩展面（见「扩展（仅工具注册子集）」节） |
+| `ExtensionRunner` | `class`（`load(extensions)` / `getAllRegisteredTools()` / `getToolDefinition(name)` / `hooks` / `events` / `close()`） | S6 宿主：持有 `context` 与工具注册表，装载扩展并同步工具面（见「扩展」节） |
+| `defineTool` | `<TParams, TDetails>(def: ToolDefinition<TParams, TDetails>) => ToolDefinition<TParams, TDetails>` | S6：上游同名辅助——顶住参数推断（赋给变量/进数组时 `params` 不被拓宽成 `unknown`） |
+| `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionBindings` / `ExtensionRunnerOptions` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6 扩展面（见「扩展」节；`harness-tool.ts` 适配器是内部件，不经入口导出） |
 
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 
@@ -95,38 +94,62 @@ const env = createBrowserExecutionEnv({
 - **stdin**：本 shell 没有活 stdin（exec 从不写 stdin），fd 0 恒 EOF；`echo x | hostcmd` 走管道 fd、`hostcmd < f` 走文件 fd，都照常读到。处理器拿到的 `stdin` 在无输入时是 `undefined`。
 - **超时**：guest 等待宿主应答的上限取 exec 的 `timeout`（未设 30s）；真正卡死仍由 exec 既有硬杀语义收尾（返回 `timeout`）。
 
-## 扩展（仅工具注册子集）
+## 扩展（宿主 API 同名同形）
 
-**兼容面只有「工具注册」这一子集**——不是 pi 的扩展系统。pi 的其余扩展面在浏览器里没有对应物，**一律不支持**：`pi.on` 生命周期事件、`registerCommand`/`registerProvider`/`registerFlag`/`registerEntryRenderer`、`ctx.ui`/`ctx.mode`、`appendEntry`/`sendMessage`/`sendUserMessage`、jiti/TS 加载、`~/.pi` 与 `.pi` 目录发现、项目信任门、`/reload` 热重载。理由：浏览器没有 jiti（Node 专用 TS loader）、没有终端 UI、没有宿主进程；provider 由 app 提供；会话由 app 直接持有（`AgentHarness` + `JsonlSessionRepo`）。
+**S6 的口径：接口级一模一样。** 对外面只出现 pi coding agent 的同名成员；浏览器做不到的成员**保留原名、明确列不支持**，不造「差不多」的名字。名单与裁决的真源在 `src/extensions/contract.ts`，并有对照测试钉住（`test/extensions-contract.test.ts` 逐字比对上游三张名单，上游升级时会红）。
 
-扩展是**宿主自己的代码**（浏览器原生对象，不经加载器、不做发现），因此与宿主**同权限**——它不是沙箱，别拿它当隔离边界。
+扩展是**宿主自己的代码**（浏览器原生对象，不经加载器、不做发现），与宿主**同权限**——它不是沙箱，别拿它当隔离边界。
 
 ```ts
 import { Type } from 'typebox';
-import { composeToolset, createReadTool, defineExtension, toHarnessTool } from '@lixianmin/pi-browser';
+import { ExtensionRunner, defineTool } from '@lixianmin/pi-browser';
 
-const echo = defineExtension({
-  name: 'demo-echo',
-  tools: [{
-    name: 'Echo',                                                     // label 缺省取 name
+const echo = (pi: ExtensionAPI) => {                       // 扩展 = 工厂（pi 的形状）
+  pi.registerTool(defineTool({
+    name: 'Echo',
+    label: 'Echo',                                         // label 必填（与 pi 一致，不做缺省归一）
     description: '回显 text 参数',
     parameters: Type.Object({ text: Type.String() }),
-    execute: async (_toolCallId, input) => ({ content: [{ type: 'text', text: input.text }], details: undefined }),
-  }],
-});
+    execute: async (_toolCallId, input, _signal, _onUpdate, ctx) =>
+      ({ content: [{ type: 'text', text: `${ctx.cwd}: ${input.text}` }], details: undefined }),
+  }));
+  pi.on('tool_call', (event) => { /* 可 block：阶段 4 的越权拒绝落点 */ });
+};
 
-const { tools, providerOf } = composeToolset({
-  builtin: [createReadTool({ fs })],                                  // 内置在前，扩展按声明序追加
-  extensions: [echo],
-  overrideBuiltins: [],                                               // 默认空：扩展撞内置名一律抛错
-});
-tools;                                                                // AgentTool[] → 交给 Agent / AgentContext
-toHarnessTool(tools[0]);                                              // 进 AgentHarness（signal/onUpdate 映射见上）
+const runner = new ExtensionRunner({ harness, lane, context, cwd: '/projects/x', thinkingLevel: 'medium' });
+await runner.load([{ name: 'demo-echo', factory: echo }]);  // 装载后自动同步 harness.setTools + lane.setActiveTools
 ```
 
-- **重名**：默认抛错，错误信息带双方来源（`builtin` 或扩展名）；`overrideBuiltins` 显式列出名字才允许扩展覆盖内置（覆盖时占内置原槽位），两个扩展撞名即使列进去也照抛。
-- **产物形状**：`AgentTool[]`（= 上游 `AgentContext['tools']`），可直接交给低层 `Agent`；`AgentHarness` 的工具类型是 `AgentHarnessTool`（`execute` 六参，第三参是 onUpdate 而非 AbortSignal），所以要过 `toHarnessTool`（`signal` 取 `context.abortSignal`，`onUpdate` 原样透传，工具抛错照原样冒泡给 harness 记成 `isError`）。
-- **不做**：事件钩子、commands、providers、flags、entry renderers、终端 UI、`appendEntry`/`sendMessage`、TS/jiti 加载、fs 发现、热重载、沙箱（见本节首段清单）。
+### 支持的 API 成员（14）
+
+`on` / `registerTool` / `getActiveTools` / `getAllTools` / `setActiveTools` / `events` / `appendEntry` / `sendUserMessage` / `setSessionName` / `getSessionName` / `setLabel` / `setModel` / `getThinkingLevel` / `setThinkingLevel`
+
+- **同步/异步错位已记账**：pi 的 `getSessionName` / `getThinkingLevel` / `getActiveTools` 是同步值，而 pi-agent-core 的对应调用是 `Promise`——宿主持已知值缓存，同步 getter 读缓存（绕过 API 外部改值的场景不在本仓用例内）。
+- **注册期锁**：扩展工厂里调用运行期成员会**响亮抛错**（对齐 pi 的 `assertActive()`）；`close()` 后再次锁死。
+
+### 不支持的 API 成员（12，保留原名）
+
+- 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag` / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`
+- 本仓无对应物，不发明形状：`registerProvider` / `unregisterProvider`（provider 由 app 配置）/ `exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）
+
+### `ExtensionContext`：支持 5 / 不支持 12
+
+- **支持**：`cwd` / `model` / `signal`（**本次调用**的信号）/ `abort()` / `compact()`
+- **不支持**：TUI 与宿主进程概念（`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`）；**同步/异步错位**（`isIdle` / `getContextUsage` / `getSystemPrompt`——上游是同步值，harness 侧是 `Promise`）；上游 CLI 专属复合对象（`sessionManager` / `modelRegistry` / `scopedModels`）；本仓无对应操作（`hasPendingMessages`）
+
+### 事件：`on(event, handler)` 支持 25 / 不支持 11
+
+支持项按 pi 事件名逐条映射到 pi-agent-core 的 hooks / events（`tool_call`→`before_tool`、`tool_result`→`after_tool`、`context`→`transform_context`、`agent_start`→`run_start`、`agent_end`→`run_end`、`turn_start`/`turn_end`、`message_*`、`tool_execution_*`、`session_before_compact`→`before_compaction`、`session_compact`→`compaction_end`、`session_before_tree`→`before_navigation`、`session_tree`→`navigation_end`、`model_select`/`thinking_level_select`→`config_update`（按 `property` 过滤）、`before_provider_request`/`before_provider_headers`→`before_request`、`after_provider_response`→`after_response`、`session_start`/`session_shutdown` 由宿自己发）。
+
+不支持（注册即抛，错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled`。
+
+### 工具重名
+
+**后写覆盖先写**（对齐 pi 宿主的 Map 语义），差异只有一行 `console.warn`（黄线：本仓有「静默失效比报错更糟」的教训，但不新增自造接口名来承载告警）。S5 的「默认抛错 + `overrideBuiltins` 白名单」是自造行为，已删。
+
+### 仍不做
+
+TS/jiti 加载、`~/.pi` 与 `.pi` 目录发现、项目信任门、`/reload` 热重载、终端 UI（见上文「不支持」清单的理由）。
 
 ## 开发
 
