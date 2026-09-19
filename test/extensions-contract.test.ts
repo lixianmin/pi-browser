@@ -7,6 +7,7 @@
 //   ③ 标「不支持」的成员在公开面上**没有同名替代物**（防再造一个「差不多」的名字）。
 import { describe, it, expect } from 'vitest';
 import * as api from '../src/index';
+import type { ExtensionEventMap } from '../src/extensions/api';
 import {
 	EXTENSION_API_MEMBERS, EXTENSION_CONTEXT_MEMBERS, EXTENSION_EVENTS,
 	SUPPORTED_API_MEMBERS, SUPPORTED_CONTEXT_MEMBERS, SUPPORTED_EVENTS,
@@ -63,5 +64,17 @@ describe('名单不变量（上游逐字对照）', () => {
 	it('标「不支持」的成员在公开面上不得有同名替代物', () => {
 		const surface = api as Record<string, unknown>;
 		for (const name of UNSUPPORTED_API_MEMBERS) expect(surface[name], name).toBeUndefined();
+	});
+
+	it('事件类型表的键集合与「支持」名单一致（两个方向都钉住）', () => {
+		type MapKeys = keyof ExtensionEventMap;
+		type ContractKeys = keyof typeof SUPPORTED_EVENTS;
+		// 任一边多出/漏掉一个名字，下面的赋值就红——错误信息里直接列出差异的名字。
+		// （`SUPPORTED_EVENTS` 一旦被标注成 `Record<string, string>`，`ContractKeys` 会退化成 `string`，
+		//  这条断言就变成恒假，所以它同时钉住了「键必须是字面量联合」这件事。）
+		const sameKeys: [MapKeys] extends [ContractKeys]
+			? [ContractKeys] extends [MapKeys] ? true : { 名单多出: Exclude<ContractKeys, MapKeys> }
+			: { 类型表多出: Exclude<MapKeys, ContractKeys> } = true;
+		expect(sameKeys).toBe(true);
 	});
 });

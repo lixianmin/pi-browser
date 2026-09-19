@@ -96,7 +96,7 @@ const env = createBrowserExecutionEnv({
 
 ## 扩展（宿主 API 同名同形）
 
-**S6 的口径：接口级一模一样。** 对外面只出现 pi coding agent 的同名成员；浏览器做不到的成员**保留原名、明确列不支持**，不造「差不多」的名字。名单与裁决的真源在 `src/extensions/contract.ts`，并有对照测试钉住（`test/extensions-contract.test.ts` 逐字比对上游三张名单，上游升级时会红）。
+**S6 的口径：接口级一模一样。** 对外面只出现 pi coding agent 的同名成员；浏览器做不到的成员**保留原名、明确列不支持**，不造「差不多」的名字。名单与裁决的真源在 `src/extensions/contract.ts`，并有对照测试钉住（`test/extensions-contract.test.ts` 逐字比对上游三张名单，上游升级时会红；事件类型表与「支持」名单的键集合也由那里双向钉住——任一边多出/漏掉一个名字，`tsc` 直接报出差异的名字）。
 
 扩展是**宿主自己的代码**（浏览器原生对象，不经加载器、不做发现），与宿主**同权限**——它不是沙箱，别拿它当隔离边界。
 

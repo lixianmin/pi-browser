@@ -182,6 +182,10 @@ export const UNSUPPORTED_CONTEXT_MEMBERS = [
 /**
  * pi 事件名 → 落点（spec §3.4）。值 = 人类可读的落点说明；实现期由 `api.ts` 的映射表消费。
  *
+ * **键必须是字面量联合**（`as const`，别再加 `Record<string, string>` 标注）：`api.ts` 的
+ * `ExtensionEventMap` 靠它做编译期对照（`test/extensions-contract.test.ts` 钉住两边键集合一致）。
+ * 标注成 `Record` 会让 `keyof` 退化成 `string`，那个对照就变成恒假——等于没钉。
+ *
  * 四项「待核实」的裁决（S6 spec §3.4 要求 T1 给出结论，不许悬空）：
  *   · `before_provider_headers` → 支持：`hooks.on('before_request')` 返回 streamOptions patch，
  *     其 `headers` 支持逐键增删（pi-agent-core types.d.ts:94 / 106-108 实证）。
@@ -190,7 +194,7 @@ export const UNSUPPORTED_CONTEXT_MEMBERS = [
  *     改不了 input 文本 / 来源 / 投递方式）。
  *   · `agent_settled` → **不支持**：无 idle/settled 事件；`run_end` 与 `agent_end` 同源，区分不出 settled 语义。
  */
-export const SUPPORTED_EVENTS: Readonly<Record<string, string>> = {
+export const SUPPORTED_EVENTS = {
 	context: "hooks.on('transform_context')",
 	before_agent_start: "hooks.on('before_run')",
 	agent_start: "events.on('run_start')",
@@ -216,7 +220,7 @@ export const SUPPORTED_EVENTS: Readonly<Record<string, string>> = {
 	before_provider_request: "hooks.on('before_request')",
 	before_provider_headers: "hooks.on('before_request')（streamOptions.headers 逐键增删）",
 	after_provider_response: "hooks.on('after_response')",
-};
+} as const;
 
 /**
  * 不支持的事件名。分三类：
