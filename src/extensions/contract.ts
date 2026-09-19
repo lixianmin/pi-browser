@@ -137,29 +137,35 @@ export const UNSUPPORTED_API_MEMBERS = [
 	'registerEntryRenderer',
 ] as const;
 
-/** 支持的 Context 成员。 */
+/** 支持的 Context 成员（7）：实际可兑现的只有这七个（`context.ts` 逐字段对齐）。 */
 export const SUPPORTED_CONTEXT_MEMBERS = [
 	'cwd',
-	'sessionManager',
-	'modelRegistry',
 	'model',
-	'scopedModels',
 	'isIdle',
 	'signal',
 	'abort',
-	'hasPendingMessages',
 	'getContextUsage',
 	'compact',
-	'getSystemPrompt',
 ] as const;
 
-/** 不支持的 Context 成员：`ui`/`mode`/`hasUI` 是 TUI 概念；`isProjectTrusted` 无信任门；`shutdown` 无宿主进程。 */
+/**
+ * 不支持的 Context 成员（10）。两类理由：
+ *   · TUI / 宿主进程概念：`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`；
+ *   · 上游是 CLI 专属复合对象或本仓无对应操作，**不发明形状**：`sessionManager`（pi 的 SessionManager 大对象）/
+ *     `modelRegistry` / `scopedModels` / `hasPendingMessages`（lane 无队列数 getter）/ `getSystemPrompt`
+ *     （harness 无 systemPrompt getter）。将来真有用例时再按当时核实到的形状加（S6 spec §3.4 规则）。
+ */
 export const UNSUPPORTED_CONTEXT_MEMBERS = [
 	'ui',
 	'mode',
 	'hasUI',
+	'sessionManager',
+	'modelRegistry',
+	'scopedModels',
 	'isProjectTrusted',
+	'hasPendingMessages',
 	'shutdown',
+	'getSystemPrompt',
 ] as const;
 
 /**
