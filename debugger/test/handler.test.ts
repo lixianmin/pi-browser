@@ -39,7 +39,7 @@ describe('bridge handler', () => {
 		await seed('h-read', '/a.txt', 'héllo 世界');
 		const r = await call('h-read', { kind: 'read', path: '/a.txt' });
 		expect(r.ok).toBe(true);
-		if (!r.ok || r.value.kind !== 'read') return fail('unreachable');
+		if (!r.ok || r.value.kind !== 'read' || r.value.encoding !== 'text') return fail('unreachable');
 		expect(r.value.encoding).toBe('text');
 		expect(r.value.content).toBe('héllo 世界');
 		expect(r.value.truncated).toBe(false);
@@ -61,7 +61,7 @@ describe('bridge handler', () => {
 		await seed('h-trunc', '/big.txt', big);
 		const r = await call('h-trunc', { kind: 'read', path: '/big.txt', maxBytes: 1000 });
 		expect(r.ok).toBe(true);
-		if (!r.ok || r.value.kind !== 'read') return fail('unreachable');
+		if (!r.ok || r.value.kind !== 'read' || r.value.encoding !== 'text') return fail('unreachable');
 		expect(r.value.encoding).toBe('text');
 		expect(r.value.truncated).toBe(true);
 		expect(r.value.content).toHaveLength(1000);

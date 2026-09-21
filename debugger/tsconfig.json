@@ -9,7 +9,10 @@
     "skipLibCheck": true,
     "noEmit": true,
     "verbatimModuleSyntax": true,
-    "types": ["chrome", "vite/client"]
+    "types": ["chrome", "vite/client"],
+    "paths": {
+      "@lixianmin/pi-browser": ["../src/index.ts"]
+    }
   },
   "include": ["src", "test", "vite.config.ts", "vite.bridge.config.ts"]
 }
