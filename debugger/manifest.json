@@ -1,0 +1,14 @@
+{
+	"manifest_version": 3,
+	"name": "PI Browser Debugger",
+	"version": "0.1.0",
+	"description": "DevTools file browser for pi-browser LightningFS/IndexedDB sessions.",
+	"minimum_chrome_version": "95",
+	"devtools_page": "src/devtools/devtools.html",
+	"background": {
+		"service_worker": "background.js",
+		"type": "module"
+	},
+	"permissions": ["scripting"],
+	"host_permissions": ["<all_urls>"]
+}

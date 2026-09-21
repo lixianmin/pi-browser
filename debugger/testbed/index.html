@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh">
+	<head>
+		<meta charset="utf-8" />
+		<title>PI Browser Debugger Testbed</title>
+	</head>
+	<body>
+		<h1>PI Browser Debugger Testbed</h1>
+		<p>
+			此页模拟「被调试的宿主页面」:在 <strong>本页面的 origin</strong> 里用 LightningFS 写样例数据。
+			用 Chrome 打开本页 → F12 → "PI Browser" 面板,即可调试本 origin 的 IDB。
+		</p>
+		<p>
+			<button id="seed">Seed 样例数据</button>
+			<button id="wipe">清空样例库</button>
+		</p>
+		<pre id="log"></pre>
+		<script type="module" src="./main.ts"></script>
+	</body>
+</html>

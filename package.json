@@ -10,6 +10,7 @@
     "test",
     "README.md"
   ],
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./shell/worker": "./src/shell/worker.ts"
