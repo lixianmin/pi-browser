@@ -29,7 +29,7 @@ function getFs(dbName: string): Promise<BrowserFileSystem> {
 	return p;
 }
 
-/** 测试隔离:清实例表(lightning-fs 模块级实例按库名缓存,跨用例需要重开) */
+/** 测试隔离:清实例表(pi-browser 内核注册表按库名共享（本表只省重复建包装对象）,跨用例需要重开) */
 export function resetHandlerCache(): void {
 	open.clear();
 }

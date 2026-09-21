@@ -13,9 +13,15 @@ import { createBrowserFileSystem } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;
 
-// 用例间独立树：显式 memory:true 挂载（注册表语义下默认挂载同 dbName 共享内核会让用例互染，spec 桶 A）
+// 用例间独立树：显式 memory:true 双挂载（'/' + '/tmp'，保留默认两挂载表的覆盖；注册表语义下默认挂载
+// 同 dbName 共享内核会让用例互染，spec 桶 A）
 const independentEnv = () =>
-	createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createBrowserFileSystem({ memory: true }) }] });
+	createBrowserExecutionEnv({
+		mounts: [
+			{ prefix: '/', fs: createBrowserFileSystem({ memory: true }) },
+			{ prefix: '/tmp', fs: createBrowserFileSystem({ memory: true }) },
+		],
+	});
 
 interface AcceptanceCase {
 	name: string;

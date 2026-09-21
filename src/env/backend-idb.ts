@@ -20,6 +20,10 @@ const MemoryBackend = (LightningFS as unknown as { MemoryBackend: MemoryBackendC
  * `LightningFS+MemoryBackend`——不能缓存 `createMemoryFileSystem`：它把 cwd 烤死在对象里、无多 cwd 视图原语。
  * 作用域是「每 JS 模块实例」（debugger 扩展自带一份 pi-browser 模块时与宿主仍是两内核，靠 Web Locks
  * Mutex2 + 写后 flush 共存，现状已如此）；测试跨用例用 `resetFsKernelRegistry()` 清表。
+ *
+ * `resetFsKernelRegistry()` 只清表、**不销毁旧内核**（lightning-fs 无公开销毁面）：旧内核 idle 500ms 后
+ * 的 deactivate 仍会把它的超块写回同一 IDB（单键 '!root'，后写覆盖）。故其用法钉死为
+ * 「reset → 重开 → 读回」；**reset 后不要对同一 dbName 继续写**（要与写入语义隔离）。
  */
 const kernelRegistry = new Map<string, LightningFS>();
 const kernelIsMemory = new Map<string, boolean>();
@@ -41,7 +45,8 @@ export interface BrowserFileSystemOptions {
 	/** 强制内存后端：**每调用独立纯内存世界**（createMemoryFileSystem），与注册表零交互（不查表/不写表/不缓存，
 	 *  任意两次 memory:true 调用彼此也是独立世界）——测试/开发的隔离旋钮。
 	 *  不传时：有 IndexedDB 走持久内核，无则自动内存（两者都入注册表，同 dbName 同世界）；
-	 *  `memory: false` 强制 IDB 内核（配 fake-indexeddb 可测真 IndexedDB 路径）。 */
+	 *  `memory: false` = 只用注册表内核（同 dbName 同世界；有 indexedDB 时是 IDB 内核，无 indexedDB 时是
+	 *  MemoryBackend 内核——与旧「强制 IDB 再自愈」对外等价，配 fake-indexeddb 可测真 IDB 路径）。 */
 	memory?: boolean;
 }
 
@@ -101,12 +106,16 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 	 * 而按环境嗅探无法覆盖全部时序；自愈比嗅探可靠。（浏览器里 indexedDB 正常，不会触发。）
 	 */
 	async function onFs<T>(fn: (f: LightningFS) => Promise<T>): Promise<T> {
-		try { return await fn(getKernel()); }
+		const used = getKernel();
+		try { return await fn(used); }
 		catch (e) {
 			const msg = String((e as Error)?.message ?? '');
-			if (!kernelIsMemory.get(dbName) && /indexedDB is not defined/.test(msg)) {
+			// 自愈判定按「本次用的内核」而非仅标志位：同 tick 已有并发 op 自愈时，后到者拿到的 used 仍是坏内核，
+			// 但注册表已换新——此时应直接用新内核重试（否则白抛，虽无数据损坏但错误更响）。
+			const healed = kernelRegistry.get(dbName) !== used;
+			if (/indexedDB is not defined/.test(msg) && (!kernelIsMemory.get(dbName) || healed)) {
+				if (!healed) kernelRegistry.set(dbName, makeMemoryFs());
 				kernelIsMemory.set(dbName, true);
-				kernelRegistry.set(dbName, makeMemoryFs());
 				return await fn(getKernel());
 			}
 			throw e;

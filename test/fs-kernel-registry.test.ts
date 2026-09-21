@@ -1,6 +1,7 @@
 // @vitest-environment node
 // fs 内核注册表（工程 fs 边界重构 spec §3，2026-09-21）：**同 dbName = 同世界**。
-// 持久路径（fake-indexeddb 真 IDB）与显式 memory:true 隔离、自愈写回收敛、reset 逃生口。
+// 持久路径（fake-indexeddb 真 IDB）与显式 memory:true 隔离、reset 逃生口。
+// 自愈写回的覆盖边界见 registry-heal.test.ts 的诚实记录（catch 分支不可驱动，R9）。
 // 自动内存（无 IDB）路径的注册表行为见 registry-auto-memory.test.ts（本文件有 fake indexedDB，走不到）。
 import './helpers/idb';
 import { describe, it, expect, beforeEach } from 'vitest';
