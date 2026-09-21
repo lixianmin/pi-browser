@@ -98,7 +98,8 @@ const CASES: CommonTask[] = [
 
 /** 一条用例 = 一个独立 env（用例之间不共享树，失败不级联）。
  *  显式 memory:true 双挂载（'/' + '/tmp'）：注册表语义下默认挂载同 dbName 共享内核会让用例同树互染
- *  （fs 边界重构 spec 桶 A）；保留 /tmp 挂载以维持默认两挂载表的覆盖（跨挂载路由/rename）。 */
+ *  （fs 边界重构 spec 桶 A）；挂载表与默认表同形（本文件用例不触 /tmp——/tmp 路由与跨挂载 rename 的覆盖
+ *  在 mount.test.ts:22-41,72-78 / execution-env.test.ts:34-46 / sync-session.test.ts:86-98）。 */
 async function runCase(c: CommonTask): Promise<{ exitCode: number; output: string }> {
 	const env: ExecutionEnv = createBrowserExecutionEnv({
 		mounts: [
