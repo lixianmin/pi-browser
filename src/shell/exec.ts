@@ -5,7 +5,7 @@
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
 import { BACKGROUND_CONTEXT, ExecutionError, err, ok, toError, type Context, type Result, type Shell, type ShellExecOptions, type ShellExecResult } from '@earendil-works/pi-agent-core';
-import { run, spawn, type RunResult, type Session } from 'wasi-sh';
+import { run, spawn, type RunResult, type Session, type WasmSource } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
 import { createMountTable } from '../env/mount';
 import { normalizePath } from '../env/path';
@@ -29,11 +29,20 @@ export interface BusyboxShellOptions {
 	 */
 	workerUrl?: URL | string;
 	/**
+	 * busybox wasm（URL / 字节 / 已编译模块）。默认用本包自带的 `./busybox.wasm`——
+	 * 它比上游 wasi-sh 自带的那份多了 find 的 -path/-maxdepth/-mtime/-size 等选项、SHOW_USAGE
+	 * （否则 `--help` 静默 exit 0）与一批常用 applet；来源与重建方式见 `scripts/build-busybox.sh`。
+	 */
+	wasm?: WasmSource;
+	/**
 	 * 宿主命令（S2.1 §3）：名字 → 主线程处理器。inline 路径只支持同步纯处理器（无第二线程可停靠），
 	 * 有 FS 效果或异步的处理器只在 worker 路径可用；与 applet/内建同名会在创建时抛错。
 	 */
 	hostCommands?: HostCommandRegistry;
 }
+
+/** 本包自带的 busybox.wasm（`scripts/build-busybox.sh` 的产物）；打包器需能解析该 asset URL */
+const DEFAULT_WASM_URL = new URL('./busybox.wasm', import.meta.url);
 
 /** 拉取 worker 变更集的等待上限：worker 死在回传前也不能把主线程挂住 */
 const PULL_TIMEOUT_MS = 5000;
@@ -54,6 +63,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	// 注册表校验一次就够（与 applet/内建同名 → 抛错）；worker 消息与 builtins 的 lookup 都用这份名单
 	const hostCommands: HostCommandRegistry = options.hostCommands ?? {};
 	const hostNames = hostCommandNames(hostCommands);
+	const wasm: WasmSource = options.wasm ?? DEFAULT_WASM_URL;
 
 	const makeCapture = (execOptions: ShellExecOptions | undefined, context: Context): ShellCapture =>
 		// capture.spill（超限全文落盘）不支持：pi-browser 没有 execution-environment-local 落盘面，传了忽略（spec §6）
@@ -89,6 +99,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 				command: withCwd(command, cwd),
 				fs: session.guestFs,
 				inline: true,
+				wasm,
 				env: envFor(execOptions),
 				builtins: hostNames.length > 0 ? createInlineHostBuiltins(hostCommands) : undefined,
 				onOutput: (bytes) => capture.push(bytes),
@@ -142,7 +153,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			const files: Record<string, string | Uint8Array> = {};
 			for (const { path, data } of pushed.written) files[path] = data;
 			// spawn() 依赖 SharedArrayBuffer/crossOriginIsolated——浏览器部署需 COOP/COEP 响应头（README「浏览器部署」节）
-			session = await spawn({ worker, command: withCwd(command, cwd), env: envFor(execOptions), files });
+			session = await spawn({ worker, command: withCwd(command, cwd), wasm, env: envFor(execOptions), files });
 			// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
 			// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
 			if (channel) session.end();

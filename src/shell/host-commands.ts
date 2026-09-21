@@ -11,7 +11,7 @@
 import { toError } from '@earendil-works/pi-agent-core';
 import { atomics } from './atomics';
 import type { HostBuiltins, BuiltinContext } from 'wasi-sh';
-import type { BrowserFileSystem } from '../env/types';
+import type { BrowserFileSystem, MountEntry } from '../env/types';
 import { createMountTable } from '../env/mount';
 import { applyChanges, flushMounts } from './sync-session';
 import { readMountTree, type ShellFsStore, type WasiFileSystem, type WasiFsChanges } from './wasi-fs';
@@ -27,6 +27,11 @@ export interface HostCommandRequest {
 	stdin?: string;
 	/** guest 的实时环境（exports + 本命令的 VAR=x 前缀） */
 	env?: Record<string, string>;
+	/**
+	 * 宿主侧挂载表（只由 worker 路径的 createHostCommandResponder 填入；inline 路径拿不到）。
+	 * 给 `mount` 这类需要知道「工作区由哪些挂载点组成」的命令用。
+	 */
+	mounts?: MountEntry[];
 }
 
 export interface HostCommandResult {
@@ -42,20 +47,28 @@ export type HostCommandHandler = (request: HostCommandRequest, fs: BrowserFileSy
 export type HostCommandRegistry = Record<string, HostCommandHandler>;
 
 /**
- * 保留名：busybox applet 与 ash 内建。ash 的解析顺序是 函数 → shell 内建 → applet → 宿主内建 → PATH，
- * 所以同名宿主命令**永远不会被调用**（被 applet 静默抢走）——必须在注册时拒绝，而不是让调用方以为注册成功了。
+ * shell 能自行解析的名字：busybox applet + ash 内建。两个用途：
+ *   1. `hostCommandNames` 拒绝同名注册——ash 的解析顺序是 函数 → shell 内建 → applet → 宿主内建 → PATH，
+ *      同名宿主命令**永远不会被调用**（被 applet 静默抢走）；
+ *   2. `which` 判定「这个名字能不能用」——wasi-sh 里 applet 不是 PATH 上的文件，
+ *      纯文件查找找不到它们（实测 `which ls` -> exit 1，而 `ls` 能跑）。
  *
- * 来源：锁定版本 wasi-sh 0.11.0 的 busybox 1.38.0 构建（`busybox.config` 里 `CONFIG_*=y` 的 applet +
- * README「The toolbox」+ ash 内建名）。升级 wasi-sh 时需重新对账：漏掉的名字只会被静默抢走，
- * 多出来的名字只是误拒（保守方向）。
+ * 来源：`scripts/busybox.config` 编出的 wasm 里实际启用的 applet
+ *（`//applet:IF_*` × `.config` 里 `CONFIG_*=y`）+ ash 内建名。
+ * 改 `scripts/busybox.config` 或升级 busybox 后必须重新对账：漏掉的名字会被静默抢走，
+ * 多出来的名字只是误拒（保守方向）。当前对应 wasm：src/shell/busybox.wasm。
  */
-const RESERVED_COMMAND_NAMES: ReadonlySet<string> = new Set([
-	// applet
-	'ash', 'awk', 'basename', 'cat', 'cksum', 'cp', 'crc32', 'cut', 'date', 'dirname', 'du', 'echo', 'env',
-	'expr', 'false', 'find', 'fold', 'getopt', 'grep', 'head', 'hexdump', 'ls', 'md5sum', 'mkdir', 'mktemp', 'mv',
-	'nproc', 'paste', 'printenv', 'printf', 'pwd', 'realpath', 'rm', 'rmdir', 'sed', 'seq', 'sh', 'sha1sum',
-	'sha256sum', 'sort', 'stat', 'stty', 'tac', 'tail', 'test', 'touch', 'tr', 'true', 'uname', 'uniq', 'unlink',
-	'wc', 'xargs', 'xxd',
+export const RESERVED_COMMAND_NAMES: ReadonlySet<string> = new Set([
+	// applet（105 个，来自 scripts/busybox.config）
+	'ar', 'ash', 'awk', 'base32', 'base64', 'basename', 'bc', 'cal', 'cat', 'cksum', 'clear', 'cmp', 'comm',
+	'cp', 'cpio', 'crc32', 'cut', 'date', 'dc', 'diff', 'dirname', 'dpkg', 'du', 'echo', 'egrep', 'env',
+	'expand', 'expr', 'factor', 'false', 'fgrep', 'find', 'fold', 'fsync', 'getopt', 'grep', 'groups', 'head',
+	'hexdump', 'hostid', 'hostname', 'id', 'install', 'logname', 'ls', 'md5sum', 'mkdir', 'mktemp', 'mv', 'nl',
+	'nproc', 'od', 'paste', 'patch', 'printenv', 'printf', 'pwd', 'readlink', 'realpath', 'reset', 'rev', 'rm',
+	'rmdir', 'rpm2cpio', 'sed', 'seq', 'sh', 'sha1sum', 'sha256sum', 'sha384sum', 'sha3sum', 'sha512sum', 'shuf',
+	'sleep', 'sort', 'stat', 'strings', 'stty', 'sum', 'tac', 'tail', 'tar', 'tee', 'test', 'timeout', 'touch',
+	'tr', 'tree', 'true', 'ts', 'tsort', 'uname', 'unexpand', 'uniq', 'unlink', 'unzip', 'usleep', 'uudecode',
+	'uuencode', 'watch', 'wc', 'whoami', 'xargs', 'xxd', 'yes',
 	// ash 内建
 	'.', ':', '[', 'alias', 'bg', 'break', 'cd', 'chdir', 'command', 'continue', 'eval', 'exec', 'exit', 'export',
 	'fc', 'fg', 'getopts', 'hash', 'jobs', 'kill', 'local', 'read', 'readonly', 'return', 'set', 'shift', 'times',
@@ -362,7 +375,7 @@ export function createHostCommandResponder(store: ShellFsStore, handlers: HostCo
 		let result: HostCommandResult;
 		try {
 			result = handler
-				? await handler(request, hostFileSystem(store))
+				? await handler({ ...request, mounts: store.mounts }, hostFileSystem(store))
 				: { exitCode: 127, stderr: `${request.name}: not found\n` };
 		} catch (e) {
 			result = { exitCode: 1, stderr: `${request.name}: ${toError(e).message}\n` };

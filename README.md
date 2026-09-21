@@ -95,6 +95,39 @@ const env = createBrowserExecutionEnv({
 - **stdin**：本 shell 没有活 stdin（exec 从不写 stdin），fd 0 恒 EOF；`echo x | hostcmd` 走管道 fd、`hostcmd < f` 走文件 fd，都照常读到。处理器拿到的 `stdin` 在无输入时是 `undefined`。
 - **超时**：guest 等待宿主应答的上限取 exec 的 `timeout`（未设 30s）；真正卡死仍由 exec 既有硬杀语义收尾（返回 `timeout`）。
 
+## busybox（自带 wasm 与默认宿主命令）
+
+`createBrowserExecutionEnv` 默认用**本包自带**的 `src/shell/busybox.wasm`，不是上游 wasi-sh 那份。原因有二，都是实测出来的：
+
+1. 上游 `busybox.config` 裁掉了 `find` 的 `-path` / `-maxdepth` / `-mtime` / `-size` 等选项（`find: unrecognized: -path` 直接报错），且 `CONFIG_SHOW_USAGE` 关闭——此时 `--help` 会**静默 exit 0**（agent 以为拿到帮助了，其实什么都没有）。
+2. 一批对 agent 常用的 applet（`base64` `diff` `patch` `bc` `tree` `tar` `cal` …）默认没编进去。
+
+自带 wasm 的开启清单在 `scripts/busybox.config`（每个分组都注明**为什么砍掉某些选项**）。重建：
+
+```sh
+sh scripts/build-busybox.sh   # 需要 zig（brew install zig）；产物落到 src/shell/busybox.wasm
+```
+
+脚本会一并链接 `scripts/pi-wasi-stubs.c`：开了更多 applet 后会引入 wasi-libc / wasi-sh 都没实现的符号，而链接用 `--import-undefined`，不补桩就会在 `WebAssembly.instantiate()` 抛 `function import requires a callable`。
+
+**能用的边界**（都实测过，不是推测）：wasi-sh 是 fork-free 的单进程 shell，所以
+
+- **压缩解压不可用**（`gzip` `bzip2` `xz` `lzma` …）：busybox 的 `bbunzip` 在**进程内**把 fd 0/1 重定向（`xmove_fd` / `open_to_or_warn(STDOUT_FILENO,…)`），在共享 fd 模型下会把 shell 自己的 stdout 永久改到输出文件上——下一个 `echo` 就报 `Bad file descriptor`。同类问题也砍掉了 `dd` 与 `split`。
+- **需要 fork 的写法不可用**：`tar -z`、`zcat`、`diff <(a) <(b)`（进程替换）会报 `fork: Function not implemented`。
+- **改文件元数据的命令不可用**：`chmod` `ln` `truncate` `shred`（wasi 没有 `chmod`/`link`/`truncate` syscall）。这些命令干脆不编进来——工具箱的原则是「present 即可用」，留着只会让 agent 白撞。
+- `cp -r` / `install` 可用，只在「保留权限」这步往 stderr 告警。
+
+### 默认宿主命令：`which` / `mount`
+
+这两个由 pi-browser 默认注册（`createBrowserExecutionEnv` 里 `{...默认, ...调用方给的}`，同名以调用方为准）：
+
+- **`which`**：busybox 自带的 `which` 走 `find_executable()`（`access(X_OK)` + `stat` + `S_ISREG`），是**纯文件查找**，从不查 applet 表——平时能用只是因为 busybox 安装时造了 `/bin/ls -> /bin/busybox` 符号链接；wasi-sh 是单个 `.wasm`、从不 `make install`，于是 `which ls` 找不到自己的 applet（实测 exit 1）。所以这里的 `which` 对齐 `command -v` 语义：shell 可解析的名字（applet / 内建 / 宿主命令）直接命中并打印名字本身，否则沿 `$PATH` 找常规文件。
+- **`mount`**：busybox 的 `mount` 要真实 mount syscall 或 `/proc/mounts`，wasi 里都没有，编进来也是哑炮。这里实现「无参 `mount`」语义：列出挂载表（`/ on browser-fs`、`/tmp on browser-fs`）。
+
+两个命令都要读 FS / 挂载表，因此**只在 worker 路径生效**；node/vitest 的 inline 路径会明确报错（与其它宿主命令的约束一致）。
+
+若要换用别处的 wasm，用 `createBrowserExecutionEnv({ wasm })`（`URL | string | ArrayBuffer | Uint8Array | WebAssembly.Module`）。
+
 ## 扩展（宿主 API 同名同形）
 
 **S6 的口径：接口级一模一样。** 对外面只出现 pi coding agent 的同名成员；浏览器做不到的成员**保留原名、明确列不支持**，不造「差不多」的名字。名单与裁决的真源在 `src/extensions/contract.ts`，并有对照测试钉住（`test/extensions-contract.test.ts` 逐字比对上游三张名单，上游升级时会红；事件类型表与「支持」名单的键集合也由那里双向钉住——任一边多出/漏掉一个名字，`tsc` 直接报出差异的名字）。
