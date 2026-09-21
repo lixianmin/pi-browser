@@ -5,7 +5,7 @@
 import './helpers/idb';
 import { test, expect, vi } from 'vitest';
 import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
-import { createBrowserFileSystem } from '../src/env/backend-idb';
+import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/env/backend-idb';
 
 // pi 的方法都要 chord Context；BACKGROUND_CONTEXT 是 pi 现成的背景上下文
 const ctx = () => BACKGROUND_CONTEXT;
@@ -20,6 +20,8 @@ test('durability: write → flush → 同库新实例 → 读回', async () => {
 	expect(flushSpy).toHaveBeenCalledTimes(1);
 	expect(flushSpy.mock.results[0]?.value).toBeInstanceOf(Promise);   // flush 是异步契约，调用方必须 await
 
+	// 清内核注册表：b 必须是真·新实例（从 IDB 重载超块），否则共享 CacheFS 恒绿、不再测 IDB 落盘本身
+	resetFsKernelRegistry();
 	const b = createBrowserFileSystem({ dbName: 'durability-db', memory: false });
 	const r = await b.readTextFile('/spice-sessions/x.jsonl', ctx());
 	expect(r).toEqual({ ok: true, value: 'hello' });

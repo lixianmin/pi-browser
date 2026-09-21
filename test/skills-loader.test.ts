@@ -5,7 +5,7 @@
 import './helpers/idb';
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, type ExecutionEnv } from '@earendil-works/pi-agent-core';
-import { createBrowserExecutionEnv, createBrowserFileSystem } from '../src/index';
+import { createBrowserExecutionEnv, createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { DEFAULT_SKILL_ROOTS, loadBrowserSkills, loadSkillsFromEnv } from '../src/skills/loader';
 
@@ -125,6 +125,8 @@ describe('loadBrowserSkills：自建 ExecutionEnv', () => {
 		await fs.flush();
 		await fs.cleanup(CTX);
 
+		// 清内核注册表：reopened 必须是真·新实例从 IDB 重载，否则共享 CacheFS 恒绿、不再测落盘本身
+		resetFsKernelRegistry();
 		const reopened = createBrowserFileSystem({ dbName: 'skills-shared', memory: false });
 		const { skills } = await loadBrowserSkills({ mounts: [{ prefix: '/', fs: reopened }] });
 

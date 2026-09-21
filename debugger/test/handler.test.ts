@@ -4,7 +4,7 @@
 import 'fake-indexeddb/auto';
 import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createBrowserFileSystem } from '@lixianmin/pi-browser';
+import { createBrowserFileSystem, resetFsKernelRegistry } from '@lixianmin/pi-browser';
 import { bytesToBase64, type FsOp } from '../src/shared/protocol';
 import { handleOp, resetHandlerCache } from '../src/bridge/handler';
 
@@ -103,6 +103,8 @@ describe('bridge handler', () => {
 
 	it('flush 契约:write 后新开实例可读(超级块落盘)', async () => {
 		await seed('h-flush', '/session/main.jsonl', '{"role":"user"}');
+		// 清 fs 内核注册表：fresh 必须是真·新实例从 IDB 重载（同 dbName 共享内核会让断言恒绿、不再测落盘本身）
+		resetFsKernelRegistry();
 		// 新的 BrowserFileSystem 实例模拟宿主页面刷新后重开
 		const fresh = createBrowserFileSystem({ dbName: 'h-flush', memory: false });
 		const r = await fresh.readTextFile('/session/main.jsonl', BACKGROUND_CONTEXT);

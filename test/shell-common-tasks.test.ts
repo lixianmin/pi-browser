@@ -15,6 +15,7 @@ import {
 	type ExecutionEnv, type ShellOutputUpdate, type ShellOutputView,
 } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
+import { createBrowserFileSystem } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -95,9 +96,10 @@ const CASES: CommonTask[] = [
 	{ n: 'X03 纯内建子 shell（ash 同进程优化）', cmd: `(cd /; pwd)`, eq: '/\n' },
 ];
 
-/** 一条用例 = 一个独立 env（用例之间不共享树，失败不级联） */
+/** 一条用例 = 一个独立 env（用例之间不共享树，失败不级联）。
+ *  显式 memory:true 挂载：注册表语义下默认挂载同 dbName 共享内核会让用例同树互染（fs 边界重构 spec 桶 A）。 */
 async function runCase(c: CommonTask): Promise<{ exitCode: number; output: string }> {
-	const env: ExecutionEnv = createBrowserExecutionEnv();
+	const env: ExecutionEnv = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createBrowserFileSystem({ memory: true }) }] });
 	for (const [path, content] of Object.entries(c.files ?? {})) {
 		const written = await env.writeFile(path, content, CTX);
 		if (!written.ok) throw new Error(`装配失败 ${path}: ${written.error.code} ${written.error.message}`);

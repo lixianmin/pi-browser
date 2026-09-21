@@ -17,7 +17,7 @@ import {
 
 const CTX = BACKGROUND_CONTEXT;
 
-/** dbName → fs 实例表:一个库只开一个实例,lightning-fs 内部也按名复用 */
+/** dbName → fs 实例表:一个库只开一个实例（pi-browser 内核注册表同 dbName 同世界，此处表只省重复建对象） */
 const open = new Map<string, Promise<BrowserFileSystem>>();
 
 function getFs(dbName: string): Promise<BrowserFileSystem> {

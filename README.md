@@ -14,9 +14,10 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 
 | 导出 | 签名 | 用途 |
 |---|---|---|
-| `createBrowserFileSystem` | `(o?: BrowserFileSystemOptions) => BrowserFileSystem` | fs 工厂：默认 lightning-fs/IDB；`memory: true` 强制内存后端，`memory: false` 强制走 IDB |
+| `createBrowserFileSystem` | `(o?: BrowserFileSystemOptions) => BrowserFileSystem` | fs 工厂：**同 dbName 共享同一内核**（持久/自动内存均入注册表，同库多 cwd 视图同世界）；`memory: true` 每调用独立纯内存世界（隔离旋钮，不入注册表），`memory: false` 强制 IDB 内核 |
 | `BrowserFileSystem` | `interface`（pi `FileSystem` + `flush(): Promise<void>`） | 会话持久化契约类型；`flush()` 兑现 lightning-fs 超级块 500ms debounce 之外的落盘 |
-| `BrowserFileSystemOptions` | `{ dbName?: string; cwd?: string; fs?: LightningFS; memory?: boolean }` | fs 工厂选项（`dbName` 默认 `'spice-sessions'`） |
+| `BrowserFileSystemOptions` | `{ dbName?: string; cwd?: string; memory?: boolean }` | fs 工厂选项（`dbName` 默认 `'spice-sessions'`） |
+| `resetFsKernelRegistry` | `() => void` | **测试专用**：清空 fs 内核注册表（「同库新实例」durability 类测试清表后重开，断言的才是 IDB 落盘本身；生产禁用） |
 | `normalizePath` | `(p: string) => string` | 纯 JS 路径归一（无 `node:path`，浏览器/Node 同构） |
 | `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |

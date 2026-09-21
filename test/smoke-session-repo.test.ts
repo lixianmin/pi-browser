@@ -8,7 +8,7 @@
 import './helpers/idb';
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, JsonlSessionRepo } from '@earendil-works/pi-agent-core';
-import { createBrowserFileSystem } from '../src/index';
+import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -24,6 +24,8 @@ describe('JsonlSessionRepo 在 pi-browser fs 上往返（S3 消费切换的前�
 		await fs.flush();
 
 		// 新实例（= 刷新页面后重建 fs）读回：会话文件与目录项都必须在 IDB 里
+		// 清内核注册表：reopenedFs 必须是真·新实例从 IDB 重载，否则共享 CacheFS 恒绿、不再测落盘本身
+		resetFsKernelRegistry();
 		const reopenedFs = createBrowserFileSystem({ dbName: 'smoke-db', memory: false });
 		const repo2 = new JsonlSessionRepo({ fileSystem: reopenedFs, sessionsRoot: '/spice-sessions' });
 		const meta = (await repo2.list(undefined, CTX)).find((m) => m.id === 's1');

@@ -11,6 +11,9 @@ export type { FileSystem, FileError, FileInfo, Result, ExecutionEnv };
  * 为何需要：lightning-fs 的超级块（目录树）写入是 **500ms debounce**（DefaultBackend.saveSuperblock）——
  * `writeFile()` resolve 时文件内容已进 IndexedDB，但目录项/路径映射可能还没写。此时刷新页面会
  * 「文件内容在、路径丢了」，表现为会话消息读不回来（e2e chat.spec 实证）。会话存储每回合末调 flush 兑现 durability。
+ *
+ * 共享语义（fs 边界重构 spec，2026-09-21）：同 dbName 的实例共享同一内核（注册表），多 cwd 视图读写互通；
+ * `appendFile` 是读旧→拼接→写回，**非原子**——跨视图并发追加同一文件需调用方自行串行。
  */
 export interface BrowserFileSystem extends FileSystem {
 	flush(): Promise<void>;

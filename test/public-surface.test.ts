@@ -34,6 +34,7 @@ const RUNTIME_EXPORTS = [
 	'loadBrowserSkills',
 	'loadSkillsFromEnv',
 	'normalizePath',
+	'resetFsKernelRegistry',
 ];
 
 /** 运行时导出里的非函数（re-export 的上游常量） */

@@ -9,8 +9,13 @@ import {
 	type ExecutionEnv, type ShellOutputUpdate, type ShellOutputView,
 } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
+import { createBrowserFileSystem } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;
+
+// 用例间独立树：显式 memory:true 挂载（注册表语义下默认挂载同 dbName 共享内核会让用例互染，spec 桶 A）
+const independentEnv = () =>
+	createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createBrowserFileSystem({ memory: true }) }] });
 
 interface AcceptanceCase {
 	name: string;
@@ -46,7 +51,7 @@ async function execCase(env: ExecutionEnv, command: string, limits?: { maxBytes:
 describe('语义验收矩阵（spike v2 修正版）', () => {
 	for (const c of CASES) {
 		it(c.name, async () => {
-			const env = createBrowserExecutionEnv();
+			const env = independentEnv();
 			const { exitCode, output } = await execCase(env, c.command);
 			expect(exitCode).toBe(c.exitCode);
 			expect(output).toBe(c.output);
@@ -57,7 +62,7 @@ describe('语义验收矩阵（spike v2 修正版）', () => {
 
 describe('capture.limits 截断', () => {
 	it('尾保留按行截断：保留最后 3 行 + 截断元数据（先到先触发）', async () => {
-		const env = createBrowserExecutionEnv();
+		const env = independentEnv();
 		const { output, view } = await execCase(env, 'seq 1 10', { maxBytes: 1024, maxLines: 3, retain: 'tail' });
 		expect(output).toBe('8\n9\n10');
 		expect(view?.truncation.truncated).toBe(true);
@@ -67,7 +72,7 @@ describe('capture.limits 截断', () => {
 	});
 
 	it('尾保留按字节截断时给 lastLineBytes（首行超限的判据）', async () => {
-		const env = createBrowserExecutionEnv();
+		const env = independentEnv();
 		const { output, view } = await execCase(env, 'printf "aaaaaaaaaa\\nbbbbbbbbbb\\n"', { maxBytes: 6, maxLines: 100, retain: 'tail' });
 		expect(view?.truncation.truncated).toBe(true);
 		expect(view?.truncation.truncatedBy).toBe('bytes');

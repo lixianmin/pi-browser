@@ -12,31 +12,36 @@ type MemoryBackendCtor = new () => LightningFS.IDB;
 const MemoryBackend = (LightningFS as unknown as { MemoryBackend: MemoryBackendCtor }).MemoryBackend;
 
 /**
- * 是否需要内存后端（lightning-fs 默认后端是 IndexedDB）。
+ * fs 内核注册表（工程 fs 边界重构 spec §3，2026-09-21）：**同 dbName = 同世界**。
  *
- * 判据在**每次创建实例时**求值，不用模块级快照——踩过的坑：web 单测里有的文件会 `vi.stubGlobal('indexedDB', …)`
- * 再撤销，模块级快照可能落在「stub 存在」的窗口里，之后真用时 indexedDB 已消失 → ReferenceError。
- * 没有 IndexedDB 的运行环境一律走内存后端；测试如果需要特定后端，应显式传入 memory 选项。
- *
- * 显式 `memory: false` 优先于无 IndexedDB 的自动内存判定，允许测试和调用方强制验证 lightning-fs/IDB 路径。
+ * lightning-fs 4.7.0 不按名去重实例（每个 `new` 新建 CacheFS 超块缓存，多实例 = 一方写另一方不可见、
+ * 刷新后才对齐），同库跨闭包共享只能由这层做：持久路径（有 IndexedDB）按 dbName 复用同一 LightningFS；
+ * 自动内存路径（无 IndexedDB，即两仓全部 vitest + 降级浏览器）同样按 dbName 键控
+ * `LightningFS+MemoryBackend`——不能缓存 `createMemoryFileSystem`：它把 cwd 烤死在对象里、无多 cwd 视图原语。
+ * 作用域是「每 JS 模块实例」（debugger 扩展自带一份 pi-browser 模块时与宿主仍是两内核，靠 Web Locks
+ * Mutex2 + 写后 flush 共存，现状已如此）；测试跨用例用 `resetFsKernelRegistry()` 清表。
  */
-function useMemoryBackend(explicit?: boolean): boolean {
-	if (explicit === false) return false;
-	if (explicit === true) return true;
-	if (typeof indexedDB === 'undefined') return true;
-	return false;
+const kernelRegistry = new Map<string, LightningFS>();
+const kernelIsMemory = new Map<string, boolean>();
+
+/** 测试专用逃生口：清空内核注册表——「同库新实例」durability 类测试清表后重开，断言的才是 IDB 落盘本身
+ *  （否则命中同内核恒绿、不再测落盘）。先例：debugger handler.ts `resetHandlerCache()`。生产代码禁用。 */
+export function resetFsKernelRegistry(): void {
+	kernelRegistry.clear();
+	kernelIsMemory.clear();
 }
 
 type LfsStats = { type?: string; size?: number; mtimeMs?: number; isDirectory?: () => boolean; isFile?: () => boolean };
 
 export interface BrowserFileSystemOptions {
-	/** IndexedDB 库名（浏览器）/ 锁名前缀（Node）；默认 'spice-sessions' */
+	/** IndexedDB 库名（浏览器）/ 锁名前缀（Node）；默认 'spice-sessions'。**同 dbName 共享同一内核**（注册表）。 */
 	dbName?: string;
-	/** pi `FileSystem.cwd`（相对路径解析基准）；默认 '/' */
+	/** pi `FileSystem.cwd`（相对路径解析基准）；默认 '/'。**cwd 不进注册表 key**——同库多 cwd 视图必须同世界。 */
 	cwd?: string;
-	/** 测试注入：复用已有 lightning-fs 实例 */
-	fs?: LightningFS;
-	/** 强制内存后端（默认：无 indexedDB 或 vitest 环境下自动内存）；`false` 强制 lightning-fs/IDB */
+	/** 强制内存后端：**每调用独立纯内存世界**（createMemoryFileSystem），与注册表零交互（不查表/不写表/不缓存，
+	 *  任意两次 memory:true 调用彼此也是独立世界）——测试/开发的隔离旋钮。
+	 *  不传时：有 IndexedDB 走持久内核，无则自动内存（两者都入注册表，同 dbName 同世界）；
+	 *  `memory: false` 强制 IDB 内核（配 fake-indexeddb 可测真 IndexedDB 路径）。 */
 	memory?: boolean;
 }
 
@@ -58,29 +63,51 @@ function mapError(e: unknown, path: string): FileError {
 
 const isNotFound = (e: unknown): boolean => String((e as { code?: string })?.code ?? '') === 'ENOENT';
 
+/** LFS 系 readFile 读目录返回 null（CacheFS stat 目录成功→按 ino 读空→DefaultBackend.readFile 得 null），
+ *  memory 后端报 not_found——适配层统一归一为 not_found，三种内核面同契约（fs 边界重构 spec §3 收口）。 */
+const ensureFileContent = <T>(v: T, path: string): T => {
+	if (v === null || v === undefined) {
+		throw Object.assign(new Error(`Not a file: ${normalizePath(path)}`), { code: 'ENOENT' });
+	}
+	return v;
+};
+
 /** 落 lightning-fs 的文件系统能力（pi FileSystem 契约）。Node/单测走纯内存实现（自愈与该判据同源） */
 export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): BrowserFileSystem {
-	if (!o.fs && useMemoryBackend(o.memory)) return createMemoryFileSystem(o.cwd ?? '/');
+	// 显式 memory:true：每调用独立纯内存世界，**不碰注册表**（隔离旋钮，spec C3）。
+	if (o.memory === true) return createMemoryFileSystem(o.cwd ?? '/');
 	const dbName = o.dbName ?? 'spice-sessions';
 	const makeMemoryFs = (): LightningFS => new LightningFS(dbName, { db: new MemoryBackend() });
-	let usingMemory = useMemoryBackend(o.memory) || o.fs !== undefined;
-	let fs = o.fs ?? (usingMemory ? makeMemoryFs() : new LightningFS(dbName));
+	/** 从注册表现取当前 dbName 内核（**每次操作都取**，闭包不长期持有引用）：自愈把内存内核写回同 key 后，
+	 *  先于自愈创建的其它同键闭包也立刻收敛到同一内核——若闭包捕获局部引用，会各自再自愈出 N 个内存世界，
+	 *  先自愈者成数据孤儿（round-2 F4 钉死）。miss 时初始化：有 IDB 建 IDB 内核；无 IDB 直接建
+	 *  MemoryBackend 内核（判据同源旧 useMemoryBackend：没 IDB 就别建注定抛 `indexedDB is not defined` 的内核）。 */
+	const getKernel = (): LightningFS => {
+		const cached = kernelRegistry.get(dbName);
+		if (cached) return cached;
+		const hasIdb = typeof indexedDB !== 'undefined';
+		const kernel = hasIdb ? new LightningFS(dbName) : makeMemoryFs();
+		kernelRegistry.set(dbName, kernel);
+		kernelIsMemory.set(dbName, !hasIdb);
+		return kernel;
+	};
 	const cwd = normalizePath(o.cwd ?? '/');
 
 	/**
-	 * 所有 fs 操作统一走这里：**IndexedDB 后端初始化失败时自愈切内存后端重试一次**。
+	 * 所有 fs 操作统一走这里：内核**每次现取**（getKernel，注册表收敛语义见上）+ **IndexedDB 后端初始化失败时
+	 * 自愈切内存后端重试一次**（写回注册表同 key + per-dbName 标志，全体同键闭包收敛一个内存内核）。
 	 * 为什么需要：lightning-fs 的默认后端在「声明有 indexedDB、实际调用时又没了」的环境里会抛
 	 * `ReferenceError: indexedDB is not defined`（jsdom 单测中 stub 被撤销时就这一种），
 	 * 而按环境嗅探无法覆盖全部时序；自愈比嗅探可靠。（浏览器里 indexedDB 正常，不会触发。）
 	 */
 	async function onFs<T>(fn: (f: LightningFS) => Promise<T>): Promise<T> {
-		try { return await fn(fs); }
+		try { return await fn(getKernel()); }
 		catch (e) {
 			const msg = String((e as Error)?.message ?? '');
-			if (!usingMemory && /indexedDB is not defined/.test(msg)) {
-				usingMemory = true;
-				fs = makeMemoryFs();
-				return await fn(fs);
+			if (!kernelIsMemory.get(dbName) && /indexedDB is not defined/.test(msg)) {
+				kernelIsMemory.set(dbName, true);
+				kernelRegistry.set(dbName, makeMemoryFs());
+				return await fn(getKernel());
 			}
 			throw e;
 		}
@@ -144,10 +171,10 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		absolutePath: async (path: string) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts: string[]) => ok(normalizePath(parts.join('/'))),
 
-		readTextFile: (path) => wrap(path, () => onFs((f) => f.promises.readFile(normalizePath(path), 'utf8'))),
-		readBinaryFile: (path) => wrap(path, () => onFs((f) => f.promises.readFile(normalizePath(path)))),
+		readTextFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path), 'utf8'), path))),
+		readBinaryFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path)), path))),
 		readTextLines: (path, options) => wrap(path, async () => {
-			const text = await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8'));
+			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);
 			const lines = text.split('\n');
 			return options?.maxLines !== undefined ? lines.slice(0, options.maxLines) : lines;
 		}),
@@ -189,7 +216,14 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			const abs = normalizePath(path);
 			try {
 				if (options?.recursive) await removeRecursive(abs);
-				else await onFs((f) => f.promises.unlink(abs));
+				else {
+					// 契约收口：非递删目录统一报 is_directory——LFS 系 unlink 对目录静默摘条目留孤儿，
+					// 与 memory 后端（及 makeGitFs.rmdir 依赖的 shell-git-fidelity 验证语义）对齐。
+					const st = (await onFs((f) => f.promises.stat(abs))) as LfsStats;
+					const isDir = st?.isDirectory ? st.isDirectory() : st?.type === 'dir';
+					if (isDir) throw Object.assign(new Error(`Is a directory: ${abs}`), { code: 'EISDIR' });
+					await onFs((f) => f.promises.unlink(abs));
+				}
 			} catch (e) {
 				if (isNotFound(e) && options?.force) return;   // force：不存在视为成功
 				throw e;
