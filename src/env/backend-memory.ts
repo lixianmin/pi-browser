@@ -4,7 +4,7 @@
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
-import { createTextLineReader } from './text-line-reader';
+import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import type { BrowserFileSystem } from './types';
 
 const basename = (p: string): string => normalizePath(p).split('/').filter(Boolean).pop() ?? '';
@@ -64,12 +64,15 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			if (!n || n.kind !== 'file') return err(notFound(abs));
 			return okv(n.bytes ?? new TextEncoder().encode(n.data ?? ''));
 		},
-		readTextLines: async (path, options) => {
+		// 与上游 `NodeExecutionEnv` 同语义（0.99.1 起上游内部就是走行读取器）：结尾换行**不**产生幽灵空行、
+		// 空文件返 []。旧版按 `split('\n')` 切，`"l1\nl2\n"` 会多出一行 `""`（已对齐上游）。
+		readTextLines: async (path, options, context) => {
+			// 上游同款短路：maxLines <= 0 连文件都不打开（缺失路径也返 ok([])）
+			if (options?.maxLines !== undefined && options.maxLines <= 0) return okv<string[]>([]);
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
-			const lines = (n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '').split('\n');
-			return okv(options?.maxLines !== undefined ? lines.slice(0, options.maxLines) : lines);
+			return readAllTextLines(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs), options?.maxLines, context);
 		},
 		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
 		openTextLineReader: async (path) => {

@@ -62,8 +62,13 @@ const tools = [createReadTool({ fs }), createBashTool({ env })];      // 形状 
 tools[0].parameters;                                                  // typebox schema（校验由上游做）
 ```
 
-## skills 与 compaction（S4）
+### 文件读取语义（`readTextLines` / `openTextLineReader`）
 
+- **`openTextLineReader(path, ctx)`**（pi 0.99.1 新增契约）：拉取式逐行读取，每行带 `terminated`（该行是否以换行结束）。上游 `readJsonlHeader` 用 `terminated === false` 识别「存储文件只写了一半」，所以 memory / IDB 两后端都如实回答这一位；`close()` 幂等、不抛，关闭后 `readLine` 返 `invalid`。
+- **`readTextLines(path, options, ctx)`** 与上游 `NodeExecutionEnv` 同语义：**结尾换行不产生幽灵空行**（`"l1\nl2\n"` → `["l1","l2"]`；v0.5.0 及以前按 `split('\n')` 切会多出一行 `""`，0.99.1 升级时已按上游改了行为）、空文件 → `[]`；`maxLines <= 0` 直接返 `[]`（上游同款短路：连文件都不打开，缺失路径也返 `[]` 而不是 `not_found`）。
+- 两者都由 `test/equivalence.node.test.ts` 的策展等价表与上游 `NodeExecutionEnv` 逐条比对（含末行截断、结尾换行、空文件、`maxLines: 0` 短路），`test/memory-backend.test.ts` / `test/idb-backend.test.ts` 另有一份同断言集。
+
+## skills 与 compaction（S4）
 - **skills**：加载用 `loadBrowserSkills(o?)`（自建 ExecutionEnv）或 `loadSkillsFromEnv(env, roots?)`（复用已有 env）——都是上游 `loadSkills` 的薄封装，默认 roots `['/skills', '/.pi/skills']`，`diagnostics` 原样透出。清单渲染用上游 `formatSkillsForSystemPrompt(skills)`（含 `<location>`、过滤 `disableModelInvocation`），按需调用块用 `formatSkillInvocation(skill)`；产物直接放进 `AgentHarnessResources.skills`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）全归上游，本库不复刻。
 - **compaction**：本库**不直接调** `compact`/`prepareCompaction`（那两条会引入 pi-ai 运行时依赖）。`AgentHarness` 自带自动压缩，由构造选项 `compaction: CompactionSettings` 驱动，产物是会话里的 `compaction` 条目（`summary` + `retainedTail`）；事件面 `compaction_start`/`compaction_end`（`reason: manual | threshold | overflow`），`before_compaction` 钩子可返回 `{ decline: true }` 拦截。
 - **必须显式给设置**：上游默认 `DEFAULT_COMPACTION_SETTINGS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 }`。`contextWindow` 小于 `reserveTokens` 时必须自己收窄 `reserveTokens`，否则 `contextWindow - reserveTokens` 为负、阈值恒真（每轮都压）。实测（`test/compaction-integration.test.ts`）：`contextWindow: 2048` + `{ enabled: true, reserveTokens: 256, keepRecentTokens: 128 }`，两轮各约 700 token 的对话即触发 `reason: "threshold"`，产出 `retainedTail` 非空的 `compaction` 条目。

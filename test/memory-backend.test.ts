@@ -36,10 +36,21 @@ describe('createMemoryFileSystem：路径与读写（Plan 7b T6a）', () => {
 		expect([...getOrFail(await fs.readBinaryFile('/b.bin', CTX))]).toEqual([1, 2, 3, 255]);
 	});
 
-	it('readTextLines 按 \\n 切行并遵守 maxLines', async () => {
+	it('readTextLines 按 \\n 切行并遵守 maxLines；结尾换行无幽灵空行（对齐上游 0.99.1）', async () => {
 		await fs.writeFile('/lines.txt', 'l1\nl2\nl3\nl4', CTX);
 		expect(getOrFail(await fs.readTextLines('/lines.txt', undefined, CTX))).toEqual(['l1', 'l2', 'l3', 'l4']);
 		expect(getOrFail(await fs.readTextLines('/lines.txt', { maxLines: 2 }, CTX))).toEqual(['l1', 'l2']);
+		// maxLines 大于实际行数：不得把「结尾换行的空段」算成一行（旧版会多出 `''`）
+		expect(getOrFail(await fs.readTextLines('/lines.txt', { maxLines: 9 }, CTX))).toEqual(['l1', 'l2', 'l3', 'l4']);
+
+		await fs.writeFile('/terminated.txt', 'l1\nl2\n', CTX);
+		expect(getOrFail(await fs.readTextLines('/terminated.txt', undefined, CTX))).toEqual(['l1', 'l2']);
+		await fs.writeFile('/empty.txt', '', CTX);
+		expect(getOrFail(await fs.readTextLines('/empty.txt', undefined, CTX))).toEqual([]);
+
+		// maxLines <= 0：上游同款短路——连文件都不打开，缺失路径也返 [] 而不是 not_found
+		expect(getOrFail(await fs.readTextLines('/lines.txt', { maxLines: 0 }, CTX))).toEqual([]);
+		expect(getOrFail(await fs.readTextLines('/missing.txt', { maxLines: 0 }, CTX))).toEqual([]);
 	});
 
 	// pi 0.99.1 新增契约：拉取式行读取，末行带不带换行是**两位信息**——上游 `readJsonlHeader` 用

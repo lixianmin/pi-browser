@@ -5,7 +5,7 @@
 import LightningFS from '@isomorphic-git/lightning-fs';
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
-import { createTextLineReader } from './text-line-reader';
+import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import { createMemoryFileSystem } from './backend-memory';
 import type { BrowserFileSystem } from './types';
 
@@ -183,11 +183,20 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 
 		readTextFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path), 'utf8'), path))),
 		readBinaryFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path)), path))),
-		readTextLines: (path, options) => wrap(path, async () => {
-			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);
-			const lines = text.split('\n');
-			return options?.maxLines !== undefined ? lines.slice(0, options.maxLines) : lines;
-		}),
+		// 与上游 `NodeExecutionEnv` 同语义（0.99.1 起上游内部就是走行读取器）：结尾换行**不**产生幽灵空行、
+		// 空文件返 []。旧版按 `split('\n')` 切，`"l1\nl2\n"` 会多出一行 `""`（已对齐上游）。
+		// 这里不用 `wrap`：`readAllTextLines` 自己返 `Result`，套进去会变成 `Result<Result<…>>`。
+		readTextLines: async (path, options, context) => {
+			// 上游同款短路：maxLines <= 0 连文件都不打开（缺失路径也返 ok([])）
+			if (options?.maxLines !== undefined && options.maxLines <= 0) return ok<string[], FileError>([]);
+			try {
+				const abs = normalizePath(path);
+				const text = ensureFileContent(await onFs((f) => f.promises.readFile(abs, 'utf8')), abs);
+				return await readAllTextLines(createTextLineReader(text, abs), options?.maxLines, context);
+			} catch (e) {
+				return err<string[], FileError>(mapError(e, normalizePath(path)));
+			}
+		},
 		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
 		openTextLineReader: (path) => wrap(path, async () => {
 			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);

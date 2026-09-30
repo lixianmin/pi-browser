@@ -71,6 +71,15 @@ async function transcript(fs: FileSystem): Promise<string[]> {
 	await record(out, 'writeFile(torn.jsonl, 末行无换行)', fs.writeFile('torn.jsonl', '{"a":1}\n{b', CTX));
 	await record(out, 'readAllLines(torn.jsonl) 末行截断', readAllLines(fs, 'torn.jsonl'), (v) => v);
 	await record(out, 'readAllLines(missing.jsonl)', readAllLines(fs, 'missing.jsonl'), (v) => v);
+	// readTextLines 全量读取：结尾换行不得产生幽灵空行（旧版 `split('\n')` 会多一行 `""`），
+	// 空文件返空数组；`maxLines: 0` 是上游同款短路（不打开文件，缺失路径也返 ok []）。
+	await record(out, 'writeFile(nl.txt, 结尾换行)', fs.writeFile('nl.txt', 'a\nb\n', CTX));
+	await record(out, 'readTextLines(nl.txt) 全量', fs.readTextLines('nl.txt', undefined, CTX), JSON.stringify);
+	await record(out, 'readTextLines(nl.txt, maxLines:9) 超过行数', fs.readTextLines('nl.txt', { maxLines: 9 }, CTX), JSON.stringify);
+	await record(out, 'writeFile(empty.txt, "")', fs.writeFile('empty.txt', '', CTX));
+	await record(out, 'readTextLines(empty.txt)', fs.readTextLines('empty.txt', undefined, CTX), JSON.stringify);
+	await record(out, 'readTextLines(nl.txt, maxLines:0) 短路', fs.readTextLines('nl.txt', { maxLines: 0 }, CTX), JSON.stringify);
+	await record(out, 'readTextLines(missing.jsonl, maxLines:0) 短路', fs.readTextLines('missing.jsonl', { maxLines: 0 }, CTX), JSON.stringify);
 	return out;
 }
 

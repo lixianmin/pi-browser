@@ -48,3 +48,24 @@ export function createTextLineReader(text: string, path: string): TextLineReader
 		},
 	};
 }
+
+/**
+ * 与上游 `readTextLines` 同语义：拉满 `maxLines` 或读到 EOF 才停，**最后必然 close**（上游同款）。
+ *
+ * 与上游的唯一差别是它在 `maxLines <= 0` 时**连文件都不打开**（缺失路径也返 `ok([])`）——那个短路在两后端里、
+ * 开文件之前做（见 backend-memory / backend-idb 的 `readTextLines`），所以这里的 `maxLines` 恒为正或 undefined。
+ */
+export async function readAllTextLines(reader: TextLineReader, maxLines: number | undefined, context: Context): Promise<Result<string[], FileError>> {
+	const lines: string[] = [];
+	try {
+		while (maxLines === undefined || lines.length < maxLines) {
+			const line = await reader.readLine(context);
+			if (!line.ok) return err(line.error);
+			if (line.value === undefined) break;
+			lines.push(line.value.text);
+		}
+		return ok(lines);
+	} finally {
+		await reader.close(context);
+	}
+}
