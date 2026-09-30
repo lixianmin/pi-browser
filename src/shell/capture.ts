@@ -1,6 +1,6 @@
 // src/shell/capture.ts —— shell exec 的有界输出视图（spec §3.2）。
 //
-// 为什么自建：上游的 `OutputCapture` 类在 pi-agent-core 0.85.1 **没有导出入口**（只导出
+// 为什么自建：上游的 `OutputCapture` 类在 pi-agent-core 0.99.1 **没有导出入口**（只导出
 // `applyShellOutputUpdate`/`shell-output`/`truncate` 工具），Global Constraints 禁 deep import。
 // 语义按上游对齐：默认尾保留、行/字节双上限先到先触发、增量更新按 replace/append/slide/metadata 交付
 // （消费方用 applyShellOutputUpdate 累积出同一个视图）。

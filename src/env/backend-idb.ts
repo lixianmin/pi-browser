@@ -5,6 +5,7 @@
 import LightningFS from '@isomorphic-git/lightning-fs';
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
+import { createTextLineReader } from './text-line-reader';
 import { createMemoryFileSystem } from './backend-memory';
 import type { BrowserFileSystem } from './types';
 
@@ -186,6 +187,11 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);
 			const lines = text.split('\n');
 			return options?.maxLines !== undefined ? lines.slice(0, options.maxLines) : lines;
+		}),
+		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
+		openTextLineReader: (path) => wrap(path, async () => {
+			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);
+			return createTextLineReader(text, normalizePath(path));
 		}),
 		writeFile: (path, content) => wrap(path, async () => {
 			const abs = normalizePath(path);

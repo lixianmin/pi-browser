@@ -4,6 +4,7 @@
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
+import { createTextLineReader } from './text-line-reader';
 import type { BrowserFileSystem } from './types';
 
 const basename = (p: string): string => normalizePath(p).split('/').filter(Boolean).pop() ?? '';
@@ -69,6 +70,13 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			if (!n || n.kind !== 'file') return err(notFound(abs));
 			const lines = (n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '').split('\n');
 			return okv(options?.maxLines !== undefined ? lines.slice(0, options.maxLines) : lines);
+		},
+		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
+		openTextLineReader: async (path) => {
+			const abs = normalizePath(path);
+			const n = files.get(abs);
+			if (!n || n.kind !== 'file') return err(notFound(abs));
+			return okv(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs));
 		},
 		writeFile: async (path, content) => {
 			const abs = normalizePath(path);

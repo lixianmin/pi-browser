@@ -49,6 +49,8 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		canonicalPath: (path, context) => delegate(path, (fs, p) => fs.canonicalPath(p, context)),
 		readTextFile: (path, context) => delegate(path, (fs, p) => fs.readTextFile(p, context)),
 		readTextLines: (path, options, context) => delegate(path, (fs, p) => fs.readTextLines(p, options, context)),
+		// 行读取器绑在**被分派到的后端**上（读全文是 open 时刻的事，delegate 只借用后端自身的方法）
+		openTextLineReader: (path, context) => delegate(path, (fs, p) => fs.openTextLineReader(p, context)),
 		readBinaryFile: (path, context) => delegate(path, (fs, p) => fs.readBinaryFile(p, context)),
 		writeFile: (path, content, context) => delegate(path, (fs, p) => fs.writeFile(p, content, context)),
 		appendFile: (path, content, context) => delegate(path, (fs, p) => fs.appendFile(p, content, context)),

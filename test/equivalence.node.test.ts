@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, type FileError, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT, ok, err, type FileError, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
 import { NodeExecutionEnv } from '@earendil-works/pi-agent-core/node';   // 测试文件可用；src/** 禁（浏览器产物面）
 import { createBrowserFileSystem } from '../src/index';
 
@@ -26,6 +26,22 @@ const getOrFail = <T>(r: Result<T, FileError>): T => {
 async function record<T>(out: string[], label: string, r: Promise<Result<T, FileError>>, show: (v: T) => string = () => ''): Promise<void> {
 	const res = await r;
 	out.push(res.ok ? `${label}: ok ${show(res.value)}` : `${label}: err ${res.error.code}`);
+}
+
+/** 用 `openTextLineReader` 拉完整个文件，压成 `T:行|F:行` 串（空文件 → ''）；中途出错原样返回 err。
+ *  末行的 `T`/`F` 必须参与比对：这是 pi 0.99.1 新增的契约位（截断的存储文件靠它识别）。 */
+async function readAllLines(fs: FileSystem, path: string): Promise<Result<string, FileError>> {
+	const opened = await fs.openTextLineReader(path, CTX);
+	if (!opened.ok) return err(opened.error);
+	const parts: string[] = [];
+	for (;;) {
+		const line = await opened.value.readLine(CTX);
+		if (!line.ok) return err(line.error);
+		if (line.value === undefined) break;
+		parts.push(`${line.value.terminated ? 'T' : 'F'}:${line.value.text}`);
+	}
+	await opened.value.close(CTX);
+	return ok(parts.join('|'));
 }
 
 /** 必须一致的操作序列（spec §3 测试 2 的清单） */
@@ -50,6 +66,11 @@ async function transcript(fs: FileSystem): Promise<string[]> {
 	await record(out, 'readTextFile(missing.txt)', fs.readTextFile('missing.txt', CTX));
 	await record(out, 'fileInfo(notes/a.txt)', fs.fileInfo('notes/a.txt', CTX), (v) => `kind=${v.kind} name=${v.name} size=${v.size}`);
 	await record(out, 'exists(not-here.txt)', fs.exists('not-here.txt', CTX), String);
+	// 行读取器（pi 0.99.1 新增契约）：两种末行形态各拉一遍——「以换行结束」与「截断（无末换行）」
+	await record(out, 'readAllLines(notes/a.txt) 以换行结束', readAllLines(fs, 'notes/a.txt'), (v) => v);
+	await record(out, 'writeFile(torn.jsonl, 末行无换行)', fs.writeFile('torn.jsonl', '{"a":1}\n{b', CTX));
+	await record(out, 'readAllLines(torn.jsonl) 末行截断', readAllLines(fs, 'torn.jsonl'), (v) => v);
+	await record(out, 'readAllLines(missing.jsonl)', readAllLines(fs, 'missing.jsonl'), (v) => v);
 	return out;
 }
 

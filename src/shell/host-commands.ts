@@ -434,6 +434,7 @@ function inlineUnsupportedFileSystem(name: string): BrowserFileSystem {
 		joinPath: () => fail('joinPath'),
 		readTextFile: () => fail('readTextFile'),
 		readTextLines: () => fail('readTextLines'),
+		openTextLineReader: () => fail('openTextLineReader'),
 		readBinaryFile: () => fail('readBinaryFile'),
 		writeFile: () => fail('writeFile'),
 		appendFile: () => fail('appendFile'),

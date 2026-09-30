@@ -5,7 +5,7 @@
 // `compactionSummary` 角色消息。devDependency `@earendil-works/pi-ai` 只为构造 faux provider 存在。
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, AgentHarness, JsonlSessionRepo, type CompactionSettings } from '@earendil-works/pi-agent-core';
-import { createModels, fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+import { createModels, fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createBrowserFileSystem, createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS } from '../src/index';
 
 const CTX = BACKGROUND_CONTEXT;
@@ -18,9 +18,13 @@ const SETTINGS: CompactionSettings = { enabled: true, reserveTokens: 256, keepRe
 const CONTEXT_WINDOW = 2048;
 const SUMMARIZATION_MARK = 'context summarization assistant';
 
-/** 每轮一条普通回复；摘要请求（systemPrompt 是上游的 SUMMARIZATION_SYSTEM_PROMPT）走摘要文本 */
-const responses = (count: number) => Array.from({ length: count }, () => (context: { systemPrompt?: string }) =>
-	fauxAssistantMessage((context.systemPrompt ?? '').includes(SUMMARIZATION_MARK) ? '摘要是这样的' : '回复内容'.repeat(300)));
+/**
+ * 每轮一条普通回复；摘要请求（systemPrompt 是上游的 SUMMARIZATION_SYSTEM_PROMPT）走摘要文本。
+ * pi-ai 0.99 起 system prompt 不再挂在 `context.systemPrompt` 上，而是折进了首条 system 消息——
+ * 故用上游的 `getCurrentSystemPrompt(messages)` 重放（它同时会把后续 system 消息追加进来）。
+ */
+const responses = (count: number) => Array.from({ length: count }, () => (context: TranscriptContext) =>
+	fauxAssistantMessage(getCurrentSystemPrompt(context.messages).includes(SUMMARIZATION_MARK) ? '摘要是这样的' : '回复内容'.repeat(300)));
 
 describe('compaction：harness 自动压缩在浏览器 fs 会话上的集成验证', () => {
 	it('跨过阈值 → 压缩条目落盘（retainedTail 非空）→ flush 后新实例仍读得回', async () => {

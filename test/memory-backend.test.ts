@@ -42,6 +42,41 @@ describe('createMemoryFileSystem：路径与读写（Plan 7b T6a）', () => {
 		expect(getOrFail(await fs.readTextLines('/lines.txt', { maxLines: 2 }, CTX))).toEqual(['l1', 'l2']);
 	});
 
+	// pi 0.99.1 新增契约：拉取式行读取，末行带不带换行是**两位信息**——上游 `readJsonlHeader` 用
+	// `terminated === false` 判「存储文件只写了一半」，少了这一位截断的会话会被当成合法数据读进来。
+	it('openTextLineReader：逐行拉取，末行 terminated 诚实，读完返 undefined', async () => {
+		await fs.writeFile('/r.jsonl', 'h\n{a}\n{b', CTX);
+		const reader = getOrFail(await fs.openTextLineReader('/r.jsonl', CTX));
+		expect(getOrFail(await reader.readLine(CTX))).toEqual({ text: 'h', terminated: true });
+		expect(getOrFail(await reader.readLine(CTX))).toEqual({ text: '{a}', terminated: true });
+		expect(getOrFail(await reader.readLine(CTX))).toEqual({ text: '{b', terminated: false });
+		expect(getOrFail(await reader.readLine(CTX))).toBe(undefined);
+		await reader.close(CTX);
+	});
+
+	it('openTextLineReader：结尾换行不产生幽灵空行；空文件无行；缺失路径 not_found；close 后 invalid', async () => {
+		await fs.writeFile('/one.txt', 'x\n', CTX);
+		const one = getOrFail(await fs.openTextLineReader('/one.txt', CTX));
+		expect(getOrFail(await one.readLine(CTX))).toEqual({ text: 'x', terminated: true });
+		expect(getOrFail(await one.readLine(CTX))).toBe(undefined);
+
+		await fs.writeFile('/empty.txt', '', CTX);
+		const empty = getOrFail(await fs.openTextLineReader('/empty.txt', CTX));
+		expect(getOrFail(await empty.readLine(CTX))).toBe(undefined);
+
+		const missing = await fs.openTextLineReader('/nope.txt', CTX);
+		expect(missing.ok).toBe(false);
+		if (!missing.ok) expect(missing.error.code).toBe('not_found');
+
+		// close 幂等且不抛；关闭后 readLine 报 invalid（面向上游 `TextLineReader` 契约）
+		const closed = getOrFail(await fs.openTextLineReader('/one.txt', CTX));
+		await closed.close(CTX);
+		await closed.close(CTX);
+		const afterClose = await closed.readLine(CTX);
+		expect(afterClose.ok).toBe(false);
+		if (!afterClose.ok) expect(afterClose.error.code).toBe('invalid');
+	});
+
 	it('appendFile 追加（lightning-fs 无 append → 读改写）；文件不存在时等同新建', async () => {
 		await fs.appendFile('/log.jsonl', '{a}\n', CTX);
 		await fs.appendFile('/log.jsonl', '{b}\n', CTX);
