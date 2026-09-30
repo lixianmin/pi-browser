@@ -161,17 +161,18 @@ await runner.load([{ name: 'demo-echo', factory: echo }]);  // 装载后自动�
 - **同步/异步错位已记账**：pi 的 `getSessionName` / `getThinkingLevel` / `getActiveTools` 是同步值，而 pi-agent-core 的对应调用是 `Promise`——宿主持已知值缓存，同步 getter 读缓存（绕过 API 外部改值的场景不在本仓用例内）。
 - **注册期锁**：扩展工厂里调用运行期成员会**响亮抛错**（对齐 pi 的 `assertActive()`）；`close()` 后再次锁死。
 
-### 不支持的 API 成员（12，保留原名）
+### 不支持的 API 成员（18，保留原名）
 
 - 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag` / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`
-- 本仓无对应物，不发明形状：`registerProvider` / `unregisterProvider`（provider 由 app 配置）/ `exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）
+- 配置面由 app 拥有，扩展只选择不注册：`registerProvider` / `unregisterProvider` / `registerVirtualModel` / `unregisterVirtualModel`（模型目录由 app 配置）
+- 本仓无对应物，不发明形状：`getSettings`（pi 的 `Settings` 是 CLI 设置对象，浏览器宿主没有设置面）/ `registerMcpServer` / `unregisterMcpServer` / `getMcpServers`（MCP 连接管理器需要进程/网络侧，pi-agent-core / pi-ai 都无对应物）/ `exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）
 
-### `ExtensionContext`：支持 5 / 不支持 12
+### `ExtensionContext`：支持 5 / 不支持 13
 
 - **支持**：`cwd` / `model` / `signal`（**本次调用**的信号）/ `abort()` / `compact()`
-- **不支持**：TUI 与宿主进程概念（`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`）；**同步/异步错位**（`isIdle` / `getContextUsage` / `getSystemPrompt`——上游是同步值，harness 侧是 `Promise`）；上游 CLI 专属复合对象（`sessionManager` / `modelRegistry` / `scopedModels`）；本仓无对应操作（`hasPendingMessages`）
+- **不支持**：TUI 与宿主进程概念（`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`）；**同步/异步错位**（`isIdle` / `getContextUsage` / `getSystemPrompt` / `thinkingLevel`——上游是同步值，harness 侧是 `Promise`；`thinkingLevel` 虽已有 runner 侧缓存供 API 的 `getThinkingLevel` / `setThinkingLevel` 用，但 context 面没有这个字段，也无用例）；上游 CLI 专属复合对象（`sessionManager` / `modelRegistry` / `scopedModels`）；本仓无对应操作（`hasPendingMessages`）
 
-### 事件：`on(event, handler)` 支持 25 / 不支持 11
+### 事件：`on(event, handler)` 支持 25 / 不支持 16
 
 **事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷与返回值类型取自 **pi-agent-core 的实际交付**，不是 pi 的同名事件类型（两者形状确实不同：`tool_call` 交付的是 `{toolCallId, toolName, args, lane, runId}`，而 pi 的 `ToolCallEvent` 是 `{type, toolCallId, toolName, input}`；`session_start` 只有 `type`，pi 的还有 `reason`）——拿 pi 的类型标注这些 handler 等于给使用者假信息。
 
@@ -184,7 +185,9 @@ pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件�
 
 支持项按 pi 事件名逐条映射到 pi-agent-core 的 hooks / events（`tool_call`→`before_tool`、`tool_result`→`after_tool`、`context`→`transform_context`、`agent_start`→`run_start`、`agent_end`→`run_end`、`turn_start`/`turn_end`、`message_*`、`tool_execution_*`、`session_before_compact`→`before_compaction`、`session_compact`→`compaction_end`、`session_before_tree`→`before_navigation`、`session_tree`→`navigation_end`、`model_select`/`thinking_level_select`→`config_update`（按 `property` 过滤）、`before_provider_request`/`before_provider_headers`→`before_request`、`after_provider_response`→`after_response`、`session_start`/`session_shutdown` 由宿自己发）。
 
-不支持（**编译期**拒，且注册期运行期也会抛、错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled`。
+不支持（**编译期**拒，且注册期运行期也会抛、错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled` / `mcp_servers_change` / `context_with_system` / `cache_warming_decision` / `provider_stream_event` / `agent_before_settle`。
+
+后五条是上游 0.99 新增：`mcp_servers_change`（随 MCP 一组）、`cache_warming_decision`（CLI 常驻进程的缓存预热）、`provider_stream_event`（provider 归一化**之前**的原始事件）、`agent_before_settle`（CLI 会话管理器的 `BoundaryState`）在浏览器宿主上都没有对应面；`context_with_system` 的语义是「交付含 system 消息的完整 transcript，且 handler 拥有 prompt 与 **tool 声明**」——本仓 `context` 的落点 `transform_context` 改不了 tool 声明、payload 形状也不同，有对应物的那部分已被 `context` 覆盖，不另造「差不多」的形状。
 
 ### 工具重名
 

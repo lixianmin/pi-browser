@@ -14,28 +14,32 @@ import {
 	UNSUPPORTED_API_MEMBERS, UNSUPPORTED_CONTEXT_MEMBERS, UNSUPPORTED_EVENTS,
 } from '../src/extensions/contract';
 
-/** 上游 @earendil-works/pi-coding-agent@… 的 ExtensionAPI 成员（含 on） */
+/** 上游 @earendil-works/pi-coding-agent@0.99.1 的 ExtensionAPI 成员（含 on；共 32） */
 const PI_API_MEMBERS = [
 	'on', 'registerTool', 'registerCommand', 'registerShortcut', 'registerFlag', 'getFlag',
 	'registerMessageRenderer', 'registerMarkdownTransformer', 'registerEntryRenderer',
 	'sendMessage', 'sendUserMessage', 'appendEntry', 'setSessionName', 'getSessionName', 'setLabel',
-	'exec', 'getActiveTools', 'getAllTools', 'setActiveTools', 'getCommands',
-	'setModel', 'getThinkingLevel', 'setThinkingLevel', 'registerProvider', 'unregisterProvider', 'events',
+	'exec', 'getActiveTools', 'getAllTools', 'getSettings', 'setActiveTools', 'getCommands',
+	'setModel', 'getThinkingLevel', 'setThinkingLevel', 'registerProvider', 'unregisterProvider',
+	'registerMcpServer', 'unregisterMcpServer', 'getMcpServers', 'registerVirtualModel', 'unregisterVirtualModel',
+	'events',
 ];
-/** 上游 ExtensionAPI.on 的事件名（36 个，逐字） */
+/** 上游 ExtensionAPI.on 的事件名（41 个，逐字） */
 const PI_EVENTS = [
 	'project_trust', 'resources_discover', 'session_start', 'session_info_changed', 'session_before_switch',
 	'session_before_fork', 'session_before_compact', 'session_compact', 'session_compact_failed',
-	'session_shutdown', 'session_before_tree', 'session_tree', 'context', 'input', 'before_provider_request',
-	'before_provider_headers', 'after_provider_response', 'before_agent_start', 'agent_start', 'agent_end',
-	'agent_settled', 'ui_prompt_start', 'ui_prompt_end', 'turn_start', 'turn_end', 'message_start',
-	'message_update', 'message_end', 'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
-	'model_select', 'thinking_level_select', 'tool_call', 'tool_result', 'user_bash',
+	'session_shutdown', 'mcp_servers_change', 'session_before_tree', 'session_tree', 'context',
+	'context_with_system', 'cache_warming_decision', 'input', 'before_provider_request',
+	'before_provider_headers', 'after_provider_response', 'provider_stream_event', 'before_agent_start',
+	'agent_start', 'agent_end', 'agent_before_settle', 'agent_settled', 'ui_prompt_start', 'ui_prompt_end',
+	'turn_start', 'turn_end', 'message_start', 'message_update', 'message_end', 'tool_execution_start',
+	'tool_execution_update', 'tool_execution_end', 'model_select', 'thinking_level_select', 'tool_call',
+	'tool_result', 'user_bash',
 ];
-/** 上游 ExtensionContext 成员（17 个，逐字） */
+/** 上游 ExtensionContext 成员（18 个，逐字） */
 const PI_CONTEXT_MEMBERS = [
-	'ui', 'mode', 'hasUI', 'cwd', 'sessionManager', 'modelRegistry', 'model', 'scopedModels', 'isIdle',
-	'isProjectTrusted', 'signal', 'abort', 'hasPendingMessages', 'shutdown', 'getContextUsage', 'compact', 'getSystemPrompt',
+	'ui', 'mode', 'hasUI', 'cwd', 'sessionManager', 'modelRegistry', 'model', 'scopedModels', 'thinkingLevel',
+	'isIdle', 'isProjectTrusted', 'signal', 'abort', 'hasPendingMessages', 'shutdown', 'getContextUsage', 'compact', 'getSystemPrompt',
 ];
 
 const sorted = (xs: readonly string[]): string[] => [...xs].sort();

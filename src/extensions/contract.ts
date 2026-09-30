@@ -1,8 +1,13 @@
 // src/extensions/contract.ts —— S6 spec §2/§3.2/§3.4：上游名字的**唯一真源表**。
 //
-// 出处：@earendil-works/pi-coding-agent@0.85.1 `dist/core/extensions/types.d.ts`
-//   ExtensionAPI（`on` + 25 个非 on 成员，共 26）、`ExtensionAPI.on` 的 36 个事件名、
-//   ExtensionContext 17 个成员、ToolDefinition 字段（见 tool.ts）。
+// 出处：@earendil-works/pi-coding-agent@0.99.1 `dist/core/extensions/types.d.ts`
+//   ExtensionAPI（`on` + 31 个非 on 成员，共 32）、`ExtensionAPI.on` 的 41 个事件名、
+//   ExtensionContext 18 个成员、ToolDefinition 字段（见 tool.ts）。
+//   本次重抄的漂移（0.85.1 → 0.99.1）：API 成员 +6（`getSettings`、`registerMcpServer`/
+//   `unregisterMcpServer`/`getMcpServers`、`registerVirtualModel`/`unregisterVirtualModel`）、
+//   事件 +5（`mcp_servers_change`、`context_with_system`、`cache_warming_decision`、
+//   `provider_stream_event`、`agent_before_settle`）、Context 成员 +1（`thinkingLevel`——上游两版都有，
+//   0.85.1 那次抄写整条漏了，两份名单同时错所以双确认测试没报；本次逐字重对上游补回）。
 // 纪律（S6 spec §3.1/§3.2）：
 //   ① 对外面只允许出现下表中的名字，**不新增自造名**（S5 的 `defineExtension`/`composeToolset` 已删）；
 //   ② 标 UNSUPPORTED 的名字**不得**在本仓另有实现（测试断言公开面上没有同名替代物）；
@@ -12,7 +17,7 @@
 // 「支持」判定规则（spec §3.4）：有直接对应物且我们现在有用例 → 支持；
 // 有对应物但无用例 → 先声明不支持（YAGNI，保留原名不造替代名）；无对应物 → 不支持。
 
-/** 上游 ExtensionAPI 的成员名（含 `on`；共 26）。 */
+/** 上游 ExtensionAPI 的成员名（含 `on`；共 32）。 */
 export const EXTENSION_API_MEMBERS = [
 	'on',
 	'registerTool',
@@ -32,6 +37,7 @@ export const EXTENSION_API_MEMBERS = [
 	'exec',
 	'getActiveTools',
 	'getAllTools',
+	'getSettings',
 	'setActiveTools',
 	'getCommands',
 	'setModel',
@@ -39,10 +45,15 @@ export const EXTENSION_API_MEMBERS = [
 	'setThinkingLevel',
 	'registerProvider',
 	'unregisterProvider',
+	'registerMcpServer',
+	'unregisterMcpServer',
+	'getMcpServers',
+	'registerVirtualModel',
+	'unregisterVirtualModel',
 	'events',
 ] as const;
 
-/** 上游 ExtensionAPI.on 的事件名（36 个）。 */
+/** 上游 ExtensionAPI.on 的事件名（41 个）。 */
 export const EXTENSION_EVENTS = [
 	'project_trust',
 	'resources_discover',
@@ -54,16 +65,21 @@ export const EXTENSION_EVENTS = [
 	'session_compact',
 	'session_compact_failed',
 	'session_shutdown',
+	'mcp_servers_change',
 	'session_before_tree',
 	'session_tree',
 	'context',
+	'context_with_system',
+	'cache_warming_decision',
 	'input',
 	'before_provider_request',
 	'before_provider_headers',
 	'after_provider_response',
+	'provider_stream_event',
 	'before_agent_start',
 	'agent_start',
 	'agent_end',
+	'agent_before_settle',
 	'agent_settled',
 	'ui_prompt_start',
 	'ui_prompt_end',
@@ -82,7 +98,7 @@ export const EXTENSION_EVENTS = [
 	'user_bash',
 ] as const;
 
-/** 上游 ExtensionContext 的成员（17 个）。 */
+/** 上游 ExtensionContext 的成员（18 个；`thinkingLevel` 是 0.85.1 那次抄写漏掉的，本次重抄补回）。 */
 export const EXTENSION_CONTEXT_MEMBERS = [
 	'ui',
 	'mode',
@@ -92,6 +108,7 @@ export const EXTENSION_CONTEXT_MEMBERS = [
 	'modelRegistry',
 	'model',
 	'scopedModels',
+	'thinkingLevel',
 	'isIdle',
 	'isProjectTrusted',
 	'signal',
@@ -125,12 +142,22 @@ export const SUPPORTED_API_MEMBERS = [
 ] as const;
 
 /**
- * 不支持的 API 成员（12）：
+ * 不支持的 API 成员（18）：
  *   · 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag`
  *     / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`；
- *   · 本仓无对应物，不发明形状：`registerProvider` / `unregisterProvider`（provider 由 app 配置）/ `exec`
- *     （pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display`
- *     是 TUI 渲染函数，进不了 `JsonValue`）。
+ *   · provider 与模型目录都由 app 配置，扩展只选择不注册：`registerProvider` / `unregisterProvider` /
+ *     `registerVirtualModel` / `unregisterVirtualModel`；
+ *   · 本仓无对应物，不发明形状：`exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`
+ *     （pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）；
+ *   · 0.99.1 新增（逐条裁决见下）：`getSettings` / `registerMcpServer` / `unregisterMcpServer` / `getMcpServers`。
+ *
+ * 四条 0.99.1 新成员的裁决（本批 T1 结论，不许悬空）：
+ *   · `getSettings` → 不支持：pi 的 `Settings`（`dist/core/settings-manager.d.ts`）是 CLI 设置对象（主题、快捷键、
+ *     模型默认值等常驻进程配置），浏览器宿主没有设置面；宿主自己的配置住在 app 侧，不是扩展 API。
+ *   · `registerMcpServer` / `unregisterMcpServer` / `getMcpServers` → 不支持：MCP 服务器需要进程/网络侧
+ *     连接管理器（`dist/core/mcp-servers.ts`），pi-agent-core 与 pi-ai 里都没对应物——不发明一个旁路。
+ *   · `registerVirtualModel` / `unregisterVirtualModel` → 不支持：虚拟模型是「可选中的目录条目 → 路由到物理模型」
+ *     的替换项（需要 model registry + 模型解析），与已不支持的 `registerProvider` 同族（模型由 app 配置）。
  */
 export const UNSUPPORTED_API_MEMBERS = [
 	'registerCommand',
@@ -145,6 +172,12 @@ export const UNSUPPORTED_API_MEMBERS = [
 	'unregisterProvider',
 	'sendMessage',
 	'exec',
+	'getSettings',
+	'registerMcpServer',
+	'unregisterMcpServer',
+	'getMcpServers',
+	'registerVirtualModel',
+	'unregisterVirtualModel',
 ] as const;
 
 /** 支持的 Context 成员（5）：实际可兑现的只有这五个（`context.ts` 逐字段对齐）。 */
@@ -157,12 +190,15 @@ export const SUPPORTED_CONTEXT_MEMBERS = [
 ] as const;
 
 /**
- * 不支持的 Context 成员（12）。四类理由：
+ * 不支持的 Context 成员（13）。四类理由：
  *   · TUI / 宿主进程概念：`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`；
- *   · **同步/异步错位**：`isIdle` / `getContextUsage` / `getSystemPrompt`——上游是同步值，
+ *   · **同步/异步错位**：`isIdle` / `getContextUsage` / `getSystemPrompt` / `thinkingLevel`——上游是同步值，
  *     pi-agent-core 的对应操作是 `Promise`；要有真用例时由宿主另建缓存（本仓现在不用，不造假同步 API）；
  *   · 上游是 CLI 专属复合对象，**不发明形状**：`sessionManager` / `modelRegistry` / `scopedModels`；
  *   · 本仓无对应操作：`hasPendingMessages`（lane 无队列数 getter）。
+ *
+ * `thinkingLevel` 的额外说明：runner 侧确有思考档位缓存（API 的 `getThinkingLevel` / `setThinkingLevel` 已支持），
+ * 但 `ExtensionContext` 面没有这个字段，也没有用例——按「有对应物但无用例 → 先声明不支持」归入上面第二类。
  */
 export const UNSUPPORTED_CONTEXT_MEMBERS = [
 	'ui',
@@ -171,6 +207,7 @@ export const UNSUPPORTED_CONTEXT_MEMBERS = [
 	'sessionManager',
 	'modelRegistry',
 	'scopedModels',
+	'thinkingLevel',
 	'isIdle',
 	'isProjectTrusted',
 	'hasPendingMessages',
@@ -223,11 +260,27 @@ export const SUPPORTED_EVENTS = {
 } as const;
 
 /**
- * 不支持的事件名。分三类：
+ * 不支持的事件名（16）。分四类：
  *   · TUI：`ui_prompt_start` / `ui_prompt_end`
  *   · 宿主环境：`project_trust` / `resources_discover` / `user_bash`
  *   · 多会话 / 无对应物：`session_info_changed` / `session_before_switch` / `session_before_fork` /
  *     `session_compact_failed` / `input` / `agent_settled`
+ *   · 0.99.1 新增（逐条裁决见下）：`mcp_servers_change` / `context_with_system` / `cache_warming_decision` /
+ *     `provider_stream_event` / `agent_before_settle`
+ *
+ * 五条 0.99.1 新事件的裁决（本批 T1 结论，不许悬空）：
+ *   · `mcp_servers_change` → 不支持：随 `registerMcpServer` 一组（载荷 `servers: RegisteredMcpServer[]`，本仓无 MCP 面）。
+ *   · `context_with_system` → 不支持：语义是「所有 `context` handler 跑完、Pi 还原 prompt 与 tool 之后，交付
+ *     **含 system 消息的完整 transcript**，且 handler **拥有 prompt 与 tool 声明**」。本仓 `context` 的落点
+ *     `transform_context` 交付 `{messages(不含 system), systemPrompt}`、返回值只有 `{messages?, systemPrompt?}`
+ *     ——tool 声明改不了，payload 形状也对不上（system 消息在数组里 vs 单独字段）。有直接对应物的那部分
+ *     已被 `context` 覆盖，不另造「差不多」的形状。
+ *   · `cache_warming_decision` → 不支持：pi 的 cache warmer（`dist/core/cache-warmer.ts`：预热决策
+ *     `warmCost`/`missCost`/`continuationProbability`/`action`）是 CLI 常驻进程的缓存预热机制，本仓无对应物。
+ *   · `provider_stream_event` → 不支持：交付 provider **归一化之前**的原始解析事件
+ *     （`{provider, api, model, data: unknown}`）；harness 只给归一化后的 `message_*` / `tool_*`，本仓不穿透到原始流。
+ *   · `agent_before_settle` → 不支持：载荷是 `BoundaryState`（会话边界草稿 + `continue` + 上下文预览 + outcome），
+ *     CLI 会话管理器的复合对象；与已不支持的 `agent_settled` 同族（harness 只有 `run_end`，没有 settled 语义）。
  */
 export const UNSUPPORTED_EVENTS = [
 	'project_trust',
@@ -241,4 +294,9 @@ export const UNSUPPORTED_EVENTS = [
 	'user_bash',
 	'input',
 	'agent_settled',
+	'mcp_servers_change',
+	'context_with_system',
+	'cache_warming_decision',
+	'provider_stream_event',
+	'agent_before_settle',
 ] as const;

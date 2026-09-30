@@ -1,10 +1,10 @@
 // src/extensions/context.ts —— S6 spec §3.2/§3.3：交给 handler 的上下文（pi 同名，浏览器只给能兑现的子集）。
 //
-// 出处：@earendil-works/pi-coding-agent@0.85.1 `dist/core/extensions/types.d.ts`：
-//   `cwd: string` / `model: Model<any> | undefined` / `isIdle(): boolean` / `signal: AbortSignal | undefined` /
-//   `abort(): void` / `getContextUsage(): ContextUsage | undefined` / `compact(options?: CompactOptions): void`。
-// 支持的 7 个成员之外，其余 10 个（`ui`/`mode`/`hasUI`/`sessionManager`/`modelRegistry`/`scopedModels`/
-// `isProjectTrusted`/`hasPendingMessages`/`shutdown`/`getSystemPrompt`）列在 `contract.ts` 的
+// 出处：@earendil-works/pi-coding-agent@0.99.1 `dist/core/extensions/types.d.ts`：
+//   `cwd: string` / `model: Model<any> | undefined` / `signal: AbortSignal | undefined` /
+//   `abort(): void` / `compact(options?: CompactOptions): void`（本接口只声明这 5 个能兑现的成员）。
+// 其余 13 个（`ui`/`mode`/`hasUI`/`sessionManager`/`modelRegistry`/`scopedModels`/`thinkingLevel`/`isIdle`/
+// `isProjectTrusted`/`hasPendingMessages`/`shutdown`/`getContextUsage`/`getSystemPrompt`）列在 `contract.ts` 的
 // `UNSUPPORTED_CONTEXT_MEMBERS`：本接口**刻意不声明**它们——声明了却不生效比不声明更糟。
 //
 // 两处已记录的形状差异（不发明替代物，逐条写在注释里）：
