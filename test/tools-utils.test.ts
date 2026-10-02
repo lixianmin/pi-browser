@@ -3,6 +3,7 @@
 // P2a（Task 9/10）已把「Edit-diff utilities」搬到 test/edit-diff.test.ts、「Path utilities」搬到 test/path-utils.test.ts。
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateMiddle, truncateTail, utf8ByteLength } from '../src/tools/truncate';
+import * as upstreamTruncate from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/truncate.js';
 
 describe('Truncation utilities', () => {
 	it('truncateHead returns as-is when under limits', () => {
@@ -115,5 +116,25 @@ describe('truncateMiddle（P2a-1；对齐上游 pi-coding-agent@1.0.0 core/tools
 
 	it('maxBytes = 0 → 全删中段（两条 while 入口的边界）', () => {
 		expect(truncateMiddle('abc', 0)).toEqual({ content: '…3 chars truncated…', truncated: true, removedChars: 3, totalBytes: 3, totalLines: 1 });
+	});
+
+	// 终审 p2-5-tests-a：上面五条是**手算的硬编码期望**——转写若与上游有偏差，偏差会被这组期望
+	// 固化成「正确」。P2a/b/c 其余工具的静态面都是直接 import 上游产物逐字比对（见
+	// tools-read-write-edit / tools-grep-ls-find 的「静态字段与上游产物逐字相等」），这里补同一道。
+	it.each([
+		['不超限', 'hello\nworld\n', 1000],
+		['刚好等于上限', 'abcde', 5],
+		['差一字节超限', 'abcdef', 5],
+		['单字符超限', 'x'.repeat(100), 1],
+		['maxBytes=0', 'abc', 0],
+		['多行中段', Array.from({ length: 40 }, (_, i) => `line-${i}`).join('\n'), 60],
+		['尾换行', 'a\n\n', 1],
+		['CJK 字节切边界', '中'.repeat(10), 7],
+		['astral 码点', '😀'.repeat(10), 10],
+		['只有一行且很短', 'ok', 1000],
+		['空串', '', 0],
+		['emoji 与 ASCII 混排', 'a😀b😀c'.repeat(8), 12],
+	])('%s：本仓与上游产物逐字相等', (_name, content, maxBytes) => {
+		expect(truncateMiddle(content, maxBytes)).toEqual(upstreamTruncate.truncateMiddle(content, maxBytes));
 	});
 });
