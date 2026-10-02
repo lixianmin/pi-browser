@@ -225,3 +225,45 @@ export function truncateLine(line: string, maxChars: number = GREP_MAX_LINE_LENG
 	if (line.length <= maxChars) return { text: line, wasTruncated: false };
 	return { text: `${line.slice(0, maxChars)}... [truncated]`, wasTruncated: true };
 }
+
+export interface MiddleTruncationResult {
+	/** 头 + `…N chars truncated…` + 尾 */
+	content: string;
+	truncated: boolean;
+	/** 被省略的字符数（按 Unicode 码点计，不是字节数） */
+	removedChars: number;
+	totalBytes: number;
+	totalLines: number;
+}
+
+/** 与上游 `Buffer.toString('utf-8')` 等价：`ignoreBOM: true` 表示不吞掉开头的 BOM（默认会吞）。 */
+const _decoder = new TextDecoder('utf-8', { ignoreBOM: true });
+
+/**
+ * 保留 `content` 的头与尾（各占 `maxBytes` 的一半），中间换成 `…N chars truncated…` 标记。
+ * 只在字符边界切。转写源：pi-coding-agent@1.0.0 dist/core/tools/truncate.js:219-243
+ * （唯一偏离：`Buffer` → `TextEncoder` / `TextDecoder`，见 spec D1）。
+ */
+export function truncateMiddle(content: string, maxBytes: number): MiddleTruncationResult {
+	const buf = _encoder.encode(content);
+	const totalLines = splitLinesForCounting(content).length;
+	if (buf.length <= maxBytes) {
+		return { content, truncated: false, removedChars: 0, totalBytes: buf.length, totalLines };
+	}
+	// 续接字节（10xxxxxx）不是字符起点
+	const isBoundary = (index: number): boolean => index >= buf.length || (buf[index] & 0xc0) !== 0x80;
+	let headEnd = Math.floor(maxBytes / 2);
+	while (headEnd > 0 && !isBoundary(headEnd)) headEnd--;
+	let tailStart = buf.length - (maxBytes - Math.floor(maxBytes / 2));
+	while (tailStart < buf.length && !isBoundary(tailStart)) tailStart++;
+	const head = _decoder.decode(buf.subarray(0, headEnd));
+	const tail = _decoder.decode(buf.subarray(tailStart));
+	const removedChars = Array.from(_decoder.decode(buf.subarray(headEnd, tailStart))).length;
+	return {
+		content: `${head}…${removedChars} chars truncated…${tail}`,
+		truncated: true,
+		removedChars,
+		totalBytes: buf.length,
+		totalLines,
+	};
+}

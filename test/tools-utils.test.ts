@@ -2,7 +2,7 @@
 // 「Truncation utilities」/「Edit-diff utilities」/「Path utilities」三块，断言语义逐字保留
 // （去除 spice 域条目：isReadOnlyPath 与 Resource 相关断言；resolveToCwd 的绝对/相对断言保留）。
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateTail, utf8ByteLength } from '../src/tools/truncate';
+import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateMiddle, truncateTail, utf8ByteLength } from '../src/tools/truncate';
 import {
 	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, normalizeForFuzzyMatch, normalizeToLF, restoreLineEndings, splitBom,
 } from '../src/tools/edit-diff';
@@ -190,5 +190,27 @@ describe('Path utilities', () => {
 
 	it('resolveToCwd 保留空格与非 ASCII（URL API 会百分号编码——本仓用 normalizePath）', () => {
 		expect(resolveToCwd('my dir/中文 名.txt', '/')).toBe('/my dir/中文 名.txt');
+	});
+});
+
+describe('truncateMiddle（P2a-1；对齐上游 pi-coding-agent@1.0.0 core/tools/truncate.js:219）', () => {
+	it('不超限时原样返回', () => {
+		const r = truncateMiddle('hello\nworld\n', 1000);
+		expect(r).toEqual({ content: 'hello\nworld\n', truncated: false, removedChars: 0, totalBytes: 12, totalLines: 2 });
+	});
+
+	it('超限时保留头尾、中间换成 …N chars truncated… 标记', () => {
+		const r = truncateMiddle('x'.repeat(100), 10);
+		expect(r).toEqual({ content: 'xxxxx…90 chars truncated…xxxxx', truncated: true, removedChars: 90, totalBytes: 100, totalLines: 1 });
+	});
+
+	it('只在字符边界切（CJK：7 字节放下 3 字节头 + 3 字节尾）', () => {
+		const r = truncateMiddle('中'.repeat(10), 7);
+		expect(r).toEqual({ content: '中…8 chars truncated…中', truncated: true, removedChars: 8, totalBytes: 30, totalLines: 1 });
+	});
+
+	it('removedChars 按码点计（astral 字符记 1）', () => {
+		const r = truncateMiddle('😀'.repeat(10), 10);
+		expect(r).toEqual({ content: '😀…8 chars truncated…😀', truncated: true, removedChars: 8, totalBytes: 40, totalLines: 1 });
 	});
 });
