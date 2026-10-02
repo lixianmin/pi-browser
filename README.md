@@ -39,9 +39,9 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createHostCommandSharedBuffer` | `(o?: { capacity? }) => SharedArrayBuffer` | 按容量分配通道内存（默认 8MB/方向） |
 | `createHostCommandResponder` | `(store: { mounts }, handlers) => HostCommandResponder` | 宿主侧 glue：§3.3 对账 + 派发处理器 |
 | `createGuestHostBuiltins` | `(guestFs, guestSide, names) => HostBuiltins` | guest 侧 glue：把宿主命令装成 wasi-sh builtins（worker 内） |
-| `ExtensionRunner` | `class`（`load(extensions)` / `getAllRegisteredTools()` / `getToolDefinition(name)` / `hooks` / `events` / `close()`） | S6 宿主：持有 `context` 与工具注册表，装载扩展并同步工具面（见「扩展」节） |
+| `ExtensionRunner` | `class`（`new ExtensionRunner(extensions, runtime, cwd)` / `bindCore(actions, contextActions)` / `load()` / `emit(...)` 与具名 `emitXxx` / `onError` / `hasHandlers` / `getAllRegisteredTools()` / `getToolDefinition(name)` / `createContext()` / `close()`） | S6/P3 宿主：持有 runtime 与注册表，装载扩展并由宿主在对应时机调 emit 入口（见「扩展」节） |
 | `defineTool` | `<TParams, TDetails>(def: ToolDefinition<TParams, TDetails>) => ToolDefinition<TParams, TDetails>` | S6：上游同名辅助——顶住参数推断（赋给变量/进数组时 `params` 不被拓宽成 `unknown`） |
-| `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionBindings` / `ExtensionRunnerOptions` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6 扩展面（见「扩展」节；`harness-tool.ts` 适配器是内部件，不经入口导出） |
+| `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionRuntime` / `ExtensionRuntimeState` / `ExtensionActions` / `ExtensionContextActions` / `ExtensionError` / `ExtensionErrorListener` / `RegisteredTool` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6/P3 扩展面（见「扩展」节；`tool-definition-wrapper.ts` 适配器是内部件，不经入口导出） |
 
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 
@@ -156,16 +156,30 @@ const echo = (pi: ExtensionAPI) => {                       // 扩展 = 工厂（
   pi.on('tool_call', (event) => { /* 可 block：阶段 4 的越权拒绝落点 */ });
 };
 
-const runner = new ExtensionRunner({ harness, lane, context, cwd: '/projects/x', thinkingLevel: 'medium' });
-await runner.load([{ name: 'demo-echo', factory: echo }]);  // 装载后自动同步 harness.setTools + lane.setActiveTools
+const runtime = createExtensionRuntime();                       // 动作全是抛错 stub
+const runner = new ExtensionRunner([{ name: 'demo-echo', factory: echo }], runtime, '/projects/x');
+runner.bindCore(actions, contextActions);                       // 注入宿主能力后运行期成员才生效
+await runner.load();                                            // 跑扩展工厂，收工具与事件订阅
+runner.getAllRegisteredTools();                                 // 宿主自己注册（wrapToolDefinition → core 的 AgentTool）
+await runner.emit({ type: 'agent_start' });                     // 事件由宿主在对应时机调 runner 的 emit 入口
 ```
+
+### 接法：runtime + bindCore（换注入模型）
+
+`ExtensionRunner` 不再在构造期抓 core 的 harness/lane。宿主造一份 `createExtensionRuntime()`（动作全是抛错 stub），
+构造 runner，再 `bindCore(actions, contextActions)` 把宿主动作拷进共享 runtime——扩展面每个成员都不带 context，
+指向同一份 runtime 就是"context 反演"的落点。`bindCore` 之前调用任何运行期成员都会响亮抛错（对齐 pi 的 loader 写法）。
+
+事件不再挂 core 的 `hooks` / `events`：runner 提供 `emit(event)` 与具名 `emitToolCall` / `emitToolResult` /
+`emitContext` / `emitMessageEnd` / `emitBeforeProviderRequest` / `emitBeforeProviderHeaders` /
+`emitBeforeAgentStart` / `emitBoundary`，宿主在对的时机调用（控制流照抄上游）。
 
 ### 支持的 API 成员（14）
 
 `on` / `registerTool` / `getActiveTools` / `getAllTools` / `setActiveTools` / `events` / `appendEntry` / `sendUserMessage` / `setSessionName` / `getSessionName` / `setLabel` / `setModel` / `getThinkingLevel` / `setThinkingLevel`
 
-- **同步/异步错位已记账**：pi 的 `getSessionName` / `getThinkingLevel` / `getActiveTools` 是同步值，而 pi-agent-core 的对应调用是 `Promise`——宿主持已知值缓存，同步 getter 读缓存（绕过 API 外部改值的场景不在本仓用例内）。
-- **注册期锁**：扩展工厂里调用运行期成员会**响亮抛错**（对齐 pi 的 `assertActive()`）；`close()` 后再次锁死。
+- **同步/异步错位已消解**：pi 的 `getSessionName` / `getThinkingLevel` / `getActiveTools` 是同步值，宿主在 `bindCore` 注入的就是同步动作（上游 `ExtensionActions` 同为同步），所以 API 直接读宿主动作，不再有缓存。
+- **注册期锁**：扩展工厂里调用运行期成员会**响亮抛错**（对齐 pi 的 `assertActive()` 与 loader 的抛错 stub）；`close()` 后再次锁死。
 
 ### 不支持的 API 成员（18，保留原名）
 
@@ -176,20 +190,20 @@ await runner.load([{ name: 'demo-echo', factory: echo }]);  // 装载后自动�
 ### `ExtensionContext`：支持 5 / 不支持 13
 
 - **支持**：`cwd` / `model` / `signal`（**本次调用**的信号）/ `abort()` / `compact()`
-- **不支持**：TUI 与宿主进程概念（`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`）；**同步/异步错位**（`isIdle` / `getContextUsage` / `getSystemPrompt` / `thinkingLevel`——上游是同步值，harness 侧是 `Promise`；`thinkingLevel` 虽已有 runner 侧缓存供 API 的 `getThinkingLevel` / `setThinkingLevel` 用，但 context 面没有这个字段，也无用例）；上游 CLI 专属复合对象（`sessionManager` / `modelRegistry` / `scopedModels`）；本仓无对应操作（`hasPendingMessages`）
+- **不支持**：TUI 与宿主进程概念（`ui` / `mode` / `hasUI` / `isProjectTrusted` / `shutdown`）；**同步/异步错位**（`isIdle` / `getContextUsage` / `getSystemPrompt` / `thinkingLevel`——上游是同步值，宿主侧要另建缓存，本仓无用例）；上游 CLI 专属复合对象（`sessionManager` / `modelRegistry` / `scopedModels`）；本仓无对应操作（`hasPendingMessages`）
 
 ### 事件：`on(event, handler)` 支持 25 / 不支持 16
 
-**事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷与返回值类型取自 **pi-agent-core 的实际交付**，不是 pi 的同名事件类型（两者形状确实不同：`tool_call` 交付的是 `{toolCallId, toolName, args, lane, runId}`，而 pi 的 `ToolCallEvent` 是 `{type, toolCallId, toolName, input}`；`session_start` 只有 `type`，pi 的还有 `reason`）——拿 pi 的类型标注这些 handler 等于给使用者假信息。
+**事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷由宿主经 `emit` 交付，所以类型**逐字对齐 pi 1.0.0**（`src/extensions/events.ts`；`test/extensions-events-types.test.ts` 直接 import 上游 `.d.ts` 做双向 assignability 对照，转写漂了 tsc 当场红）。
 
 ```ts
-pi.on('tool_call', (event) => {            // event.args: Record<string, JsonValue>，event.toolName: string
-  if (event.toolName === 'Write') return { block: { reason: '越权' } };   // 返回值同源：before_tool 的 result
+pi.on('tool_call', (event) => {            // 联合按工具名分派：event.input 的类型跟着 toolName 变
+  if (event.toolName === 'my-tool' && event.input.dangerous) return { block: true, reason: '越权' };
 });
 pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件名
 ```
 
-支持项按 pi 事件名逐条映射到 pi-agent-core 的 hooks / events（`tool_call`→`before_tool`、`tool_result`→`after_tool`、`context`→`transform_context`、`agent_start`→`run_start`、`agent_end`→`run_end`、`turn_start`/`turn_end`、`message_*`、`tool_execution_*`、`session_before_compact`→`before_compaction`、`session_compact`→`compaction_end`、`session_before_tree`→`before_navigation`、`session_tree`→`navigation_end`、`model_select`/`thinking_level_select`→`config_update`（按 `property` 过滤）、`before_provider_request`/`before_provider_headers`→`before_request`、`after_provider_response`→`after_response`、`session_start`/`session_shutdown` 由宿自己发）。
+支持项按 pi 事件名逐条对应到 runner 的 emit 入口（`tool_call`→`emitToolCall`、`tool_result`→`emitToolResult`、`context`→`emitContext`、`message_end`→`emitMessageEnd`、`turn_end`→`emitBoundary`、`before_agent_start`→`emitBeforeAgentStart`、`before_provider_request`/`before_provider_headers`→各自的 `emitBeforeProvider*`，其余走通用 `emit({ type, … })`；`session_start`/`session_shutdown` 也由宿主发——`reason` 只有宿主知道）。分派控制流照抄上游：`tool_call` 的 `block` 短路、`session_before_*` 的 `cancel` 短路、`tool_result` 合并改写（换了 content 却没同时换 structuredContent 时丢弃后者）、`message_end` 拒绝换角色、`before_provider_headers` 原地改。handler 抛错不外泄，统一走 `runner.onError(listener)` 上报。**每条支持事件都有「触发一次 → handler 被调用」的测试**（`test/extensions-events.test.ts`），不只测注册。
 
 不支持（**编译期**拒，且注册期运行期也会抛、错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled` / `mcp_servers_change` / `context_with_system` / `cache_warming_decision` / `provider_stream_event` / `agent_before_settle`。
 

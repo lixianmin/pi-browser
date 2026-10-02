@@ -81,6 +81,9 @@ describe('支持事件的载荷与上游逐字同形', () => {
 	});
 
 	it('handler 返回值类型', () => {
+		same<Ours.ContextEventResult, Upstream.ContextEventResult>(true);
+		same<Ours.TurnEndEventResult, Upstream.TurnEndEventResult>(true);
+		same<Ours.BeforeProviderRequestEventResult, Upstream.BeforeProviderRequestEventResult>(true);
 		same<Ours.ToolCallEventResult, Upstream.ToolCallEventResult>(true);
 		same<Ours.ToolResultEventResult, Upstream.ToolResultEventResult>(true);
 		same<Ours.MessageEndEventResult, Upstream.MessageEndEventResult>(true);

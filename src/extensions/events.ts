@@ -589,6 +589,17 @@ export type ToolResultEvent =
 
 // ———— handler 返回值类型（`types.d.ts` 逐字）———
 
+/** 出处：`types.d.ts:1039`。 */
+export interface ContextEventResult {
+	messages?: AgentMessage[];
+}
+
+/** 出处：`types.d.ts:1042`。 */
+export type TurnEndEventResult = BoundaryResult;
+
+/** 出处：`types.d.ts:1044`。 */
+export type BeforeProviderRequestEventResult = unknown;
+
 /** 出处：`types.d.ts:1046`。 */
 export interface ToolCallEventResult {
 	/** Block tool execution. To modify arguments, mutate `event.input` in place instead. */

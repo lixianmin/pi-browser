@@ -7,7 +7,7 @@ import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
-import { createExtensionContext } from '../src/extensions/context';
+import { extensionCtx } from './helpers/extension-context';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createGrepTool, createGrepToolDefinition, grepToolSystemPromptContribution } from '../src/tools/grep-tool';
 import * as upstreamGrep from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/grep.js';
@@ -189,7 +189,7 @@ describe('Grep tool', () => {
 	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
 		await seed(fs, { 'd/x.txt': 'needle' });
 		const def = createGrepToolDefinition('/e', { fs });
-		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/d');
 		expect(textOf(await def.execute('id', { pattern: 'needle' }, undefined, undefined, ctx))).toContain('x.txt:1: needle');
 	});
 });
@@ -271,7 +271,7 @@ describe('Ls tool', () => {
 
 	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
 		const def = createLsToolDefinition('/e', { operations: lsOps(fs) });
-		const ctx = createExtensionContext({ cwd: '/src', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/src');
 		expect(textOf(await def.execute('id', {}, undefined, undefined, ctx))).toContain('a.ts');
 	});
 });
@@ -371,7 +371,7 @@ describe('find tool', () => {
 
 	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
 		const def = createFindToolDefinition('/e', { operations: findOps(fs) });
-		const ctx = createExtensionContext({ cwd: '/src', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/src');
 		expect(textOf(await def.execute('id', { pattern: '**/*.ts' }, undefined, undefined, ctx))).toContain('b.ts');
 	});
 });

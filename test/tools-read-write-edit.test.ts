@@ -11,7 +11,7 @@ import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createReadTool, createReadToolDefinition } from '../src/tools/read-tool';
 import * as upstreamRead from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/read.js';
-import { createExtensionContext } from '../src/extensions/context';
+import { extensionCtx } from './helpers/extension-context';
 import { detectSupportedImageMimeType } from '../src/tools/image-mime';
 import { editOps, readOps, writeOps } from './helpers/tool-operations';
 import { createWriteTool, createWriteToolDefinition } from '../src/tools/write-tool';
@@ -129,7 +129,7 @@ describe('Read tool', () => {
 	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
 		await seed(fs, { '/d/inner.txt': 'inner', '/e/inner.txt': 'other' });
 		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
-		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/d');
 		expect(textOf(await def.execute('id', { path: 'inner.txt' }, undefined, undefined, ctx))).toBe('inner');
 		expect(textOf(await createReadTool('/e', { operations: readOps(fs) }).execute('id', { path: 'inner.txt' }))).toBe('other');
 	});
@@ -137,7 +137,7 @@ describe('Read tool', () => {
 	it('ctx.cwd 为空串时回退构造期 cwd（与上游 `||` 同语义，不是 `??`）', async () => {
 		await seed(fs, { '/e/x.txt': 'e' });
 		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
-		const ctx = createExtensionContext({ cwd: '', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('');
 		expect(textOf(await def.execute('id', { path: 'x.txt' }, undefined, undefined, ctx))).toBe('e');
 	});
 
@@ -172,7 +172,7 @@ describe('Read tool', () => {
 		const written = await imgFs.writeFile('/pic.png', png, CTX);
 		if (!written.ok) throw written.error;
 		const def = createReadToolDefinition('/', { operations: readOps(imgFs) });
-		const ctx = createExtensionContext({ cwd: '/', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/');
 		const r = await def.execute('id', { path: 'pic.png' }, undefined, undefined, ctx);
 		expect(r.content[0]).toEqual({ type: 'text', text: 'Read image file [image/png]' });
 		expect(r.content[1]).toMatchObject({ type: 'image', mimeType: 'image/png' });
@@ -239,7 +239,7 @@ describe('Write tool', () => {
 
 	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
 		const def = createWriteToolDefinition('/e', { operations: writeOps(fs) });
-		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/d');
 		await def.execute('id', { path: 'x.txt', content: 'def' }, undefined, undefined, ctx);
 		await createWriteTool('/e', { operations: writeOps(fs) }).execute('id', { path: 'x.txt', content: 'factory' });
 		expect(await readBack(fs, '/d/x.txt')).toBe('def');
@@ -361,7 +361,7 @@ describe('Edit tool', () => {
 	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
 		await seed(fs, { '/d/x.txt': 'a\nb', '/e/x.txt': 'a\nb' });
 		const def = createEditToolDefinition('/e', { operations: editOps(fs) });
-		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const ctx = extensionCtx('/d');
 		await def.execute('id', { path: 'x.txt', edits: [{ oldText: 'a', newText: 'A' }] }, undefined, undefined, ctx);
 		await createEditTool('/e', { operations: editOps(fs) }).execute('id', { path: 'x.txt', edits: [{ oldText: 'a', newText: 'A' }] });
 		expect(await readBack(fs, '/d/x.txt')).toBe('A\nb');

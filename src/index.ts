@@ -37,12 +37,16 @@ export {
 // （不经 jiti、不做 fs 发现），形如 `(pi: ExtensionAPI) => void | Promise<void>`。
 // **对外面只出现 pi 的同名成员**（名单与支持/不支持裁决见 `src/extensions/contract.ts` 与 README「扩展」节）；
 // 浏览器做不到的成员保留原名、明确列不支持，不造「差不多」的名字。
-// `extensions/harness-tool.ts`（`ToolDefinition` → `AgentHarnessTool` 适配）是内部件，不经包入口导出。
+// `extensions/tool-definition-wrapper.ts`（`ToolDefinition` → `AgentTool` 适配）是内部件，不经包入口导出。
+// P3 起宿主的接法是「造 runtime → new ExtensionRunner(extensions, runtime, cwd) → runner.bindCore(actions, contextActions)」，
+// 事件由宿主在对应时机调 runner 的 `emit` / 具名 `emitXxx`（不再挂 core 的 hooks/events）。
 export { ExtensionRunner } from './extensions/runner';
 export { defineTool } from './extensions/tool';
-export type { ExtensionRunnerOptions } from './extensions/runner';
+export type { ExtensionActions, ExtensionContextActions, ExtensionRuntime, ExtensionRuntimeState } from './extensions/runtime';
+export type { BoundaryDispatchResult, ExtensionError, ExtensionErrorListener, RegisteredTool } from './extensions/runner';
 export type {
-	EventBus, Extension, ExtensionAPI, ExtensionBindings, ExtensionFactory, InlineExtension, SourceInfo, ToolInfo,
+	EventBus, Extension, ExtensionAPI, ExtensionFactory, InlineExtension, SourceInfo, ToolInfo,
 } from './extensions/api';
-export type { CompactOptions, ContextUsage, ExtensionContext, ExtensionContextBindings } from './extensions/context';
+export type { CompactOptions, ContextUsage, ExtensionContext } from './extensions/context';
+export type { ToolContextFactory } from './extensions/tool-definition-wrapper';
 export type { ToolDefinition } from './extensions/tool';
