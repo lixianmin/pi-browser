@@ -9,9 +9,10 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { resolveToCwd } from './path-utils';
 import {
-	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, normalizeToLF, restoreLineEndings, splitBom,
+	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, generateUnifiedPatch, normalizeToLF, restoreLineEndings,
 	type Edit as DiffEdit,
 } from './edit-diff';
+import { splitBom } from './text';
 import { contextFor, readText, textResult, throwIfAborted, writeText } from './fs-ops';
 
 const replaceEditSchema = Type.Object({
@@ -63,8 +64,7 @@ export function createEditTool(opts: EditToolOptions): AgentTool<typeof editSche
 			await writeText(fs, absolutePath, finalContent, context);
 			throwIfAborted(signal);
 			const { diff, firstChangedLine } = generateDiffString(baseContent, newContent);
-			// Simple unified patch（pi 用 jsdiff 库；spice 自写简化版）
-			const patch = `--- ${input.path}\n+++ ${input.path}\n@@\n${diff}\n`;
+			const patch = generateUnifiedPatch(input.path, baseContent, newContent);
 			return textResult(`Successfully replaced ${input.edits.length} block(s) in ${input.path}.`, { diff, patch, firstChangedLine });
 		},
 	};

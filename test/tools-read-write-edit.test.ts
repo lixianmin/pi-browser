@@ -141,6 +141,8 @@ describe('Write tool', () => {
 });
 
 describe('Edit tool', () => {
+	// 注意（2026-10-02 裁决）：edit-diff 逐字转写上游 1.0.0 后，匹配/替换类失败抛 plain `Error`
+	//（上游文案）；只有 fs 类失败经 fs-ops 仍是带 FileErrorCode 的 `FileError`。
 	const SKETCH = 'void setup() {\n  pinMode(2, OUTPUT);\n}\nvoid loop() {\n  digitalWrite(2, HIGH);\n}\n';
 	let fs: BrowserFileSystem;
 	beforeEach(async () => {
@@ -179,18 +181,17 @@ describe('Edit tool', () => {
 		expect(r.details.patch).toContain('--- sketch.ino');
 	});
 
-	it('多命中 → 报错并列每处行号（spec §3.3）', async () => {
+	it('多命中 → 报错（上游 1.0.0 文案，plain Error）', async () => {
 		await seed(fs, { 'dup.txt': 'x = 1;\ny = 2;\nx = 1;\nz = 3;\nx = 1;\n' });
 		const t = createEditTool({ fs });
 		await expect(t.execute('id', { path: 'dup.txt', edits: [{ oldText: 'x = 1;', newText: 'x = 9;' }] }))
-			.rejects.toThrow(/Found 3 occurrences of edits\[x = 1;\] \(lines 1, 3, 5\)\. The text must be unique in the file\./);
-		expect(await rejectionCode(t.execute('id', { path: 'dup.txt', edits: [{ oldText: 'x = 1;', newText: 'y' }] }))).toBe('invalid');
+			.rejects.toThrow(/Found 3 occurrences of the text in dup\.txt\. The text must be unique/);
 	});
 
-	it('无命中 → not_found', async () => {
+	it('无命中 → 报错（上游文案，plain Error）', async () => {
 		const t = createEditTool({ fs });
-		await expect(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: 'nope', newText: 'x' }] })).rejects.toThrow(/Could not find/);
-		expect(await rejectionCode(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: 'nope', newText: 'x' }] }))).toBe('not_found');
+		await expect(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: 'nope', newText: 'x' }] }))
+			.rejects.toThrow(/Could not find the exact text in sketch\.ino/);
 	});
 
 	it('rejects overlapping edits', async () => {
