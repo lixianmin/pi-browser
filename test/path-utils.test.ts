@@ -19,6 +19,10 @@ describe('Path utilities', () => {
 		expect(resolveToCwd('my dir/中文 名.txt', '/')).toBe('/my dir/中文 名.txt');
 	});
 
+	it('resolveToCwd 与上游一致地剥 @ 前缀（P2a 新增行为，钉住）', () => {
+		expect(resolveToCwd('@a.txt', '/w')).toBe('/w/a.txt');
+	});
+
 	it('expandPath 抹掉 @ 前缀、把 Unicode 空格归一为普通空格', () => {
 		expect(expandPath('@/work/a.txt')).toBe('/work/a.txt');
 		expect(expandPath('a\u2003b\u00A0c')).toBe('a b c');
@@ -32,6 +36,12 @@ describe('Path utilities', () => {
 	it('pathExists：access resolve → true，reject → false', async () => {
 		expect(await pathExists('/a', async () => {})).toBe(true);
 		expect(await pathExists('/a', async () => { throw new Error('not_found'); })).toBe(false);
+	});
+
+	it('pathExists：注入谓词缺失 → 响亮报错，不吞成 false', async () => {
+		// P2a 终审 Important 2：TS 调用方有类型保护，但 JS 消费者 / `as any` 移植会漏传——
+		// 旧实现的 `catch { return false }` 会把「谓词是坏的」压成「文件不存在」，静默失效。
+		await expect(pathExists('/a', undefined as never)).rejects.toThrow(/access predicate/);
 	});
 
 	it('resolveReadPathAsync 探 macOS 变体：NFD、弯引号、AM/PM 窄空格', async () => {

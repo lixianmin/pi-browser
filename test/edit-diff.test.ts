@@ -4,6 +4,7 @@
 // （上游产物由 devDep `@earendil-works/pi-coding-agent` 提供，devDep 精确钉 1.0.0）。
 // 本仓独有的偏离（fs 绑定的 computeEditsDiff 收注入式 operations）单独测。
 import { describe, it, expect } from 'vitest';
+import { constants } from 'node:fs';
 import { access as fsAccess, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -68,7 +69,9 @@ describe('edit-diff 与上游 1.0.0 同形', () => {
 			['a', [{ oldText: '', newText: 'X' }]],                                          // empty oldText
 			['a\nb', [{ oldText: 'a', newText: 'a' }]],                                      // no change
 			['a', [{ oldText: 'X', newText: 'Y' }]],                                         // not found
-			['a\nb\nb\nc', [{ oldText: 'b', newText: 'B' }]],                                 // duplicate
+			['a\nb\nb\nc', [{ oldText: 'b', newText: 'B' }]],                                 // duplicate（单 edit 形态）
+			['a\nb\nb\nc', [{ oldText: 'b', newText: 'B' }, { oldText: 'a', newText: 'A' }]],   // duplicate（多 edit 形态：edits[0]）
+			['a', [{ oldText: 'a', newText: 'A' }, { oldText: 'zzz', newText: 'Z' }]],          // not found（多 edit 形态：edits[1]）
 		];
 		for (const [content, edits] of cases) {
 			expect(outcome(ours.applyEditsToNormalizedContent, content, edits)).toEqual(
@@ -109,7 +112,7 @@ describe('computeEditsDiff / computeEditDiff（D5：fs 访问收注入式 operat
 		try {
 			await writeFile(join(dir, 'a.txt'), 'a\nb\nc\n');
 			const ops = {
-				access: async (p: string): Promise<void> => { await fsAccess(p); },
+				access: async (p: string): Promise<void> => { await fsAccess(p, constants.R_OK); },
 				readFile: async (p: string): Promise<string> => await readFile(p, 'utf8'),
 			};
 			expect(await ours.computeEditsDiff('a.txt', [{ oldText: 'b', newText: 'B' }], dir, ops)).toEqual(
@@ -144,6 +147,26 @@ describe('computeEditsDiff / computeEditDiff（D5：fs 访问收注入式 operat
 		expect(await ours.computeEditDiff('a.txt', 'a', 'A', '/w', ops)).toEqual(
 			await ours.computeEditsDiff('a.txt', [{ oldText: 'a', newText: 'A' }], '/w', ops),
 		);
+	});
+});
+
+// P2a 终审 Important 1：fuzzy 触发时，被命中整行是从 NFKC+trimEnd 归一后的 base 重写的——
+// 行内「用户没要求改」的字节会被改写（ﬁ→fi、尾空白删除、NBSP→空格）。这是上游原文行为，
+// 2026-10-02 人类裁决「接受上游行为 + 补测试钉住」，所以这里用硬编码期望值把它钉成有意行为。
+describe('fuzzy 触发时被命中行的归一（上游行为，刻意保留）', () => {
+	it('fuzzy 触发 → 同行未编辑字节被 NFKC 折叠（ﬁ → fi）', () => {
+		const r = ours.applyEditsToNormalizedContent('ﬁle = "smart"', [{ oldText: '\u201csmart\u201d', newText: 'x' }], 'a.txt');
+		expect(r.newContent).toBe('file = x');
+	});
+
+	it('fuzzy 触发 → 被命中行的行尾空白被 trimEnd', () => {
+		const r = ours.applyEditsToNormalizedContent('a = "s"  \n', [{ oldText: '\u201cs\u201d', newText: 'x' }], 'a.txt');
+		expect(r.newContent).toBe('a = x\n');
+	});
+
+	it('精确命中不触发归一 → 同行字节原样保留', () => {
+		expect(ours.applyEditsToNormalizedContent('ﬁle = \u201csmart\u201d', [{ oldText: '\u201csmart\u201d', newText: 'x' }], 'a.txt').newContent).toBe('ﬁle = x');
+		expect(ours.applyEditsToNormalizedContent('a = \u201cs\u201d  \n', [{ oldText: '\u201cs\u201d', newText: 'x' }], 'a.txt').newContent).toBe('a = x  \n');
 	});
 });
 

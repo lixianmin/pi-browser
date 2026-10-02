@@ -6,7 +6,8 @@
 //      浏览器没有全局/同步 fs：存在性改成调用方注入的 `access` 谓词（与上游 `ReadOperations.access`
 //      同契约：成功 resolve、失败 reject）；同步 resolveReadPath 因此退化为纯解析、不探 macOS 变体。
 //   ② expandPath 不做 `~` → home 展开（浏览器无 home 概念），`~` 原样保留成虚拟路径。
-//   ③ 路径归一走本仓纯 JS 的 normalizePath（env/path），不用 node:path。
+//   ③ 路径归一走本仓纯 JS 的 normalizePath（env/path），不用 node:path；与上游一致地在
+//      resolveToCwd 这条链上剥 `@` 前缀并把 Unicode 空格归一为普通空格（经 expandPath）。
 
 import { normalizePath } from '../env/path';
 
@@ -33,6 +34,9 @@ function tryCurlyQuoteVariant(filePath: string): string {
 
 /** 上游同名：存在性检查。上游吃 node:fs 的 access，浏览器版吃注入谓词（见文件头 ①）。 */
 export async function pathExists(filePath: string, access: AccessPath): Promise<boolean> {
+	// P2a 终审 Important 2：TS 调用方有类型保护，但 JS 消费者漏传时，下面那个 catch 会把
+	// 「谓词是坏的」（TypeError）压成「文件不存在」——静默失效比报错更糟，所以先响亮报错。
+	if (typeof access !== 'function') throw new TypeError('pathExists: access predicate is required');
 	try {
 		await access(filePath);
 		return true;

@@ -1,6 +1,6 @@
-// Task 5 平移：spice `packages/harness/test/agent-tools.test.ts` 的
-// 「Truncation utilities」/「Edit-diff utilities」/「Path utilities」三块，断言语义逐字保留
-// （去除 spice 域条目：isReadOnlyPath 与 Resource 相关断言；resolveToCwd 的绝对/相对断言保留）。
+// Task 5 平移（P2a 后只剩截断一块）：spice `packages/harness/test/agent-tools.test.ts` 的
+// 「Truncation utilities」块，断言语义逐字保留（去除 spice 域条目：isReadOnlyPath 与 Resource 相关断言）。
+// P2a（Task 9/10）已把「Edit-diff utilities」搬到 test/edit-diff.test.ts、「Path utilities」搬到 test/path-utils.test.ts。
 import { describe, it, expect } from 'vitest';
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateMiddle, truncateTail, utf8ByteLength } from '../src/tools/truncate';
 
