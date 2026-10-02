@@ -61,6 +61,11 @@ describe('Path utilities', () => {
 		expect(await resolveReadPathAsync('a.txt', '/w', async () => { throw new Error('not_found'); })).toBe('/w/a.txt');
 	});
 
+	it('resolveReadPathAsync：输入里的 U+202F 先被 expandPath 归一为普通空格，变体全不中则回退该解析路径', async () => {
+		expect(await resolveReadPathAsync('Shot 10.00.00\u202FAM.png', '/w', async () => { throw new Error('not_found'); }))
+			.toBe('/w/Shot 10.00.00 AM.png');
+	});
+
 	it('resolveReadPath（同步）只做纯解析，不探变体', () => {
 		expect(resolveReadPath('a.txt', '/w')).toBe('/w/a.txt');
 	});

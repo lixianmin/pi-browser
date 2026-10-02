@@ -92,6 +92,13 @@ describe('edit-diff 与上游 1.0.0 同形', () => {
 		expect(() => ours.applyReplacementsPreservingUnchangedLines('a\n', 'a\nb\n', [])).toThrow(/different line count/);
 	});
 
+	it('applyReplacementsPreservingUnchangedLines 替换区间越界时抛错（两条防御分支）', () => {
+		// 起点落在所有行之外
+		expect(() => ours.applyReplacementsPreservingUnchangedLines('a\n', 'a\n', [{ matchIndex: 5, matchLength: 1, newText: 'X' }])).toThrow(/outside the base content/);
+		// 起点在内、终点越出末行
+		expect(() => ours.applyReplacementsPreservingUnchangedLines('a\n', 'a\n', [{ matchIndex: 0, matchLength: 10, newText: 'X' }])).toThrow(/outside the base content/);
+	});
+
 	it('generateDiffString / generateUnifiedPatch 逐字一致', () => {
 		const long = Array.from({ length: 20 }, (_, i) => `l${i}`).join('\n');
 		const cases: Array<[string, string]> = [

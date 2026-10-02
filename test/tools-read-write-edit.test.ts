@@ -179,6 +179,7 @@ describe('Edit tool', () => {
 		expect(r.details.diff).toContain('+2   pinMode(5, OUTPUT);');
 		expect(r.details.firstChangedLine).toBe(2);
 		expect(r.details.patch).toContain('--- sketch.ino');
+		expect(r.details.patch).toMatch(/^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m);   // 真 unified patch 的 hunk 头（jsdiff createTwoFilesPatch）
 	});
 
 	it('多命中 → 报错（上游 1.0.0 文案，plain Error）', async () => {

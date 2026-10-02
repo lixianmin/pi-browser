@@ -56,6 +56,8 @@ export function normalizeForFuzzyMatch(text: string): string {
 			// Special spaces → regular space
 			// U+00A0 NBSP, U+2002-U+200A various spaces, U+202F narrow NBSP,
 			// U+205F medium math space, U+3000 ideographic space
+			// 注意：与 tools/path-utils.ts 的 UNICODE_SPACES 起于不同码点（此表起于 U+2002，
+			// 上游 edit-diff.js:49；path-utils 的表起于 U+2000）——两者都正确，勿合并。
 			.replace(/[\u00A0\u2002-\u200A\u202F\u205F\u3000]/g, ' ')
 	);
 }

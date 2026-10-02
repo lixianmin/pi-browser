@@ -112,4 +112,8 @@ describe('truncateMiddle（P2a-1；对齐上游 pi-coding-agent@1.0.0 core/tools
 		const r = truncateMiddle('😀'.repeat(10), 10);
 		expect(r).toEqual({ content: '😀…8 chars truncated…😀', truncated: true, removedChars: 8, totalBytes: 40, totalLines: 1 });
 	});
+
+	it('maxBytes = 0 → 全删中段（两条 while 入口的边界）', () => {
+		expect(truncateMiddle('abc', 0)).toEqual({ content: '…3 chars truncated…', truncated: true, removedChars: 3, totalBytes: 3, totalLines: 1 });
+	});
 });

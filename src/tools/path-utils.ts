@@ -12,7 +12,8 @@
 import { normalizePath } from '../env/path';
 
 const NARROW_NO_BREAK_SPACE = '\u202F';
-/** 上游 utils/paths.js 的同一张表（Unicode 空格 → 普通空格）。 */
+/** 上游 utils/paths.js 的同一张表（Unicode 空格 → 普通空格）。
+ *  注意：与 tools/edit-diff.ts 的归一表起于不同码点（此表含 U+2000，上游 paths.js:6；edit-diff 起于 U+2002）——都正确，勿合并。 */
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
 
 /** 调用方注入的「可读性」谓词：成功 resolve、失败 reject（与上游 `ReadOperations.access` 同契约）。 */
