@@ -2,7 +2,7 @@
 // 「Truncation utilities」/「Edit-diff utilities」/「Path utilities」三块，断言语义逐字保留
 // （去除 spice 域条目：isReadOnlyPath 与 Resource 相关断言；resolveToCwd 的绝对/相对断言保留）。
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine } from '../src/tools/truncate';
+import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateTail, utf8ByteLength } from '../src/tools/truncate';
 import {
 	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, normalizeForFuzzyMatch, normalizeToLF, restoreLineEndings, splitBom,
 } from '../src/tools/edit-diff';
@@ -48,6 +48,51 @@ describe('Truncation utilities', () => {
 		const r = truncateHead('中'.repeat(100), { maxBytes: 30 });
 		expect(r.truncated).toBe(true);
 		expect(r.firstLineExceedsLimit).toBe(true);   // 单行 300 字节 > 30 字节
+	});
+
+	it('utf8ByteLength 按 UTF-8 计长（ASCII / 三字节 / 代理对）', () => {
+		expect(utf8ByteLength('abc')).toBe(3);
+		expect(utf8ByteLength('中')).toBe(3);
+		expect(utf8ByteLength('\u{1D11E}')).toBe(4);   // 𝄞，代理对
+		expect(utf8ByteLength('')).toBe(0);
+	});
+});
+
+describe('truncateTail（T1.1；对齐上游 harness/utils/truncate.js:178）', () => {
+	it('不超限时原样返回且 truncated=false', () => {
+		const r = truncateTail('l1\nl2\n');
+		expect(r.content).toBe('l1\nl2\n');
+		expect(r.truncated).toBe(false);
+		expect(r.truncatedBy).toBeNull();
+		expect(r.outputLines).toBe(2);
+		expect(r.lastLinePartial).toBe(false);
+	});
+
+	it('按行数截断时保留尾部', () => {
+		const r = truncateTail('a\nb\nc\nd', { maxLines: 2 });
+		expect(r.content).toBe('c\nd');
+		expect(r.truncatedBy).toBe('lines');
+		expect(r.totalLines).toBe(4);
+		expect(r.outputLines).toBe(2);
+	});
+
+	// Review Focus #4：单行超字节上限时从尾部取部分行——三件事一起断言
+	it('单行超字节上限时从尾部取部分行并置 lastLinePartial', () => {
+		const r = truncateTail('x'.repeat(100), { maxBytes: 10 });
+		expect(r.truncated).toBe(true);
+		expect(r.truncatedBy).toBe('bytes');
+		expect(r.lastLinePartial).toBe(true);
+		expect(r.outputLines).toBe(1);
+		expect(r.content).toBe('x'.repeat(10));
+		expect(r.outputBytes).toBe(10);
+		expect(utf8ByteLength(r.content)).toBe(10);
+	});
+
+	it('多字节字符不会被截断成半个字符', () => {
+		const r = truncateTail('中'.repeat(10), { maxBytes: 7 });
+		expect(r.lastLinePartial).toBe(true);
+		expect(utf8ByteLength(r.content)).toBeLessThanOrEqual(7);
+		expect(r.content).toBe('中'.repeat(2));   // 7 字节只放得下 2 个三字节字符
 	});
 });
 
