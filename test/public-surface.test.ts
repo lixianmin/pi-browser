@@ -10,6 +10,7 @@ import * as api from '../src/index';
 import type { Extension, ExtensionAPI } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
+import { readOps } from './helpers/tool-operations';
 
 const RUNTIME_EXPORTS = [
 	'createBrowserExecutionEnv',
@@ -59,7 +60,7 @@ describe('公开面（src/index.ts）', () => {
 		const fs = createMemoryFileSystem();
 		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs }] });
 		const names = [
-			api.createReadTool({ fs }).name,
+			api.createReadTool('/', { operations: readOps(fs) }).name,
 			api.createWriteTool({ fs }).name,
 			api.createEditTool({ fs }).name,
 			api.createGrepTool({ fs }).name,

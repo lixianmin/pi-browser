@@ -9,7 +9,11 @@ import { err, FileError } from '@earendil-works/pi-durable/env';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
-import { createReadTool } from '../src/tools/read-tool';
+import { createReadTool, createReadToolDefinition } from '../src/tools/read-tool';
+import * as upstreamRead from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/read.js';
+import { createExtensionContext } from '../src/extensions/context';
+import { detectSupportedImageMimeType } from '../src/tools/image-mime';
+import { readOps } from './helpers/tool-operations';
 import { createWriteTool } from '../src/tools/write-tool';
 import { createEditTool } from '../src/tools/edit-tool';
 import { DEFAULT_MAX_BYTES } from '../src/tools/truncate';
@@ -52,51 +56,103 @@ describe('Read tool', () => {
 	});
 
 	it('reads whole small file', async () => {
-		const t = createReadTool({ fs });
+		const t = createReadTool('/', { operations: readOps(fs) });
 		expect(textOf(await t.execute('id', { path: 'sketch.ino' }))).toBe('a\nb\nc\nd\ne');
 	});
 
-	it('truncates with continuation hint when over 50KB', async () => {
+	it('单行超 50KB → 给 bash fallback 提示（上游 firstLineExceedsLimit 分支）', async () => {
 		const big = 'x'.repeat(DEFAULT_MAX_BYTES + 100);
 		await seed(fs, { 'big.txt': big });
-		const out = textOf(await createReadTool({ fs }).execute('id', { path: 'big.txt' }));
-		expect(out).toMatch(/Use offset=\d+ to continue\./);
-		expect(out.length).toBeLessThanOrEqual(big.length);
+		const out = textOf(await createReadTool('/', { operations: readOps(fs) }).execute('id', { path: 'big.txt' }));
+		expect(out).toMatch(/exceeds 50\.0KB limit\. Use bash: sed -n '1p' big\.txt \| head -c 51200\]/);
 	});
 
 	it('行截断的 continuation 文案逐字保留（LLM 依赖该语义）', async () => {
 		await seed(fs, { 'many.txt': Array.from({ length: 2100 }, () => 'x').join('\n') });
-		const out = textOf(await createReadTool({ fs }).execute('id', { path: 'many.txt' }));
-		expect(out.endsWith('[Showing lines 1-2000 of 2100 (50.0KB limit). Use offset=2001 to continue.]')).toBe(true);
+		const out = textOf(await createReadTool('/', { operations: readOps(fs) }).execute('id', { path: 'many.txt' }));
+		expect(out.endsWith('[Showing lines 1-2000 of 2100. Use offset=2001 to continue.]')).toBe(true);
 	});
 
 	it('offset/limit paginates', async () => {
-		const out = textOf(await createReadTool({ fs }).execute('id', { path: 'sketch.ino', offset: 2, limit: 2 }));
+		const out = textOf(await createReadTool('/', { operations: readOps(fs) }).execute('id', { path: 'sketch.ino', offset: 2, limit: 2 }));
 		expect(out).toContain('b\nc');
-		expect(out).toMatch(/2 more lines\. Use offset=4 to continue\./);
+		expect(out).toMatch(/2 more lines in file\. Use offset=4 to continue\./);
 	});
 
 	it('offset 超出文件末尾 → invalid（带总数）', async () => {
-		const t = createReadTool({ fs });
+		const t = createReadTool('/', { operations: readOps(fs) });
 		await expect(t.execute('id', { path: 'sketch.ino', offset: 99 })).rejects.toThrow(/beyond end of file \(5 lines total\)/);
 		expect(await rejectionCode(t.execute('id', { path: 'sketch.ino', offset: 99 }))).toBe('invalid');
 	});
 
 	it('throws on missing file (not_found)', async () => {
-		const t = createReadTool({ fs });
+		const t = createReadTool('/', { operations: readOps(fs) });
 		await expect(t.execute('id', { path: 'nope.txt' })).rejects.toThrow(/not found/i);
 		expect(await rejectionCode(t.execute('id', { path: 'nope.txt' }))).toBe('not_found');
 	});
 
 	it('cwd 选项决定相对路径基准', async () => {
 		await seed(fs, { '/d/inner.txt': 'inner' });
-		const t = createReadTool({ fs, cwd: '/d' });
+		const t = createReadTool('/d', { operations: readOps(fs) });
 		expect(textOf(await t.execute('id', { path: 'inner.txt' }))).toBe('inner');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createReadTool({ fs });
+		const t = createReadTool('/', { operations: readOps(fs) });
 		expect(await rejectionCode(t.execute('id', { path: 'sketch.ino' }, AbortSignal.abort()))).toBe('aborted');
+	});
+
+	it('静态字段与上游产物逐字相等（P2b 契约）', () => {
+		const up = upstreamRead.createReadToolDefinition('/tmp');
+		const mine = createReadToolDefinition('/tmp', { operations: readOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('operations 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createReadToolDefinition('/tmp')).toThrow(/operations/);
+		expect(() => createReadTool('/tmp')).toThrow(/operations/);
+	});
+
+	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
+		await seed(fs, { '/d/inner.txt': 'inner', '/e/inner.txt': 'other' });
+		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
+		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		expect(textOf(await def.execute('id', { path: 'inner.txt' }, undefined, undefined, ctx))).toBe('inner');
+		expect(textOf(await createReadTool('/e', { operations: readOps(fs) }).execute('id', { path: 'inner.txt' }))).toBe('other');
+	});
+
+	it('图片魔数嗅探：PNG/JPEG/GIF/WEBP/BMP 认，文本与动画 PNG 不认', () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		expect(detectSupportedImageMimeType(png)).toBe('image/png');
+		expect(detectSupportedImageMimeType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg');
+		expect(detectSupportedImageMimeType(new TextEncoder().encode('GIF89a'))).toBe('image/gif');
+		expect(detectSupportedImageMimeType(new TextEncoder().encode('RIFFxxxxWEBP'))).toBe('image/webp');
+		expect(detectSupportedImageMimeType(new TextEncoder().encode('hello'))).toBeNull();
+		// 动画 PNG：合法 IHDR 后跟 acTL 块 → 不当静态图片
+		const animated = new Uint8Array(45);
+		animated.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 0);
+		animated.set([0x61, 0x63, 0x54, 0x4c], 37);   // 'acTL'，chunk 长度 0（offset 33 的四个字节保持 0）
+		expect(detectSupportedImageMimeType(animated)).toBeNull();
+	});
+
+	it('图片文件经 detectImageMimeType 命中 → 返回 text + image 块（D6）', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		const imgFs = createMemoryFileSystem();
+		const written = await imgFs.writeFile('/pic.png', png, CTX);
+		if (!written.ok) throw written.error;
+		const def = createReadToolDefinition('/', { operations: readOps(imgFs) });
+		const ctx = createExtensionContext({ cwd: '/', lane: { abort: async () => ({}) } as never, context: {} as never });
+		const r = await def.execute('id', { path: 'pic.png' }, undefined, undefined, ctx);
+		expect(r.content[0]).toEqual({ type: 'text', text: 'Read image file [image/png]' });
+		expect(r.content[1]).toMatchObject({ type: 'image', mimeType: 'image/png' });
+		// 不缩放（D6）：data 是原字节的 base64
+		expect((r.content[1] as { data: string }).data).toBe(Buffer.from(png).toString('base64'));
+		expect(r.details).toBeUndefined();
 	});
 });
 
