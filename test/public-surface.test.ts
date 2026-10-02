@@ -5,6 +5,8 @@
 //
 // 批 2 B-3 变化：新增 `asDurableTool`（`AgentTool` → pi-durable `ToolRegistration` 的适配）。
 //
+// 批 2 B-2 变化：新增 `openBrowserHarness`（会话/Harness 装配）与 `asDurableTools`（批量接线 + replay 策略）。
+//
 // S6 变化：删 `defineExtension` / `composeToolset` / `toHarnessTool`（S5 自造名，`harness-tool.ts` 降为内部件），
 // 新增 `ExtensionRunner`（宿主类，pi 同名）。扩展面换成 pi 的工厂式注册：`(pi: ExtensionAPI) => void`。
 import { describe, it, expect } from 'vitest';
@@ -17,6 +19,7 @@ import { bashOps, editOps, findOps, grepOps, lsOps, readOps, writeOps } from './
 
 const RUNTIME_EXPORTS = [
 	'asDurableTool',
+	'asDurableTools',
 	'createBrowserExecutionEnv',
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',
@@ -47,6 +50,7 @@ const RUNTIME_EXPORTS = [
 	'loadSkills',
 	'loadSkillsFromDir',
 	'normalizePath',
+	'openBrowserHarness',
 	'openBrowserSessionStorage',
 	'OutputAccumulator',
 	'relativizeFindResultPath',

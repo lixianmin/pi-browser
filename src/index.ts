@@ -23,6 +23,8 @@ export { createWasiFileSystem } from './shell/wasi-fs';
 // pi-durable 会话存储的浏览器侧装配（批 2 B-1）：fs 注入式存储，`BrowserFileSystem` 直接喂进去，无需 adapter
 export { openBrowserSessionStorage } from './session/storage';
 export type { JsonlStorageOptions } from '@earendil-works/pi-durable/storage/jsonl';
+// pi-durable 编排层的会话/Harness 装配（批 2 B-2）：模型/注册表/存储/环境逐个由调用方给，本仓不硬编 provider
+export { openBrowserHarness, asDurableTools, type OpenBrowserHarnessOptions } from './session/harness';
 export { createReadTool, createReadToolDefinition, readToolSystemPromptContribution } from './tools/read-tool';
 export { createWriteTool, createWriteToolDefinition, writeToolSystemPromptContribution } from './tools/write-tool';
 export { createEditTool, createEditToolDefinition, editToolSystemPromptContribution } from './tools/edit-tool';
