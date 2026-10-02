@@ -8,6 +8,7 @@ import type { WriteOperations } from '../../src/tools/write-tool';
 import type { EditOperations } from '../../src/tools/edit-tool';
 import type { GrepOperations } from '../../src/tools/grep-tool';
 import type { FindOperations } from '../../src/tools/find-tool';
+import type { LsOperations } from '../../src/tools/ls-tool';
 import { detectSupportedImageMimeType } from '../../src/tools/image-mime';
 import picomatch from '../../src/tools/picomatch-typed';
 import { displayPath, listTree } from '../../src/tools/fs-ops';
@@ -61,4 +62,13 @@ export const findOps = (fs: BrowserFileSystem): FindOperations => ({
 			.map((entry) => entry.path)
 			.slice(0, options.limit);
 	},
+});
+
+export const lsOps = (fs: BrowserFileSystem): LsOperations => ({
+	exists: async (absolutePath) => unwrap(await fs.exists(absolutePath, BACKGROUND_CONTEXT)),
+	stat: async (absolutePath) => {
+		const info = unwrap(await fs.fileInfo(absolutePath, BACKGROUND_CONTEXT));
+		return { isDirectory: () => info.kind === 'directory' };
+	},
+	readdir: async (absolutePath) => unwrap(await fs.listDir(absolutePath, BACKGROUND_CONTEXT)).map((entry) => entry.name),
 });

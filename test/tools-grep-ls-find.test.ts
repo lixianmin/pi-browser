@@ -11,8 +11,9 @@ import { createExtensionContext } from '../src/extensions/context';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createGrepTool, createGrepToolDefinition } from '../src/tools/grep-tool';
 import * as upstreamGrep from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/grep.js';
-import { findOps, grepOps } from './helpers/tool-operations';
-import { createLsTool } from '../src/tools/ls-tool';
+import { findOps, grepOps, lsOps } from './helpers/tool-operations';
+import { createLsTool, createLsToolDefinition } from '../src/tools/ls-tool';
+import * as upstreamLs from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/ls.js';
 import { createFindTool, createFindToolDefinition, relativizeFindResultPath } from '../src/tools/find-tool';
 import * as upstreamFind from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/find.js';
 
@@ -175,38 +176,61 @@ describe('Ls tool', () => {
 	});
 
 	it('单层：目录带尾斜杠、按名排序', async () => {
-		const out = textOf(await createLsTool({ fs }).execute('id', {}));
+		const out = textOf(await createLsTool('/', { operations: lsOps(fs) }).execute('id', {}));
 		expect(out).toBe(['empty/', 'readme.md', 'src/'].join('\n'));
 	});
 
-	it('recursive：深度优先全相对路径', async () => {
-		const out = textOf(await createLsTool({ fs }).execute('id', { recursive: true }));
-		expect(out).toBe(['empty/', 'readme.md', 'src/', 'src/a.ts', 'src/b.ts', 'src/nested/', 'src/nested/c.ts'].join('\n'));
-	});
-
-	it('path 指定目录 + cwd 基准', async () => {
-		const out = textOf(await createLsTool({ fs, cwd: '/src' }).execute('id', { path: 'nested', recursive: true }));
-		expect(out).toBe('nested/c.ts');
+	it('path 指定目录 + cwd 基准（输出条目名，上游语义）', async () => {
+		const out = textOf(await createLsTool('/src', { operations: lsOps(fs) }).execute('id', { path: 'nested' }));
+		expect(out).toBe('c.ts');
 	});
 
 	it('空目录 → (empty directory)', async () => {
-		const out = textOf(await createLsTool({ fs }).execute('id', { path: 'empty' }));
+		const out = textOf(await createLsTool('/', { operations: lsOps(fs) }).execute('id', { path: 'empty' }));
 		expect(out).toBe('(empty directory)');
 	});
 
-	it('path 是文件 → 返回该文件路径', async () => {
-		const out = textOf(await createLsTool({ fs }).execute('id', { path: 'readme.md' }));
-		expect(out).toBe('readme.md');
+	it('path 是文件 → Not a directory', async () => {
+		const t = createLsTool('/', { operations: lsOps(fs) });
+		expect(await rejectionCode(t.execute('id', { path: 'readme.md' }))).toBe('not_directory');
 	});
 
 	it('path 不存在 → not_found', async () => {
-		const t = createLsTool({ fs });
+		const t = createLsTool('/', { operations: lsOps(fs) });
 		expect(await rejectionCode(t.execute('id', { path: 'nope' }))).toBe('not_found');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createLsTool({ fs });
+		const t = createLsTool('/', { operations: lsOps(fs) });
 		expect(await rejectionCode(t.execute('id', {}, AbortSignal.abort()))).toBe('aborted');
+	});
+
+	it('limit + entryLimitReached notice（上游文案）', async () => {
+		const r = await createLsTool('/', { operations: lsOps(fs) }).execute('id', { limit: 2 });
+		expect(textOf(r)).toContain('[2 entries limit reached. Use limit=4 for more]');
+		expect(r.details?.entryLimitReached).toBe(2);
+	});
+
+	it('静态字段与上游产物逐字相等（P2c 契约）', () => {
+		const up = upstreamLs.createLsToolDefinition('/tmp');
+		const mine = createLsToolDefinition('/tmp', { operations: lsOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('operations 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createLsToolDefinition('/tmp')).toThrow(/operations/);
+		expect(() => createLsTool('/tmp')).toThrow(/operations/);
+	});
+
+	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
+		const def = createLsToolDefinition('/e', { operations: lsOps(fs) });
+		const ctx = createExtensionContext({ cwd: '/src', lane: { abort: async () => ({}) } as never, context: {} as never });
+		expect(textOf(await def.execute('id', {}, undefined, undefined, ctx))).toContain('a.ts');
 	});
 });
 
