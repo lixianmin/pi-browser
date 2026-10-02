@@ -215,6 +215,72 @@ pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件�
 
 **后写覆盖先写**（对齐 pi 宿主的 Map 语义），差异只有一行 `console.warn`（黄线：本仓有「静默失效比报错更糟」的教训，但不新增自造接口名来承载告警）。S5 的「默认抛错 + `overrideBuiltins` 白名单」是自造行为，已删。
 
+### 平台偏差
+
+对着 pi-coding-agent@1.0.0 逐字对齐之后，仍然存在的差异都在这里列清（spec §3.4 的 D1–D7 逐条 +
+迁移各批累积的）。**判断口径**：凡是上游依赖 Node 运行时（fs / Buffer / 临时目录 / wasm / 进程）
+的地方，浏览器侧走同款「注入缝」或如实降级，不造「差不多」的替代物；凡是能对齐的，已经对齐。
+
+**D1 `Buffer` → `Uint8Array`。** 上游 `ReadOperations.readFile` / `BashOperations.exec` 的 `onData` /
+`OutputAccumulator.append` 都用 Node 全局 `Buffer`。`Buffer` 是 `Uint8Array` 的子类，只按字节用
+时语义无损，不引入 `buffer` polyfill。
+
+**D2 临时文件落挂载表。** 上游 `OutputAccumulator` 的 spill 走 `node:os.tmpdir()` +
+`node:fs.createWriteStream`；本仓经挂载表里的 `/tmp` 写（`createBrowserExecutionEnv` 默认把它挂到内存）。
+`OutputSnapshot.fullOutputPath` 因此是**浏览器虚拟路径**（如 `/tmp/pi-bash-xxx`），不是宿主真实路径。
+没有 `/tmp` 挂载时它会落到 `/`（默认装配下即持久 IDB 会话库）——用 `OutputAccumulatorSpill` 可自定义。
+
+**D3 `loadSkills` 异步。** 上游 1.0.0 是同步函数（Node fs）；浏览器后端（IDB / lightning-fs）的读
+是 Promise，无法同步。名字与选项形状照抄，返回值是 `Promise<LoadSkillsResult>`。首参的 `env` 是 fs 缝。
+
+**D4 `ExtensionRunner` 构造收窄为 `(extensions, runtime, cwd)`。** 上游多两个参数：`sessionManager`
+实测写 1 次读 0 次，`modelRegistry` 只服务本仓已判「不支持」的 provider / 虚拟模型面。不收、不造 stub，
+`getModelRegistry()` 随之不实现。`bindCore(actions, contextActions, providerActions?)` 的第三参传了就抛。
+
+**D5 工具的 `operations` 缺省即抛错。** 上游 `options.operations?` 可省（缺省走本地 fs）；浏览器没有
+「本地文件系统」。类型保持可选（保 1:1 形状），运行期缺省**响亮抛错**并给指引。同一族缝还有：
+grep 的遍历与 glob 过滤、find / ls 的 glob / stat、bash 的 exec、edit 的 access、read 的图片 MIME 嗅探。
+
+**D6 图片：嗅探做，缩放按注入缝给。** magic-byte 嗅探自持（无 node 依赖）；缩放需要
+`@silvia-odwyer/photon-node`（Rust/WASM），而它的 CJS 入口在模块加载时
+`require('fs').readFileSync(__dirname + '/photon_rs_bg.wasm')`、包内也没有 web 入口，所以像素活走
+`ReadToolOptions.photon` 注入缝（成员名与签名逐字取自上游的 `resizeImage` / `convertImageBytesToPng`）。
+**不注入时**只查 base64 字节上限 4.5MB（上游常量）并原样投递限内图片，超限按上游文案降级成文本说明 ——
+刻意不抄上游「缺 photon 就把图全丢」的退化路径（那是宿主没装可选原生依赖的副作用）。**注入后**与上游一致，
+含 2000×2000 的尺寸降采样。
+
+**D7 浏览器没有的 shell 能力照旧声明不实现。** `spawnHook` / `shellPath` /
+`exposeSessionEnvironment`（`PI_*`）在浏览器侧无对应物，不声明不生效的字段。相关平台事实：
+busybox 只有一个进程，**无 fork**（后台任务 `&`、需 fork 的子 shell、进程替换会响亮失败）；
+工具不给 exec 传 env（恒 `undefined`）；`timeout` 只在 worker 路径生效（inline 路径按 spec §4.5 豁免）；
+工具**不回调 `onUpdate`**（上游有节流的增量快照）——长命令期间 UI 没有增量输出。
+
+**其余迁移带来的偏差**（同一口径，逐条列）：
+
+- **grep 的 glob 按 rg 规则复刻**（上游把 pattern 原样交给 `rg --glob`，本仓没有 rg 进程）：pattern 不含
+  斜杠按 **basename** 匹配、含斜杠按**相对 cwd** 匹配、通配符吃点号（`--hidden`）。三条都用本机 rg 15.2.0
+  实测钉死，有对照测试。偏差一处：pattern 带点斜杠前缀时 rg 返 0 条、本仓会匹配（朝「多给结果」偏）。
+- **`.gitignore`**：grep / find 的 description 与 snippet 照抄上游的 `(respects .gitignore)`，但本仓遍历
+  **不读** `.gitignore`（Spice 的虚拟工作区通常没有它）。
+- **错误面**：工具的输入 / fs 错误抛带 `FileErrorCode` 的 `FileError`（spec §3.3），上游在部分路径上
+  用 plain Error（如 edit-diff 的逻辑错误）——我们保留了错误码，代价是消息与上游不完全一致。
+- **不做上游的模型侧兜底**：`constrainedSampling` / `prepareArguments` / renderers / 同文件写入串行化
+  （`withFileMutationQueue`）一律不声明（声明了却不生效比不声明更糟）。
+- **ls / find / grep 的参数面**：ls 删 `recursive` 改 `limit`、find 补 `limit`、grep `include` → `glob`；
+  三者的输出路径改为上游语义（grep / find 相对搜索根、ls 只给条目名）。
+- **edit 的 fuzzy 命中**：fuzzy 触发时**被命中整行**的未编辑字节会做 NFKC 归一 + trimEnd —— 这是上游
+  1.0.0 的原行为（人类 2026-10-02 裁决接受），已用测试钉成有意行为。
+- **事件**：`context` 只跑上游的第一相（第二相 `context_with_system` 标不支持：它的语义是「handler 拥有
+  prompt 与 tool 声明」，本仓做不到）；`session_start` / `session_shutdown` 由**宿主**经 emit 发
+  （`reason` 只有宿主知道）；`before_agent_start` 的 system prompt 渲染函数、`turn_end` 的
+  `buildContext` 由宿主注入（浏览器侧没有 system prompt 构造器，宿主才是它的所有者）。
+- **会话**：上游 1.0.0 的 `SessionManager` 是 `private constructor` + 直接 node:fs，喂不进本仓的
+  `BrowserFileSystem`；本包也没有会话写手（会话写入是宿主的事）。所以格式对照落在 v3 JSONL + 上游的
+  纯函数 `parseSessionEntries` / `buildSessionContext` / `prepareCompaction` / `shouldCompact` 上，
+  本仓 fs 的落盘与追加另有往返测试。
+- **`dirname` 的相对路径语义**：本仓的 `dirname('a') === '/'`（node:path 是 `'.'`）。write 建父目录时
+  传的是已归一的绝对路径，不受影响。
+
 ### 仍不做
 
 TS/jiti 加载、`~/.pi` 与 `.pi` 目录发现、项目信任门、`/reload` 热重载、终端 UI（见上文「不支持」清单的理由）。

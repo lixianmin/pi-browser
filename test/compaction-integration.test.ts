@@ -1,87 +1,124 @@
 // @vitest-environment node
-// S4 spec §3.3 / §4.4：compaction 集成验证——不直接调 `compact`/`prepareCompaction`（那条路要 pi-ai 运行时依赖），
-// 而是让 **harness 自己的自动压缩**在一个 pi-browser fs 支撑的会话上跑一遍：faux provider 供两条脚本化响应
-// （普通回复 + 摘要），断言 ① 阈值压缩被触发 ② 落盘 `compaction` 条目且 `retainedTail` 非空 ③ 压缩产物是
-// `compactionSummary` 角色消息。devDependency `@earendil-works/pi-ai` 只为构造 faux provider 存在。
+// P6/P5：compaction 集成验证 —— 阈值触发与切点，改挂到上游 1.0.0 的**纯函数**上。
+//
+// 为什么重写（0.99.1 → 1.0.0）：原先这个文件让 **pi-agent-core@0.99.1 的 harness 自动压缩**
+// （faux provider + `AgentHarness.create` + `JsonlSessionRepo`）在一个 pi-browser fs 支撑的会话上跑一遍。
+// 1.0.0 里 `AgentHarness`、`JsonlSessionRepo`、`harness/compaction` 全部消失（agent-core 只剩
+// agent / agent-loop / proxy / stream-fn / types），替代者是 CLI 侧 `core/compaction/compaction.js`
+// （文件头原文：「Pure functions for compaction logic」）与 `core/session-manager.js` 的
+// `SessionManager`——后者是 node:fs 绑定 + 私有构造，跑不了（见 `session-fs-roundtrip.test.ts` 头注）。
+//
+// 改挂后的分工：
+//   · **本文件**：阈值判定（`shouldCompact`）+ 切点与保留尾（`prepareCompaction`）+ 压缩产物消息
+//     （自持 `createCompactionSummaryMessage` → 上游 `buildSessionContext` 认得）。三者都是纯函数，
+//     不需要 provider / 运行时依赖 —— 原来那套 faux provider 的复杂度没有了。
+//   · `session-format-parity.test.ts`：文件格式（`parseSessionEntries` / `buildSessionContext` 往返）。
+//   · `session-fs-roundtrip.test.ts`：本仓 fs 的落盘与追加。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT } from '../src/env/context';
-import { AgentHarness, JsonlSessionRepo, type CompactionSettings } from '@earendil-works/pi-agent-core';
-import { createModels, fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, type TranscriptContext } from '@earendil-works/pi-ai';
-import { createBrowserFileSystem, createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS } from '../src/index';
-
-const CTX = BACKGROUND_CONTEXT;
+import { createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../src/compaction/compaction';
+import { shouldCompact, prepareCompaction } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/compaction.js';
+import { buildSessionContext } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 /**
  * 必须显式写死：默认 `reserveTokens: 16384` 配 2048 的 `contextWindow` 会让阈值退化成「恒真」
- * （`contextWindow - reserveTokens` 为负），压缩每轮都触发。
+ * （`contextWindow - reserveTokens` 为负），压缩每轮都触发。这条断言本身就是它的文档。
  */
 const SETTINGS: CompactionSettings = { enabled: true, reserveTokens: 256, keepRecentTokens: 128 };
 const CONTEXT_WINDOW = 2048;
-const SUMMARIZATION_MARK = 'context summarization assistant';
 
-/**
- * 每轮一条普通回复；摘要请求（systemPrompt 是上游的 SUMMARIZATION_SYSTEM_PROMPT）走摘要文本。
- * pi-ai 0.99 起 system prompt 不再挂在 `context.systemPrompt` 上，而是折进了首条 system 消息——
- * 故用上游的 `getCurrentSystemPrompt(messages)` 重放（它同时会把后续 system 消息追加进来）。
- */
-const responses = (count: number) => Array.from({ length: count }, () => (context: TranscriptContext) =>
-	fauxAssistantMessage(getCurrentSystemPrompt(context.messages).includes(SUMMARIZATION_MARK) ? '摘要是这样的' : '回复内容'.repeat(300)));
+const usage = (input: number, output: number) => ({
+	input, output, cacheRead: 0, cacheWrite: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+});
 
-describe('compaction：harness 自动压缩在浏览器 fs 会话上的集成验证', () => {
-	it('跨过阈值 → 压缩条目落盘（retainedTail 非空）→ flush 后新实例仍读得回', async () => {
-		const fs = createBrowserFileSystem({ dbName: 'compaction-integration', memory: true });
-		const repo = new JsonlSessionRepo({ fileSystem: fs, sessionsRoot: '/sessions' });
-		const session = await repo.create({ id: 's1', cwd: '/' }, CTX);
+/** 一条 user + 一条 assistant（带 usage，token 估算才非零）组成的条目。 */
+const turn = (id: string, parentId: string | null, index: number) => {
+	const ts = new Date(1_700_000_000_000 + index * 1000).toISOString();
+	return [
+		{ type: 'message', id: `${id}-u`, parentId, timestamp: ts, message: { role: 'user', content: `问题 ${index}`.repeat(20), timestamp: index } },
+		{
+			type: 'message', id: `${id}-a`, parentId: `${id}-u`, timestamp: ts,
+			message: {
+				role: 'assistant', content: [{ type: 'text', text: `回答 ${index}`.repeat(80) }],
+				api: 'faux', provider: 'faux', model: 'faux', usage: usage(400, 300), stopReason: 'stop', timestamp: index,
+			} as unknown as AgentMessage,
+		},
+	];
+};
 
-		const faux = fauxProvider({ models: [{ id: 'faux', contextWindow: CONTEXT_WINDOW, maxTokens: 512 }] });
-		const models = createModels();
-		models.setProvider(faux.provider);
-		faux.setResponses(responses(40));
-
-		const { harness } = await AgentHarness.create({
-			session,
-			models,
-			model: faux.getModel(),
-			compaction: SETTINGS,
-			systemPrompt: 'sys',
-		}, CTX);
-		const events: string[] = [];
-		harness.events.on('compaction_start', (e) => { events.push(`start:${e.reason}`); });
-		harness.events.on('compaction_end', (e) => { events.push(`end:${e.status}`); });
-		// 设置透出：harness 里跑的就是上面写死的那份（默认值不会悄悄顶掉）
-		expect(await harness.getCompactionSettings(CTX)).toEqual(SETTINGS);
-		expect(DEFAULT_COMPACTION_SETTINGS.enabled).toBe(true);
-
-		const lane = await harness.lane('main', { createAt: null }, CTX);
-		// 每轮 ~2800 字符（≈700 tokens）：两轮就跨过 2048 - 256 的阈值
-		for (let turn = 0; turn < 2; turn++) {
-			const run = await lane.prompt(`第${turn}轮：` + '内容'.repeat(800), undefined, CTX);
-			expect(run.ok, `第 ${turn} 轮失败`).toBe(true);
+const chain = (turns: number) => {
+	const entries: unknown[] = [];
+	let parent: string | null = null;
+	for (let i = 0; i < turns; i++) {
+		for (const e of turn(`t${i}`, parent, i)) {
+			entries.push(e);
+			parent = (e as { id: string }).id;
 		}
+	}
+	return entries;
+};
 
-		expect(events).toContain('start:threshold');
-		expect(events).toContain('end:completed');
-		await harness.close(CTX);
-		await fs.flush();
+describe('compaction：阈值触发与切点（上游 1.0.0 纯函数）', () => {
+	it('settings 必须写死：上游默认档配 2048 的 contextWindow 会让阈值恒真', () => {
+		// 上游 shouldCompact：contextTokens > contextWindow - reserveTokens
+		expect(CONTEXT_WINDOW - DEFAULT_COMPACTION_SETTINGS.reserveTokens).toBeLessThan(0);
+		expect(shouldCompact(1, CONTEXT_WINDOW, DEFAULT_COMPACTION_SETTINGS)).toBe(true);
+		// 写死的档位下阈值才有意义
+		expect(CONTEXT_WINDOW - SETTINGS.reserveTokens).toBe(1792);
+	});
 
-		// 新实例（= 刷新页面后重建 fs）读回：压缩条目与压缩前的消息都在 IDB/内存后端上
-		const reopenedRepo = new JsonlSessionRepo({ fileSystem: fs, sessionsRoot: '/sessions' });
-		const meta = (await reopenedRepo.list(undefined, CTX)).find((m) => m.id === 's1');
-		expect(meta).toBeDefined();
-		const reopened = await reopenedRepo.open(meta!, CTX);
-		const entries = await reopened.findEntries({ order: 'asc' }, CTX);
-		const compaction = entries.find((e) => e.type === 'compaction');
-		expect(compaction?.type).toBe('compaction');
-		if (compaction?.type !== 'compaction') return;
+	it('阈值两侧：低于不动、超过触发、enabled: false 一律不动（逐条对着上游 shouldCompact）', () => {
+		expect(shouldCompact(1791, CONTEXT_WINDOW, SETTINGS)).toBe(false);
+		expect(shouldCompact(1793, CONTEXT_WINDOW, SETTINGS)).toBe(true);
+		expect(shouldCompact(99999, CONTEXT_WINDOW, { ...SETTINGS, enabled: false })).toBe(false);
+	});
 
-		expect(compaction.tokensBefore).toBeGreaterThan(CONTEXT_WINDOW - SETTINGS.reserveTokens);
-		expect(compaction.retainedTail.length).toBeGreaterThan(0);
-		// 1.0.0 的签名是 `timestamp: string`（0.99.1 收 string | number，number 直接透传）——
-		// 运行期等价（new Date(n).getTime() === n），公开面按 1.0.0 收窄。P5 会把这条测试改挂到
-		// 1.0.0 的 SessionManager 容器上，那边 compaction 条目的 timestamp 本来就是 string。
-		expect(createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, String(compaction.timestamp)).role).toBe('compactionSummary');
+	it('切点：老对话被 prepareCompaction 判定「有东西可摘要」且保留尾非空', () => {
+		const entries = chain(12);
+		const preparation = prepareCompaction(entries as never, SETTINGS);
+		expect(preparation).toBeDefined();
+		if (!preparation) return;
+		expect(preparation.messagesToSummarize.length).toBeGreaterThan(0);
+		expect(preparation.turnPrefixMessages.length).toBeGreaterThan(0);   // keepRecentTokens=128 < 一轮 → 切在轮中间
+		// firstKeptEntryId 必须是真实存在的条目 id
+		const ids = entries.map((e) => (e as { id: string }).id);
+		expect(ids).toContain(preparation.firstKeptEntryId);
+		expect(preparation.tokensBefore).toBeGreaterThan(0);
+		expect(preparation.settings).toEqual(SETTINGS);
+	});
 
-		await reopenedRepo.close(CTX);
-		await fs.cleanup(CTX);
+	it('已经压过一轮的尾巴再来一次：上游按「末尾已是 compaction」返回 undefined（不会连压）', () => {
+		const entries = chain(3);
+		expect(prepareCompaction(entries as never, SETTINGS)).toBeDefined();
+		const withCompaction = [
+			...entries,
+			{
+				type: 'compaction', id: 'c1', parentId: (entries.at(-1) as { id: string }).id,
+				timestamp: '2026-10-02T09:00:00.000Z', summary: '上一轮摘要',
+				firstKeptEntryId: 't0-u', tokensBefore: 5000,
+			},
+		];
+		expect(prepareCompaction(withCompaction as never, SETTINGS)).toBeUndefined();
+	});
+
+	it('压缩产物：自持 createCompactionSummaryMessage 造的条目能被上游 buildSessionContext 认成 compactionSummary', () => {
+		const entries = chain(2);
+		const lastId = (entries.at(-1) as { id: string }).id;
+		const summary = createCompactionSummaryMessage('这是摘要', 5000, '2026-10-02T09:00:00.000Z');
+		expect(summary.role).toBe('compactionSummary');
+
+		const withCompaction = [
+			...entries,
+			{
+				type: 'compaction', id: 'c1', parentId: lastId, timestamp: '2026-10-02T09:00:00.000Z',
+				summary: summary.summary, firstKeptEntryId: 't0-u', tokensBefore: summary.tokensBefore,
+			},
+		];
+		const context = buildSessionContext(withCompaction as never);
+		const restored = context.messages.find((m) => m.role === 'compactionSummary');
+		expect(restored).toMatchObject({ role: 'compactionSummary', summary: '这是摘要' });
+		// 上游还原出来的 timestamp 是毫秒数，与我们造的一致（两端都走 new Date(iso).getTime()）
+		expect((restored as { timestamp: number }).timestamp).toBe(summary.timestamp);
 	});
 });

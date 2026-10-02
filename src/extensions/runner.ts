@@ -16,13 +16,13 @@
 //     宿主知道）；旧实现在 `load()` / `close()` 里自己发，那是在假装知道会话为何启动/关闭。
 //   · `context` 只跑上游的**第一相**（第二相 `context_with_system` 在本仓是 UNSUPPORTED，理由见
 //     contract.ts）。第一相的「handler 只看不含 system 的会话、每轮后还原 prompt 与工具状态」照抄，
-//     其依赖的 pi-ai `getCurrentSystemMessage` / `getCurrentTools` 在本文件末尾逐字转写
-//     （pi-ai@0.99.1 根入口不导出这两个函数；P6 升到 1.0.0 后换成 import）。
+//     其依赖的 pi-ai `getCurrentSystemMessage` / `getCurrentTools` 在 pi-ai@1.0.0 里从根入口导出，
+//     直接 import（P6 升版本时把本文件末尾那份 0.99.1 时期的转写删掉了）。
 //   · `before_agent_start` 的 system prompt 渲染函数由**宿主注入**（上游直接 import CLI 仓的
 //     `buildSystemPrompt`；浏览器侧没有 system prompt 构造器，宿主才是它的所有者）——与本仓 D5 的
 //     operations 注入缝同款，不是新发明。
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { contentText, type ImageContent, type ProviderHeaders, type SystemMessage, type Tool } from '@earendil-works/pi-ai';
+import { getCurrentSystemMessage, type ImageContent, type ProviderHeaders } from '@earendil-works/pi-ai';
 import { SUPPORTED_EVENTS, UNSUPPORTED_EVENTS } from './contract';
 import { createExtensionAPI, type Extension, type ExtensionAPI, type SourceInfo } from './api';
 import { createExtensionContext, type ExtensionContext } from './context';
@@ -618,42 +618,4 @@ function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOptions): Nor
 		contextFiles: input.contextFiles ?? [],
 		skills: input.skills ?? [],
 	};
-}
-
-/** pi-ai@1.0.0 `utils/transcript.ts:58`（逐字转写：0.99.1 根入口不导出，P6 升版本后换回 import）。 */
-function getCurrentSystemMessage(messages: readonly { role: string }[]): SystemMessage | undefined {
-	const content: string[] = [];
-	const sections = new Map<string, string>();
-	let timestamp: number | undefined;
-	for (const message of messages) {
-		if (message.role !== 'system') continue;
-		timestamp ??= (message as SystemMessage).timestamp;
-		const text = contentText((message as SystemMessage).content);
-		if (text.length > 0) content.push(text);
-		for (const [name, value] of Object.entries((message as SystemMessage).sections ?? {})) {
-			if (value === null) sections.delete(name);
-			else sections.set(name, value);
-		}
-	}
-	const tools = getCurrentTools(messages);
-	if (timestamp === undefined && tools.length === 0) return undefined;
-	return {
-		role: 'system',
-		content: content.join('\n\n'),
-		...(sections.size > 0 ? { sections: Object.fromEntries(sections) } : {}),
-		...(tools.length > 0 ? { toolsAdded: tools } : {}),
-		timestamp: timestamp ?? 0,
-	};
-}
-
-/** pi-ai@1.0.0 `utils/transcript.ts:48`（逐字转写，同上）。 */
-function getCurrentTools(messages: readonly { role: string }[]): Tool[] {
-	const tools = new Map<string, Tool>();
-	for (const message of messages) {
-		if (message.role !== 'system') continue;
-		const system = message as SystemMessage;
-		for (const tool of system.toolsRemoved ?? []) tools.delete(tool.name);
-		for (const tool of system.toolsAdded ?? []) tools.set(tool.name, tool);
-	}
-	return [...tools.values()];
 }

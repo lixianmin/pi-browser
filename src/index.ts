@@ -3,18 +3,45 @@
 // （deep import 各自散落会随上游内部重构漂）。
 // `createMemoryFileSystem` 是内部件不导出（现无外部消费者，AGENTS §2）；memory/idb 两个后端的契约
 // 由测试直接 import src/env/* 覆盖（spec §3 测试 1）。
+//
+// P6 收口（spec §4 第 2 / 第 5 条）：把 P2/P3/P4 各批**推迟**的导出一次性补齐——
+//   · 七工具的 `createXToolDefinition` + `xToolSystemPromptContribution`（宿主要按定义件装配工具面，
+//     并把 snippet/guidelines 拼进 system prompt；工厂件只认构造期 cwd，spec §3.1 的 ctx.cwd 覆盖靠定义件）；
+//   · `XOperations` 类型族（含 grep 的本仓扩展 `fs` 字段、D5 注入缝）；
+//   · 图片处理的 `ImagePhoton` / `ImageResizeOptions`（read 的 `options.photon` 缝的形状）；
+//   · shell 输出侧的 `OutputAccumulator` / `OutputSnapshot` / `OutputAccumulatorSpill`（spec §4 第 5 条：
+//     删掉 `ShellOutputView` 等自造面后，替代物要能从入口拿到）；
+//   · `relativizeFindResultPath`（find 的路径相对化，宿主要用它把结果路径拼进自己的消息）。
+// 仍然不导出的（AGENTS §2 无消费者 / §3 内部件）：`createMemoryFileSystem`、`wrapToolDefinition`
+// （适配**函数**是内部件，只导出它的 `ToolContextFactory` 类型）、`processImage` 的实现体经
+// `ImagePhoton` 类型间接可用。
 export { createBrowserFileSystem, resetFsKernelRegistry, type BrowserFileSystemOptions } from './env/backend-idb';
 export type { BrowserFileSystem, MountEntry } from './env/types';
 export { normalizePath } from './env/path';
 export { createBrowserExecutionEnv } from './env/execution-env';
 export { createWasiFileSystem } from './shell/wasi-fs';
-export { createReadTool } from './tools/read-tool';
-export { createWriteTool } from './tools/write-tool';
-export { createEditTool } from './tools/edit-tool';
-export { createGrepTool } from './tools/grep-tool';
-export { createLsTool } from './tools/ls-tool';
-export { createFindTool } from './tools/find-tool';
-export { createBashTool } from './tools/bash-tool';
+export { createReadTool, createReadToolDefinition, readToolSystemPromptContribution } from './tools/read-tool';
+export { createWriteTool, createWriteToolDefinition, writeToolSystemPromptContribution } from './tools/write-tool';
+export { createEditTool, createEditToolDefinition, editToolSystemPromptContribution } from './tools/edit-tool';
+export { createGrepTool, createGrepToolDefinition, grepToolSystemPromptContribution } from './tools/grep-tool';
+export { createLsTool, createLsToolDefinition, lsToolSystemPromptContribution } from './tools/ls-tool';
+export { createFindTool, createFindToolDefinition, findToolSystemPromptContribution, relativizeFindResultPath } from './tools/find-tool';
+export { createBashTool, createBashToolDefinition, bashToolSystemPromptContribution } from './tools/bash-tool';
+// D5 注入缝与各工具的 options/details/入参类型（逐模块导，不另开 barrel 文件）
+export type { BashOperations, BashToolDetails, BashToolInput, BashToolOptions } from './tools/bash-tool';
+export type { EditOperations, EditToolDetails, EditToolInput, EditToolOptions } from './tools/edit-tool';
+export type { FindOperations, FindToolDetails, FindToolInput, FindToolOptions } from './tools/find-tool';
+export type { GrepOperations, GrepToolDetails, GrepToolInput, GrepToolOptions } from './tools/grep-tool';
+export type { LsOperations, LsToolDetails, LsToolInput, LsToolOptions } from './tools/ls-tool';
+export type { ReadOperations, ReadToolDetails, ReadToolInput, ReadToolOptions } from './tools/read-tool';
+export type { WriteOperations, WriteToolInput, WriteToolOptions } from './tools/write-tool';
+export type { EditDiffOperations } from './tools/edit-diff';
+// 截断与图片处理的结果面（宿主拼「已截断 / 已降级」提示时要读这些字段）
+export type { MiddleTruncationResult, TruncationResult } from './tools/truncate';
+export { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from './tools/truncate';
+export type { ImagePhoton, ImageResizeOptions, ProcessedImage, ResizedImage } from './tools/image-process';
+// shell 输出（spec §4 第 5 条：替代 `ShellOutputView` 的那半面）
+export { OutputAccumulator, type OutputAccumulatorOptions, type OutputAccumulatorSpill, type OutputSnapshot } from './shell/output-accumulator';
 // S4 skills（spec §3.4 / P4）：发现、校验、渲染全在本包（名字/形状/文案对齐 1.0.0，异步是本仓偏差 D3）。
 // `loadBrowserSkills` / `loadSkillsFromEnv`（自造名，R3）与 `formatSkillInvocation`（依赖 1.0.0 已删的
 // `skill.content`）都已移除。

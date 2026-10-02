@@ -17,36 +17,68 @@ const RUNTIME_EXPORTS = [
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',
 	'createBashTool',
+	'createBashToolDefinition',
 	'createEditTool',
+	'createEditToolDefinition',
+	'createExtensionRuntime',
 	'createFindTool',
+	'createFindToolDefinition',
 	'createGrepTool',
+	'createGrepToolDefinition',
 	'createGuestHostBuiltins',
 	'createHostCommandChannel',
 	'createHostCommandResponder',
 	'createHostCommandSharedBuffer',
 	'createLsTool',
+	'createLsToolDefinition',
 	'createReadTool',
-	'createExtensionRuntime',
+	'createReadToolDefinition',
 	'createWasiFileSystem',
 	'createWriteTool',
+	'createWriteToolDefinition',
 	'defineTool',
 	'ExtensionRunner',
+	'formatSize',
 	'formatSkillsForPrompt',
 	'loadSkills',
 	'loadSkillsFromDir',
 	'normalizePath',
+	'OutputAccumulator',
+	'relativizeFindResultPath',
 	'resetFsKernelRegistry',
 ];
 
-/** 运行时导出里的非函数（re-export 的上游常量） */
-const RUNTIME_CONSTANTS = ['DEFAULT_COMPACTION_SETTINGS'];
+/**
+ * 运行时导出里的**非函数**：上游常量（`DEFAULT_*`）+ 七工具的 system prompt 贡献
+ * （snippet / guidelines：宿主把它们拼进自己的 prompt —— 定义件不自带 prompt 文本）。
+ */
+const RUNTIME_CONSTANTS = [
+	'DEFAULT_COMPACTION_SETTINGS',
+	'DEFAULT_MAX_BYTES',
+	'DEFAULT_MAX_LINES',
+	'bashToolSystemPromptContribution',
+	'editToolSystemPromptContribution',
+	'findToolSystemPromptContribution',
+	'grepToolSystemPromptContribution',
+	'lsToolSystemPromptContribution',
+	'readToolSystemPromptContribution',
+	'writeToolSystemPromptContribution',
+];
 
 describe('公开面（src/index.ts）', () => {
 	it('运行时导出清单精确匹配（多了少了都要显式改本表）', () => {
 		expect(Object.keys(api).sort()).toEqual([...RUNTIME_EXPORTS, ...RUNTIME_CONSTANTS].sort());
 	});
 
-	it('函数导出都是函数（ExtensionRunner 是类，也是 function）', () => {
+	it('贡献项形状：snippet + guidelines（宿主拼 prompt 用），与上游逐字由 tools 测试守', () => {
+		for (const name of RUNTIME_CONSTANTS.filter((k) => k.endsWith('SystemPromptContribution'))) {
+			const contribution = (api as Record<string, unknown>)[name] as { snippet: string; guidelines: string[] };
+			expect(typeof contribution.snippet, name).toBe('string');
+			expect(Array.isArray(contribution.guidelines), name).toBe(true);
+		}
+	});
+
+	it('函数导出都是函数（ExtensionRunner / OutputAccumulator 是类，也是 function）', () => {
 		for (const name of RUNTIME_EXPORTS) {
 			expect(typeof (api as Record<string, unknown>)[name], name).toBe('function');
 		}

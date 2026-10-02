@@ -15,8 +15,10 @@
 //   ① `ctxFactory` **必填**（上游可选）：上游的 core execute 自带 `ctx`，`ctxFactory` 只是兜底；
 //      本仓的 core execute 没有 ctx 这一路，兜底就是唯一路径 —— 可选会让 `ctx` 变成 `undefined`，
 //      而 `ToolDefinition.execute` 的第五参是必填的。
-//   ② 不照抄上游 `ctx ?? ctxFactory?.(...)` 里的 `ctx` 分支：在 0.99.1 的 execute 签名下它是死代码
-//      （AGENTS §2 不放投机分支）。P6 升到 1.0.0 后 core 会自己传 ctx，那时再把这条补回来。
+//   ② 不照抄上游 `ctx ?? ctxFactory?.(...)` 里的 `ctx` 分支。**P6 已核实**：pi-agent-core@1.0.0 的
+//      `AgentTool.execute` 仍是四参（`types.d.ts:424`）——第五参 ctx 是 pi-coding-agent 自己那层
+//      `wrapToolDefinition` 的形状，agent-core 并没有传。所以这条分支在本仓是死代码（AGENTS §2
+//      不放投机分支）；真要它活起来，前提是 agent-core 的 execute 加第五参，不是本包能决定的。
 //   ③ 只交付 `wrapToolDefinition`（单个）。上游另有 `wrapToolDefinitions`（复数）与
 //      `createToolDefinitionFromAgentTool`（反向），本仓无消费者，不造（AGENTS §2）。
 //      `ToolDefinition` 上游有、本仓刻意不声明的字段（`outputSchema` / `constrainedSampling` /
