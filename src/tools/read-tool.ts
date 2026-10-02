@@ -3,7 +3,9 @@
 // promptSnippet / promptGuidelines / ReadToolDetails / ReadOperations / 两导出形状。
 // 实现体自持（spec §3.1）：片段构造与截断文案按上游逐字转写，fs 访问由调用方注入（D5），
 // 输入/fs 错误仍是带 FileErrorCode 的 FileError（spec §3.3）。
-// D6 / R1：图片只做 magic-byte 嗅探、不做缩放；autoResizeImages / resizeOptions 字段保留但不消费。
+// D6 / R1：图片做 magic-byte 嗅探；**缩放本体（photon）由宿主注入**（`options.photon`），缺省时只查
+// base64 字节上限并原样投递限内图片 —— 理由与「未对齐的一截」见 `image-process.ts` 文件头。
+// 人类裁决 2026-10-02：能力与接口向 pi-coding-agent 对齐，`autoResizeImages` / `resizeOptions` 现在**真的被消费**。
 
 import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
@@ -13,6 +15,7 @@ import type { ToolDefinition } from '../extensions/tool';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, utf8ByteLength, type TruncationResult } from './truncate';
 import { resolveReadPathAsync } from './path-utils';
 import { throwIfAborted } from './fs-ops';
+import { processImage, type ImagePhoton, type ImageResizeOptions } from './image-process';
 
 const readSchema = Type.Object({
 	path: Type.String({ description: 'Path to the file to read (relative or absolute)' }),
@@ -43,10 +46,16 @@ export interface ReadOperations {
 }
 
 export interface ReadToolOptions {
-	/** 是否自动缩放图片。默认 true。浏览器侧只保留形状，不消费（D6/R1） */
+	/** 是否自动缩放图片。默认 true（上游语义）。 */
 	autoResizeImages?: boolean;
-	/** 模型元数据缺失时的兜底缩放档。浏览器侧不消费（D6/R1） */
-	resizeOptions?: unknown;
+	/** 模型元数据缺失时的兜底缩放档（缺省 2000×2000 / 4.5MB base64 / jpegQuality 80）。 */
+	resizeOptions?: ImageResizeOptions;
+	/**
+	 * 像素活实现（上游 `@silvia-odwyer/photon-node` 的浏览器版缝：上游 `loadPhoton()` 加载的是 CJS +
+	 * `fs.readFileSync(wasm)`，浏览器里不可用）。函数名与签名逐字取自上游的
+	 * `resizeImage` / `convertImageBytesToPng`，宿主绑进来即可；不注入则只查 base64 字节上限。
+	 */
+	photon?: ImagePhoton;
 	/** 文件读取操作。浏览器没有默认文件系统，缺省即抛（D5） */
 	operations?: ReadOperations;
 }
@@ -62,17 +71,6 @@ function requireOperations(options: ReadToolOptions | undefined): ReadOperations
 	}
 	return operations;
 }
-
-/**
- * 上游 `image-resize-core.js:3` 的常量逐字：4.5MB base64 载荷，给 Anthropic 的 5MB 限制留余量。
- * 上游比的是 base64 字符串的字节数，这里等价地先按 `4 * ceil(n/3)` 算长度，避免真的去生成它。
- */
-const MAX_INLINE_IMAGE_BASE64_BYTES = 4.5 * 1024 * 1024;
-
-/** 上游 `image-process.js:56` / `read.js:74-79` 的降级文案（逐字）。 */
-const IMAGE_OMITTED_TOO_LARGE_MESSAGE = '[Image omitted: could not be resized below the inline image size limit.]';
-
-const base64Length = (byteLength: number): number => 4 * Math.ceil(byteLength / 3);
 
 /**
  * 上游 `read.js:24-29`（逐字）：模型不支持 image 时在文本块里追加一行说明。
@@ -101,15 +99,6 @@ function abortable<T>(signal: AbortSignal | undefined, run: () => Promise<T>): P
 	});
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-	let binary = '';
-	const chunkSize = 0x8000;   // 32768：一次展开的实参上限内，避免 String.fromCharCode 逐字节调用
-	for (let i = 0; i < bytes.length; i += chunkSize) {
-		binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-	}
-	return btoa(binary);
-}
-
 /** 共享执行体：`cwd` 已解析好（定义件传 `ctx?.cwd`，工厂件传构造期 cwd）。 */
 async function executeRead(
 	cwd: string,
@@ -117,6 +106,7 @@ async function executeRead(
 	signal: AbortSignal | undefined,
 	operations: ReadOperations,
 	model?: Model<any>,
+	image?: Pick<ReadToolOptions, 'autoResizeImages' | 'resizeOptions' | 'photon'>,
 ): Promise<AgentToolResult<ReadToolDetails | undefined>> {
 	throwIfAborted(signal);
 	const absolutePath = await resolveReadPathAsync(input.path, cwd, (path) => operations.access(path));
@@ -129,29 +119,29 @@ async function executeRead(
 	if (mimeType) {
 		const bytes = await operations.readFile(absolutePath);
 		throwIfAborted(signal);
-		// D6：只嗅探、不缩放；data 是原字节的 base64。
-		// 模型不支持 image 时照样说明一句（上游同款）——否则那张图会被 provider 静默丢掉，模型毫无线索。
+		// 上游 `read.js:60-90` 的形状：processImage 决定「原样 / 缩放 / 省略」，省略时只回文本说明。
+		// `resizeOptions` 的优先级也同上游：模型自带的 resize 档优先于构造期的兜底档。
 		const nonVisionImageNote = getNonVisionImageNote(model);
-		// 上游的超限处理（人类裁决 2026-10-02：能力与 pi-coding-agent 对齐）：`image-resize-core.js` 的
-		// 4.5MB base64 / 2000×2000 上限；`resizeImage` 缩不到限内就返回 null → `processImage` 回 ok:false
-		// → `read.js:74-79` 只返文本 + 那句说明。**对限内的图上游是 no-op**（原样返回），所以我们的偏差
-		// 只在超限图上；我们没有 photon（D6/R1）做不了缩放，于是对齐可观测契约：不把超限载荷塞进结果，
-		// 文案逐字用上游那句。比较点放在生成 base64 **之前**（上游是先生成再比），省掉那次巨大分配。
-		if (base64Length(bytes.length) >= MAX_INLINE_IMAGE_BASE64_BYTES) {
-			const textNote = `Read image file [${mimeType}]\\n${IMAGE_OMITTED_TOO_LARGE_MESSAGE}`
-				+ (nonVisionImageNote ? `\\n${nonVisionImageNote}` : '');
-			return { content: [{ type: 'text', text: textNote }], details: undefined };
+		const processed = await processImage(bytes, mimeType, {
+			autoResizeImages: image?.autoResizeImages,
+			resizeOptions: model?.inputLimits?.images?.resize ?? image?.resizeOptions,
+			photon: image?.photon,
+		});
+		let textNote: string;
+		let imageBlock: { type: 'image'; data: string; mimeType: string } | undefined;
+		if (!processed.ok) {
+			textNote = `Read image file [${mimeType}]\n${processed.message}`;
+		} else {
+			textNote = `Read image file [${processed.mimeType}]`;
+			if (processed.hints.length > 0) textNote += `\n${processed.hints.join('\n')}`;
+			imageBlock = { type: 'image', data: processed.data, mimeType: processed.mimeType };
 		}
-		const textNote = nonVisionImageNote
-			? `Read image file [${mimeType}]\\n${nonVisionImageNote}`
-			: `Read image file [${mimeType}]`;
-		return {
-			content: [
-				{ type: 'text', text: textNote },
-				{ type: 'image', data: bytesToBase64(bytes), mimeType },
-			],
-			details: undefined,
-		};
+		// 上游 `read.js:76/85`：这句说明追加在**文本 note** 末尾（不是最后一个块——成功分支最后是 image 块）
+		if (nonVisionImageNote) textNote += `\n${nonVisionImageNote}`;
+		const content: AgentToolResult<ReadToolDetails | undefined>['content'] = imageBlock
+			? [{ type: 'text', text: textNote }, imageBlock]
+			: [{ type: 'text', text: textNote }];
+		return { content, details: undefined };
 	}
 
 	const textContent = _decoder.decode(await operations.readFile(absolutePath));
@@ -212,7 +202,7 @@ export function createReadToolDefinition(
 		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		parameters: readSchema,
 		execute: (toolCallId, input, signal, _onUpdate, ctx) =>
-			abortable(signal, () => executeRead(ctx?.cwd || cwd, input, signal, operations, ctx?.model)),
+			abortable(signal, () => executeRead(ctx?.cwd || cwd, input, signal, operations, ctx?.model, options)),
 	};
 }
 
@@ -223,6 +213,6 @@ export function createReadTool(cwd: string, options?: ReadToolOptions): AgentToo
 		label: 'read',
 		description: readToolDescription,
 		parameters: readSchema,
-		execute: (toolCallId, input, signal, _onUpdate) => executeRead(cwd, input, signal, operations),
+		execute: (toolCallId, input, signal, _onUpdate) => executeRead(cwd, input, signal, operations, undefined, options),
 	};
 }

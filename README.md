@@ -22,7 +22,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |
 | `createWasiFileSystem` | `(store: { mounts: MountEntry[] }) => FileSystem` | wasi-sh 的同步 `FileSystem` 适配器（busybox guest 侧视图） |
-| `createReadTool` | `(cwd, o?: { operations?: ReadOperations; autoResizeImages?; resizeOptions? }) => AgentTool` | 读文本或图片（magic-byte 嗅探，不缩放）；`operations` 缺省即抛（浏览器无默认 fs）；上游签名 + `createReadToolDefinition` / `readToolSystemPromptContribution` |
+| `createReadTool` | `(cwd, o?: { operations?: ReadOperations; autoResizeImages?; resizeOptions?; photon?: ImagePhoton }) => AgentTool` | 读文本或图片（magic-byte 嗅探）；`operations` 缺省即抛（浏览器无默认 fs）；图片缩放的像素活要注入 `photon`（上游 photon-node 是 CJS + `fs.readFileSync(wasm)`，浏览器不可用，缝的名字与签名逐字取自上游的 `resizeImage` / `convertImageBytesToPng`）——不注入则只查 base64 字节上限 4.5MB（上游常量）并原样投递限内图片，超限按上游文案降级成文本；上游签名 + `createReadToolDefinition` / `readToolSystemPromptContribution` |
 | `createWriteTool` | `(cwd, o?: { operations?: WriteOperations }) => AgentTool` | 覆盖写（`mkdir(dirname)` + writeFile）；成功文案 `Successfully wrote to <path>`（上游逐字）；`operations` 缺省即抛 |
 | `createEditTool` | `(cwd, o?: { operations?: EditOperations }) => AgentTool` | `edits: [{ oldText, newText }]` 精确替换（上游 edit-diff 语义）；details 出 diff/patch/`firstChangedLine?`；`operations` 缺省即抛 |
 | `createGrepTool` | `(cwd, o?: { operations?: GrepOperations; fs: BrowserFileSystem }) => AgentTool` | 正则/字面量搜索；`glob` 过滤 + 上下文行 + `file:line: text`；遍历走本仓 `fs`（**仅 grep**：上游把遍历外包给 rg，浏览器没有） |
