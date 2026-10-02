@@ -3,7 +3,7 @@
 // 数据装配从「registry 注册资源」改为「BrowserFileSystem 写文件」；
 // 数据源差异（registry→fs）带来的用例改写：未注册路径 → not_found；read-only 路径白名单 → 删除
 // （那是 spice 域的 docs/ 规则，通用 fs 无此概念）；新增 spec §3.3 要求的「多命中并列位置」。
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { err, FileError } from '@earendil-works/pi-durable/env';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
@@ -159,6 +159,54 @@ describe('Read tool', () => {
 		]);
 		releaseRead();
 		expect(raced).toMatch(/^REJECTED:.*aborted/i);
+	});
+
+	// `abortable` 的**成功路径**此前零覆盖（其它用例要么 signal=undefined 直接绕过、要么中途 abort），
+	// 而那正是生产主路径：core 传一个不会 abort 的 signal、读成功。顺带钉住「结算后移除 abort 监听器」
+	// ——漏了就是每次调用泄漏一个监听器。
+	it('信号不 abort 时正常返回，且结算后移除 abort 监听器（生产主路径）', async () => {
+		await seed(fs, { '/e/ok.txt': 'fine' });
+		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
+		const ac = new AbortController();
+		const add = vi.spyOn(ac.signal, 'addEventListener');
+		const remove = vi.spyOn(ac.signal, 'removeEventListener');
+		const r = await (def.execute as never as (...a: unknown[]) => Promise<AgentToolResult<unknown>>)(
+			'c1', { path: 'ok.txt' }, ac.signal, undefined, undefined,
+		);
+		expect(textOf(r)).toBe('fine');
+		expect(add).toHaveBeenCalledWith('abort', expect.any(Function), { once: true });
+		expect(remove).toHaveBeenCalledWith('abort', expect.any(Function));
+	});
+
+	// 工厂件（createReadTool）此前**没有** abort 监听器：上游的工厂是
+	// `wrapToolDefinition(createReadToolDefinition(...))`，天然继承定义件那份；本仓两个工厂各写一份
+	// execute，工厂件漏包 → 大多数消费者走的路上「挂在 I/O 上取消」不生效。
+	it('工厂件同样在挂在 I/O 上时立刻 reject（两个工厂都要包 abortable）', async () => {
+		let enteredRead = (): void => {};
+		let releaseRead = (): void => {};
+		const readEntered = new Promise<void>((resolve) => { enteredRead = resolve; });
+		const slowRead = new Promise<Uint8Array>((resolve) => { releaseRead = () => resolve(new TextEncoder().encode('late')); });
+		await seed(fs, { '/e/slow.txt': 'x' });
+		const tool = createReadTool('/e', { operations: { ...readOps(fs), readFile: () => { enteredRead(); return slowRead; } } });
+		const ac = new AbortController();
+		const pending = (tool.execute as never as (...a: unknown[]) => Promise<unknown>)('c1', { path: 'slow.txt' }, ac.signal, undefined);
+		await readEntered;
+		ac.abort();
+		const raced = await Promise.race([
+			pending.then(() => 'RESOLVED', (e: unknown) => `REJECTED:${(e as Error).message}`),
+			new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), 50)),
+		]);
+		releaseRead();
+		expect(raced).toMatch(/^REJECTED:.*aborted/i);
+	});
+
+	// 工厂件的图片分支此前零覆盖（所有图片用例都走定义件）。
+	it('工厂件读图：正常投递 image 块', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		await fs.writeFile('/e/a.png', png, CTX);
+		const r = await createReadTool('/e', { operations: readOps(fs) }).execute('c1', { path: 'a.png' });
+		expect(textOf(r)).toBe('Read image file [image/png]');
+		expect(r.content.some((c) => c.type === 'image')).toBe(true);
 	});
 
 	// 终审 p2-2-rwe 的 Important：getNonVisionImageNote 与 processImage 无关（只拼一行文案），

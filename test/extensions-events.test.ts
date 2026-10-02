@@ -198,6 +198,29 @@ describe('emit 家族的结果语义（照抄上游）', () => {
 		expect(out).toHaveLength(2);
 	});
 
+	// 终审 bug-c：上游 normalizeBuildSystemPromptOptions 的 selectedTools 缺省是**四个核心工具**，
+	// 且所有集合字段都拷贝（上游注释：「mutable, collection-complete shape exposed to extensions」）。
+	// 缺省给 [] 会让宿主渲染的 system prompt 少掉它们的规则段；按引用则扩展能就地改宿主对象并跨轮次残留。
+	it('before_agent_start：systemPromptOptions 缺省含四个核心工具，且集合是拷贝（改不到宿主对象）', async () => {
+		const seen: Array<{ selectedTools: string[]; options: unknown }> = [];
+		const runner = await loaded((pi) => {
+			pi.on('before_agent_start', (event) => {
+				seen.push({ selectedTools: [...event.systemPromptOptions.selectedTools], options: event.systemPromptOptions });
+				// 原地改：若上游那份没拷贝，这里会改到宿主传入的对象
+				event.systemPromptOptions.selectedTools.push('injected');
+				event.systemPromptOptions.sections['hacked'] = 'yes';
+			});
+		});
+		const hostSections: Record<string, string> = { mine: '1' };
+		const hostSkills = [{ name: 'pdf', description: 'd', filePath: '/s', baseDir: '/s', sourceInfo: { path: '/s', source: 'local', scope: 'temporary', origin: 'top-level' }, disableModelInvocation: false }];
+		const result = await runner.emitBeforeAgentStart('hi', undefined,
+			{ cwd: '/w', sections: hostSections, skills: hostSkills as never }, () => 'S');
+		expect(seen[0]!.selectedTools).toEqual(['read', 'bash', 'edit', 'write']);
+		expect(hostSections).toEqual({ mine: '1' });                       // 宿主对象没被改
+		expect(hostSkills).toHaveLength(1);
+		expect(result.systemPromptOptions.selectedTools).toContain('injected');   // 改到的是拷贝
+	});
+
 	it('turn_end 边界：草稿可替换、continue 可置位；重算抛错 → valid:false', async () => {
 		const runner = await loaded((pi) => {
 			pi.on('turn_end', () => ({ entries: [{ type: 'custom' as const, customType: 'ledger' }], continue: true }));

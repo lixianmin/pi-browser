@@ -116,6 +116,77 @@ describe('Grep tool', () => {
 		expect(out).toBe('app.ts:1: const a = 1;\napp.ts:2: const b = 2;');
 	});
 
+	// rg 实测（15.2.0）：`rg --glob '*.ts' needle notes.txt` **照样返回** notes.txt 的命中 ——
+	// rg 不对显式给的文件参数套 glob。所以本仓单文件路径忽略 glob 与上游同款（此前记为「待确认」，
+	// 2026-10-02 用真 rg 钉死）。
+	it('单文件搜索忽略 glob（rg 实测：显式文件参数不过 --glob）', async () => {
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', {
+			pattern: 'const', path: 'src/app.ts', glob: '*.md',
+		}));
+		expect(out).toContain('app.ts:1: const a = 1;');
+	});
+
+	// 二进制（含 NUL）不吐文本行（rg 的判据）：上游只提示 binary file matches。
+	// 本仓 readFile 返回解码后的文本、PNG 不会抛错 —— 不挡就会吐整屏乱码。
+	it('二进制文件（含 NUL）被跳过，不吐乱码行', async () => {
+		const binFs = createMemoryFileSystem();
+		// 夹具必须**同时**含 NUL 与可匹配的文本：真实二进制里就有字符串（编译产物里的字面量）。
+		// 只放 PNG 头 + 空洞的话，pattern 根本命中不了，断言就成了假绿。
+		const bin = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+			...new TextEncoder().encode('needle'), 0x00, 0x00, 0xff, 0xfe]);
+		expect((await binFs.writeFile('/a.png', bin, BACKGROUND_CONTEXT)).ok).toBe(true);
+		expect((await binFs.writeFile('/b.txt', 'needle\n', BACKGROUND_CONTEXT)).ok).toBe(true);
+		const out = textOf(await createGrepTool('/', { fs: binFs }).execute('id', { pattern: 'needle' }));
+		expect(out).toBe('b.txt:1: needle');
+	});
+
+	// 零命中 + 有文件读不动 → 报真实的读失败（上游 rg 是 exit 2 + reject），不伪装成「没匹配」：
+	// 否则模型以为模式不在文件里，然后反复换 pattern 重试。
+	it('读不动且零命中时抛真实错误，而不是 No matches found', async () => {
+		const ops = {
+			readFile: async (): Promise<string> => { throw new FileError('permission_denied', 'EACCES: 读不动', '/secret.ts'); },
+			access: async () => {},
+			isDirectory: async () => false,
+		};
+		await expect(createGrepTool('/', { fs, operations: ops }).execute('id', { pattern: 'x', path: '/secret.ts' }))
+			.rejects.toThrow(/读不动/);
+	});
+
+	// 有命中时读失败仍不打断（部分结果比全丢有用）
+	it('有命中时读失败不打断整次搜索（部分结果照常返回）', async () => {
+		const ops = {
+			readFile: async (p: string): Promise<string> => {
+				if (p.endsWith('locked.ts')) throw new FileError('permission_denied', 'EACCES', p);
+				const r = await fs.readTextFile(p, BACKGROUND_CONTEXT);
+				if (!r.ok) throw r.error;
+				return r.value;
+			},
+			access: async (p: string) => { const r = await fs.fileInfo(p, BACKGROUND_CONTEXT); if (!r.ok) throw r.error; },
+			isDirectory: async (p: string) => { const r = await fs.fileInfo(p, BACKGROUND_CONTEXT); return r.ok && r.value.kind === 'directory'; },
+		};
+		await seed(fs, { 'locked.ts': 'const hidden = 1;\n' });
+		const out = textOf(await createGrepTool('/', { fs, operations: ops }).execute('id', { pattern: 'const' }));
+		expect(out).toContain('src/app.ts:1:');
+	});
+
+	// 读不动（二进制等）的文件跳过：不能因此打断整次搜索。
+	// 读不动的文件（原 `catch { continue }`，零覆盖）：不能因此打断整次搜索。
+	it('读不动的文件被跳过，不打断整次搜索', async () => {
+		const ops = {
+			readFile: async (p: string): Promise<string> => {
+				if (p.endsWith('binary.bin')) throw new Error('EACCES: 读不动');
+				const r = await fs.readTextFile(p, BACKGROUND_CONTEXT);
+				if (!r.ok) throw r.error;
+				return r.value;
+			},
+			access: async (p: string) => { const r = await fs.fileInfo(p, BACKGROUND_CONTEXT); if (!r.ok) throw r.error; },
+			isDirectory: async (p: string) => { const r = await fs.fileInfo(p, BACKGROUND_CONTEXT); return r.ok && r.value.kind === 'directory'; },
+		};
+		await seed(fs, { 'sub/binary.bin': 'x' });
+		const out = textOf(await createGrepTool('/', { fs, operations: ops }).execute('id', { pattern: 'const' }));
+		expect(out).toContain('src/app.ts:1:');
+	});
+
 	it('literal mode (literal: true) treats pattern as string', async () => {
 		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'pinMode(2', literal: true }));
 		expect(out).toContain('sketch.ino:1:');

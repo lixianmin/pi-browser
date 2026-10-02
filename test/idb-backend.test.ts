@@ -106,6 +106,19 @@ describe('createBrowserFileSystem：路径与读写（Plan 7b T6a）', () => {
 });
 
 describe('createBrowserFileSystem：目录、存在性与错误映射（Plan 7b T6a）', () => {
+	// 回归：`statChecked('/')` 的逐段循环对根目录一次都不执行、会落到末尾 `return null`，于是
+	// `exists('/')` 假、`fileInfo('/')` 报 not_found（`listDir('/')` 因为直接 readdir 反而正常，
+	// 所以这个洞很容易被漏掉）。根目录在任何文件系统上都存在。
+	it('根目录存在：exists 为真、fileInfo 是 directory；不存在的路径仍报假', async () => {
+		expect(getOrFail(await fs.exists('/', CTX))).toBe(true);
+		expect(getOrFail(await fs.fileInfo('/', CTX))).toMatchObject({ path: '/', kind: 'directory' });
+		expect(getOrFail(await fs.exists('/nope', CTX))).toBe(false);
+		expect((await fs.fileInfo('/nope', CTX)).ok).toBe(false);
+		// 非根路径仍要逐段校验（中间段是文件时不算目录）
+		await fs.writeFile('/file.txt', 'x', CTX);
+		expect(getOrFail(await fs.exists('/file.txt/child', CTX))).toBe(false);
+	});
+
 	it('fileInfo / listDir：区分 file 与 directory，返回 name/size/mtimeMs', async () => {
 		await fs.writeFile('/dir/a.txt', 'x', CTX);
 		await fs.writeFile('/dir/sub/b.txt', 'yy', CTX);

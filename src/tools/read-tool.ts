@@ -217,6 +217,10 @@ export function createReadTool(cwd: string, options?: ReadToolOptions): AgentToo
 		label: 'read',
 		description: readToolDescription,
 		parameters: readSchema,
-		execute: (toolCallId, input, signal, _onUpdate) => executeRead(cwd, input, signal, operations, undefined, options),
+		// 同样包 `abortable`：上游的 `createReadTool` 是 `wrapToolDefinition(createReadToolDefinition(...))`，
+		// 天然继承定义件里那个 abort 监听器；本仓两个工厂各写一份 execute（wrapper 不导出），
+		// 工厂件漏包的话，**大多数消费者走的这条路**就没有「取消立即 reject」。
+		execute: (toolCallId, input, signal, _onUpdate) =>
+			abortable(signal, () => executeRead(cwd, input, signal, operations, undefined, options)),
 	};
 }

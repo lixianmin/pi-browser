@@ -8,6 +8,7 @@ import {
 	DEFAULT_COMPACTION_SETTINGS, createCompactionSummaryMessage, type CompactionSettings,
 } from '../src/compaction/compaction';
 import * as upstreamMessages from '../node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
+import { DEFAULT_COMPACTION_SETTINGS as upstreamSettings } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/compaction.js';
 
 describe('createCompactionSummaryMessage 与上游 1.0.0 逐字一致', () => {
 	it('字段集合与取值逐字（role / summary / tokensBefore / timestamp）', () => {
@@ -38,9 +39,10 @@ describe('createCompactionSummaryMessage 与上游 1.0.0 逐字一致', () => {
 });
 
 describe('DEFAULT_COMPACTION_SETTINGS', () => {
-	it('三字段逐字（enabled / reserveTokens / keepRecentTokens）', () => {
-		expect(DEFAULT_COMPACTION_SETTINGS).toEqual({ enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 });
+	it('三字段与上游真产物逐字相等（不是字面量断言——上游改数值时要红）', () => {
+		expect(DEFAULT_COMPACTION_SETTINGS).toEqual(upstreamSettings);
 		expect(Object.keys(DEFAULT_COMPACTION_SETTINGS).sort()).toEqual(['enabled', 'keepRecentTokens', 'reserveTokens']);
+		expect(DEFAULT_COMPACTION_SETTINGS).toEqual({ enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 });
 	});
 
 	it('可赋值给 CompactionSettings（类型面与常量一致）', () => {

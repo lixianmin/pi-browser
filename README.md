@@ -19,7 +19,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `BrowserFileSystemOptions` | `{ dbName?: string; cwd?: string; memory?: boolean }` | fs 工厂选项（`dbName` 默认 `'spice-sessions'`） |
 | `resetFsKernelRegistry` | `() => void` | **测试专用**：清空 fs 内核注册表（「同库新实例」durability 类测试清表后重开，断言的才是 IDB 落盘本身；生产禁用） |
 | `normalizePath` | `(p: string) => string` | 纯 JS 路径归一（无 `node:path`，浏览器/Node 同构） |
-| `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
+| `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl?; wasm?; hostCommands? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |
 | `createWasiFileSystem` | `(store: { mounts: MountEntry[] }) => FileSystem` | wasi-sh 的同步 `FileSystem` 适配器（busybox guest 侧视图） |
 | `createReadTool` | `(cwd, o?: { operations?: ReadOperations; autoResizeImages?; resizeOptions?; photon?: ImagePhoton }) => AgentTool` | 读文本或图片（magic-byte 嗅探）；`operations` 缺省即抛（浏览器无默认 fs）；图片缩放的像素活要注入 `photon`（上游 photon-node 是 CJS + `fs.readFileSync(wasm)`，浏览器不可用，缝的名字与签名逐字取自上游的 `resizeImage` / `convertImageBytesToPng`）——不注入则只查 base64 字节上限 4.5MB（上游常量）并原样投递限内图片，超限按上游文案降级成文本；上游签名 + `createReadToolDefinition` / `readToolSystemPromptContribution` |
@@ -53,7 +53,9 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 
 ```ts
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+// ⚠️ 1.0.0 把 `Context` / `BACKGROUND_CONTEXT` 从 pi-agent-core 的 harness 移回 **chord 本体**，
+//    agent-core 现在只剩 agent / agent-loop / proxy / stream-fn / types —— 从那里 import 会编译失败。
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createBrowserExecutionEnv, createBrowserFileSystem, createReadTool, createBashTool } from '@lixianmin/pi-browser';
 
 const env = createBrowserExecutionEnv();                        // '/'→IDB（持久）、'/tmp'→内存（临时）
@@ -63,10 +65,13 @@ const tmp = await env.createTempDir(undefined, BACKGROUND_CONTEXT);   // 固定�
 const fs = createBrowserFileSystem({ dbName: 'spice-sessions' });      // 会话存储用这个（含 flush 契约）
 await fs.flush();                                                     // 每回合末调用，否则刷新页面丢会话
 
-const tools = [createReadTool({ fs }), createBashTool({ env })];      // 形状 = 上游 AgentTool[]：交给 Agent/AgentContext
-                                                                      // （要进 AgentHarness 得用 toHarnessTool 适配，见「扩展」节）
-tools[0].parameters;                                                  // typebox schema（校验由上游做）
-```
+// 七工具都是 `(cwd, { operations? })`（D5：`operations` 缺省即抛，浏览器没有「本地文件系统」）。
+// bash 另收 `spill?` / `commandPrefix?`；read 另收 `autoResizeImages?` / `resizeOptions?` / `photon?`。
+// 形状 = 上游 `AgentTool[]`：交给 Agent / AgentContext。
+const tools = [
+  createReadTool('/projects/x', { operations: readOps }),
+  createBashTool('/projects/x', { operations: bashOps, spill }),
+];
 
 ### 文件读取语义（`readTextLines` / `openTextLineReader`）
 

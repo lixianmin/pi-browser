@@ -158,6 +158,12 @@ export class ExtensionRunner {
 		if (this.closed) {
 			throw new Error('ExtensionRunner：宿主已 close，不能再 load（要重新装载请新建 runner + runtime）');
 		}
+		// 每次装载都从干净的三张表开始：工厂中途抛错时已注册的���具与订阅不会撤销，宿主 catch 后
+		// 重试 load() 会让同一个 handler 跑两遍（对有副作用的 handler 就是双写）。上游的 loader 在
+		// runner 诞生**之前**就跑完工厂，所以它没有这个失败模式；我们的 load() 自己跑工厂，就得自己兜。
+		this.registered.clear();
+		this.handlers.clear();
+		this.eventBus.clear();
 		this.phase = 'loading';
 		let anonymous = 0;
 		for (const ext of this.extensions) {
@@ -375,7 +381,9 @@ export class ExtensionRunner {
 			currentMessages = structuredClone(messages);
 		} catch (err) {
 			this.emitError(this.toError('<runtime>', 'context', new Error(`消息列表无法深拷贝，已降级为浅拷贝：${errText(err)}`)));
-			currentMessages = messages.slice();
+			// 数组与元素都要拷：只 slice() 的话，handler 走「原地改 event.messages[i]」那条路（emitContext
+			// 明确支持）会改到宿主自己的消息对象上，并顺着引用流回会话。
+			currentMessages = messages.map((m) => ({ ...m }));
 		}
 		for (const { path, handler } of this.snapshot('context')) {
 			try {
@@ -515,6 +523,7 @@ export class ExtensionRunner {
 	// ———— 内部 ————
 
 	private addTool(definition: ToolDefinition, source: string): void {
+		this.assertNotClosed(source, 'registerTool');
 		const previous = this.registered.get(definition.name);
 		if (previous) {
 			// 对齐 pi 宿主语义（Map.set：后写覆盖先写），差异只有这一行告警 —— spec §3.5
@@ -537,6 +546,7 @@ export class ExtensionRunner {
 		event: string,
 		handler: (event: unknown, ctx: ExtensionContext) => unknown,
 	): () => void {
+		this.assertNotClosed(source, 'on');
 		if (!(event in SUPPORTED_EVENTS)) {
 			throw new Error(`扩展 "${source}"：on("${event}") 不支持（`
 				+ `${(UNSUPPORTED_EVENTS as readonly string[]).includes(event) ? '该事件在浏览器侧无对应物' : '未知事件名'}）。`
@@ -564,6 +574,18 @@ export class ExtensionRunner {
 
 	private snapshotBus(event: string): Subscription[] {
 		return (this.eventBus.get(event) ?? []).slice();
+	}
+
+	/**
+	 * `close()` 之后的注册闸：`registerTool` / `on` 在加载期是合法的（不过相位门），但宿主已经关掉
+	 * runner 时再写进活表，就会出现「close 之后 `pi.on(...)` 静默成功、`emit` 仍分派给它」的半活状态
+	 * （与 `load()` 拒绝重载的理由自相矛盾）。`pi.events` 那条总线不需要这道闸——runtime 的
+	 * `trackEventBusSubscription` 在已失效时会立刻自退订。
+	 */
+	private assertNotClosed(source: string, what: 'on' | 'registerTool'): void {
+		if (this.closed) {
+			throw new Error(`扩展 "${source}"：宿主已 close，不能再 ${what}（运行期成员也一并失效）`);
+		}
 	}
 
 	private isSessionBeforeEvent(event: { type: string }): boolean {
@@ -605,17 +627,26 @@ function restoreSystemMessages(
 	return head ? [head, ...returned] : returned;
 }
 
-/** 上游 `system-prompt.js:32` 的归一（逐字：缺的集合字段补空缺）。 */
 function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOptions): NormalizedBuildSystemPromptOptions {
+	// 上游 `core/system-prompt.js:9-23` 逐字（含两点**不能省**的语义）：
+	//   ① `selectedTools` 缺省是四个核心工具 —— 缺省给 `[]` 会让宿主渲染出的 system prompt 少掉
+	//      它们的规则段（静默给错结果，不是形状问题）；
+	//   ② 每个集合字段都**拷贝**（上游注释：「the mutable, collection-complete shape exposed to
+	//      extensions」）—— 按引用的话，扩展一句 `options.skills.push(...)` 就改到了宿主自己的对象
+	//      并跨轮次残留。
 	return {
-		...input,
-		selectedTools: input.selectedTools ?? [],
-		toolSnippets: input.toolSnippets ?? {},
-		toolGuidelines: input.toolGuidelines ?? {},
-		promptGuidelines: input.promptGuidelines ?? [],
+		customPrompt: input.customPrompt,
+		forceSystemPrompt: input.forceSystemPrompt,
+		selectedTools: [...(input.selectedTools ?? ['read', 'bash', 'edit', 'write'])],
+		toolSnippets: { ...(input.toolSnippets ?? {}) },
+		toolGuidelines: Object.fromEntries(
+			Object.entries(input.toolGuidelines ?? {}).map(([name, guidelines]) => [name, [...guidelines]]),
+		),
+		promptGuidelines: [...(input.promptGuidelines ?? [])],
 		appendSystemPrompt: input.appendSystemPrompt ?? '',
-		sections: input.sections ?? {},
-		contextFiles: input.contextFiles ?? [],
-		skills: input.skills ?? [],
+		sections: { ...(input.sections ?? {}) },
+		cwd: input.cwd,
+		contextFiles: (input.contextFiles ?? []).map((file) => ({ ...file })),
+		skills: (input.skills ?? []).map((skill) => ({ ...skill })),
 	};
 }

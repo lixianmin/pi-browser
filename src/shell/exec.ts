@@ -5,7 +5,7 @@
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
 import { BACKGROUND_CONTEXT, type Context } from '../env/context';
-import { ExecutionError, err, ok, toError, type Result } from '@earendil-works/pi-durable/env';
+import { ExecutionError, err, ok, toError, type Result, type ExecutionErrorCode } from '@earendil-works/pi-durable/env';
 import type { Shell, ShellExecOptions, ShellExecResult } from '../env/types';
 import { run, spawn, type RunResult, type Session, type WasmSource } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
@@ -70,7 +70,7 @@ interface OutputSink {
 
 export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOptions = {}): Shell {
 	/** 活着的 worker（浏览器路径）：cleanup 要能把它杀掉，否则页面刷新前一直挂着 */
-	let liveWorker: Worker | undefined;
+	const liveWorkers = new Set<Worker>();
 	/** cleanup 之后置位：exec 入口先查它（Review Focus #5——cleanup 后再 exec 要响亮失败，不能挂住） */
 	let closed = false;
 	/**
@@ -78,7 +78,10 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	 * wasi-sh 的 `session.exited` 只在 worker 的 exit 消息或 error 事件上 settle，硬 terminate 两者都不产生，
 	 * 于是 in-flight 的 `await session.exited` 会永久挂住。
 	 */
-	let killLiveExec: ((why: 'timeout' | 'aborted' | 'callback') => void) | undefined;
+	// 活着的那次 exec 的硬杀入口，**按 exec 收集**而不是单槽：agent 并行调工具是常态，两次 exec
+	// 并发时单槽会被第二次覆盖，cleanup / 回调失败就只能杀掉最后一次 —— 先发起的那次既没有 exit 消息
+	// 也没有 error 事件（见上），`await session.exited` 永久挂住。
+	const liveKills = new Set<(why: 'timeout' | 'aborted' | 'callback') => void>();
 	// 注册表校验一次就够（与 applet/内建同名 → 抛错）；worker 消息与 builtins 的 lookup 都用这份名单
 	const hostCommands: HostCommandRegistry = options.hostCommands ?? {};
 	const hostNames = hostCommandNames(hostCommands);
@@ -136,6 +139,17 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	 * 收尾 sink 并吞掉 spill 异常：调用方契约是「`exec` 永远返回 `Result`」（不抛），而 spill 失败只是
 	 * 「全文没落成盘」——它不得把 shell 错误变成不透明 reject，也不得跳过 guest 的写落盘。
 	 */
+	/**
+	 * 带 spill 路径的错误（pi-durable 1.0.0 的 `ExecutionError.spillPath` 字段就是为此存在）：
+	 * 命令被 timeout / abort / 回调失败杀掉时，输出**可能已经越阈值落盘**——那条路径不给调用方，
+	 * 落盘文件就成了不可达的孤儿（全量输出白丢）。所以每个错误分支都要把它带上。
+	 */
+	const execError = (code: ExecutionErrorCode, message: string, cause?: Error, spillPath?: string): ExecutionError => {
+		const e = new ExecutionError(code, message, cause);
+		if (spillPath !== undefined) e.spillPath = spillPath;
+		return e;
+	};
+
 	const finalizeSink = async (output: OutputSink): Promise<{ spillPath?: string; failure?: ExecutionError }> => {
 		try {
 			const spillPath = await output.finalize();
@@ -149,7 +163,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		if (closed) return err(new ExecutionError('shell_unavailable', 'shell 已 cleanup：不能再 exec'));
 		// 消费者回调抛错时由 sink 直接叫停活着的那次 exec（worker 路径需要杀子进程；上行传给 kill 的 'callback'
 		// 不写进 killed，因收尾原因由返回值给出，是 callback_error）
-		const output = createOutputSink(execOptions, context, () => killLiveExec?.('callback'));
+		const output = createOutputSink(execOptions, context, () => { for (const kill of liveKills) kill('callback'); });
 		const cwd = normalizePath(execOptions?.cwd ?? store.mounts[0]?.fs.cwd ?? '/');
 		return typeof Worker === 'undefined'
 			? await execInline(command, execOptions, context, output, cwd)
@@ -169,8 +183,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		// inline 无中断通道（run() 同步占满线程、没有 input/interrupt 通道）：只做调用前 abort 检查；
 		// timeout 同理不生效（没有能触发的定时器）——语义豁免见 spec §4.5
 		if (context.abortSignal?.aborted) {
-			await finalizeSink(output);
-			return err(new ExecutionError('aborted', 'aborted'));
+			const pre = await finalizeSink(output);
+			return err(execError('aborted', 'aborted', undefined, pre.spillPath));
 		}
 		let result: RunResult;
 		try {
@@ -184,8 +198,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 				onOutput: (bytes) => output.deliver(bytes),
 			});
 		} catch (e) {
-			await finalizeSink(output);
-			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
+			const failed = await finalizeSink(output);
+			return err(execError('spawn_error', toError(e).message, toError(e), failed.spillPath));
 		}
 		// 收尾放在落盘之前：即便 guest 的写没落盘，已产生的输出也交付出去
 		const finalized = await finalizeSink(output);
@@ -193,11 +207,11 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			await session.pullAndApply();
 		} catch (e) {
 			// guest 的写没落盘：宁可把这次运行报成失败，也不返回「看起来成功」的结果
-			return err(new ExecutionError('unknown', toError(e).message, toError(e)));
+			return err(execError('unknown', toError(e).message, toError(e), finalized.spillPath));
 		}
-		if (finalized.failure) return err(finalized.failure);
+		if (finalized.failure) return err(execError('unknown', finalized.failure.message, undefined, finalized.spillPath));
 		const consumerError = output.callbackFailure();
-		if (consumerError) return err(new ExecutionError('callback_error', consumerError.message, consumerError));
+		if (consumerError) return err(execError('callback_error', consumerError.message, consumerError, finalized.spillPath));
 		return ok({ exitCode: result.exitCode, ...(finalized.spillPath === undefined ? {} : { spillPath: finalized.spillPath }) });
 	}
 
@@ -216,15 +230,19 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			if (why !== 'callback') killed ??= why;
 			session?.terminate();
 		};
-		killLiveExec = kill;
 		if (context.abortSignal?.aborted) return err(new ExecutionError('aborted', 'aborted'));   // 调用前已中止：不启动 worker（与 inline 入口检查对齐）
+		liveKills.add(kill);   // 从这里起它算「活着的 exec」；finally 里摘掉
 		const timer = execOptions?.timeout === undefined ? undefined : setTimeout(() => kill('timeout'), execOptions.timeout * 1000);
 		const onAbort = (): void => kill('aborted');
 		context.abortSignal?.addEventListener('abort', onAbort, { once: true });
 		const worker = new Worker(options.workerUrl, { type: 'module' });
-		liveWorker = worker;
+		liveWorkers.add(worker);
 		// 宿主命令通道（S2.1 §3.2）：SAB 分配与本端应答循环都在这里；guest 侧的 builtin 在 worker 里等它
-		const timeoutMs = (execOptions?.timeout ?? DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000) * 1000;
+		// `??` 只挡 undefined：`timeout: 0` 会原样变成 0ms 宽限期，之后每次宿主命令应答都立即超时
+		// （kill 定时器也是 0ms，整条命令立刻被杀）。0 在任何一种解释下都不是「零宽限期」的意思，
+		// 落到缺省档。
+		const timeoutSeconds = (execOptions?.timeout ?? DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000);
+		const timeoutMs = (timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000) * 1000;
 		const sab = hostNames.length > 0 ? createHostCommandSharedBuffer() : undefined;
 		const channel = sab ? createHostCommandChannel(sab, { timeoutMs }) : undefined;
 		let serving: Promise<void> | undefined;
@@ -248,16 +266,16 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			session.onOutput((bytes) => output.deliver(bytes));
 			const exitCode = await session.exited;
 			const finalized = await finalizeSink(output);
-			if (killed === 'timeout') return err(new ExecutionError('timeout', `timeout:${execOptions?.timeout}`));
-			if (killed === 'aborted') return err(new ExecutionError('aborted', 'aborted'));
-			if (finalized.failure) return err(finalized.failure);
+			if (killed === 'timeout') return err(execError('timeout', `timeout:${execOptions?.timeout}`, undefined, finalized.spillPath));
+			if (killed === 'aborted') return err(execError('aborted', 'aborted', undefined, finalized.spillPath));
+			if (finalized.failure) return err(execError('unknown', finalized.failure.message, undefined, finalized.spillPath));
 			const consumerError = output.callbackFailure();
-			if (consumerError) return err(new ExecutionError('callback_error', consumerError.message, consumerError));
+			if (consumerError) return err(execError('callback_error', consumerError.message, consumerError, finalized.spillPath));
 			await applyChanges(store, await pulledChanges(worker, pushed));
 			return ok({ exitCode, ...(finalized.spillPath === undefined ? {} : { spillPath: finalized.spillPath }) });
 		} catch (e) {
-			await finalizeSink(output);
-			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
+			const failed = await finalizeSink(output);
+			return err(execError('spawn_error', toError(e).message, toError(e), failed.spillPath));
 		} finally {
 			channel?.hostSide.stop();
 			// 应答循环可能仍挂在处理器上（超时后处理器仍在后台跑、无法取消）——收尾**不阻塞**，
@@ -266,8 +284,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			if (timer) clearTimeout(timer);
 			context.abortSignal?.removeEventListener('abort', onAbort);
 			worker.terminate();   // 一次 exec 一个 worker（与 run() 同构），杀掉不留悬挂线程
-			if (liveWorker === worker) liveWorker = undefined;
-			if (killLiveExec === kill) killLiveExec = undefined;
+			liveWorkers.delete(worker);
+			liveKills.delete(kill);
 		}
 	}
 
@@ -275,9 +293,10 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		closed = true;
 		// in-flight 的 exec 必须由 session.terminate() 收尾（见 killLiveExec 的注释）：先杀活的那次，
 		// 再兜底 terminate worker。cleanup 后 exec 响亮失败（closed 闸），而不是静默挂住。
-		killLiveExec?.('aborted');
-		liveWorker?.terminate();
-		liveWorker = undefined;
+		for (const kill of liveKills) kill('aborted');
+		for (const worker of liveWorkers) worker.terminate();
+		liveWorkers.clear();
+		liveKills.clear();
 	};
 
 	return { exec, cleanup };

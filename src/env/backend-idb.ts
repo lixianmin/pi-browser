@@ -140,6 +140,10 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 	 */
 	async function statChecked(abs: string): Promise<LfsStats | null> {
 		const segs = abs.split('/').filter(Boolean);
+		// 根目录在任何文件系统上都存在，而下面的逐段循环一次都不执行、会落到末尾 `return null`
+		// ——于是 `exists('/')` 假、`fileInfo('/')` 报 not_found（`listDir('/')` 因为直接 readdir
+		// 反而正常，所以这个洞很容易被漏掉）。修：根目录给一个合成的目录 stat。
+		if (segs.length === 0) return { type: 'dir', size: 0, mtimeMs: 0 } as unknown as LfsStats;
 		let cur = '';
 		for (let i = 0; i < segs.length; i++) {
 			cur += `/${segs[i]}`;

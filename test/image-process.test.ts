@@ -54,9 +54,42 @@ describe('processImage：未注入 photon（退化路径）', () => {
 		expect(r.ok).toBe(true);
 	});
 
+	// 4.5MB 边界的方向要钉住：上游是严格小于（`inputBase64Size < maxBytes`），恰好等于上限时
+	// 上游会走缩放尝试；本仓的退化路径必须同向，否则边界会被后来人改反。
+	it('上限恰好相等 → 不投递（严格小于，与上游同向）；差一字节 → 投递', async () => {
+		const exact = base64Length(PNG.length);
+		expect((await processImage(PNG, 'image/png', { resizeOptions: { maxBytes: exact } })).ok).toBe(false);
+		expect((await processImage(PNG, 'image/png', { resizeOptions: { maxBytes: exact + 1 } })).ok).toBe(true);
+	});
+
+	// 分块 btoa 的多 chunk 往返：只断 `ok === true` 的话，`String.fromCharCode(...)` 越界抛
+	// RangeError 这类失败不会被发现（那会让图片变成一次硬失败而不是降级）。
+	it('多 chunk 的 base64 往返正确（32768 实参展开不是静默的）', async () => {
+		const big = new Uint8Array(200_000);
+		for (let i = 0; i < big.length; i++) big[i] = i % 256;
+		const r = await processImage(big, 'image/png', { autoResizeImages: false });
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		const back = atob(r.data);
+		expect(back.length).toBe(big.length);
+		expect(new Uint8Array([...back].map((c) => c.charCodeAt(0)))).toEqual(big);
+	});
+
 	it('resizeOptions.maxBytes 覆盖缺省上限（构造期兜底档真的被消费）', async () => {
 		const r = await processImage(PNG, 'image/png', { resizeOptions: { maxBytes: 8 } });
 		expect(r.ok).toBe(false);
+	});
+
+	it('四种支持格式的 mime 归一（gif / webp 分支原本零覆盖）', async () => {
+		for (const [input, expected] of [
+			['image/png', 'image/png'], ['image/jpeg', 'image/jpeg'], ['image/jpg', 'image/jpeg'],
+			['image/gif', 'image/gif'], ['image/webp', 'image/webp'],
+			['IMAGE/PNG', 'image/png'],            // 大写 + 归一
+			['image/jpeg; charset=binary', 'image/jpeg'],   // 带参数（上游 baseMimeType）
+		] as const) {
+			const r = await processImage(PNG, input);
+			expect(r.ok && r.mimeType, input).toBe(expected);
+		}
 	});
 
 	it('非支持格式且没注入 photon：ok:false + 上游转换失败文案', async () => {

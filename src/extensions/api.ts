@@ -8,7 +8,9 @@
 //      `getSessionName()` / `getThinkingLevel()` / `getActiveTools()` 由宿主提供**同步**动作
 //      （上游 `ExtensionActions` 就是同步的），所以那套缓存连同 fire-and-forget 一起删掉。
 //   ③ **相位门**：注册期（扩展工厂执行中）调用运行期成员 → 响亮抛错；`close()` / `invalidate()` 之后同理。
-//      闸门在 `hooks.assertActive`（runner 的 phase）与 runtime 的桩 / `assertActive` 两侧各有一道。
+//      闸门实际只有 `hooks.assertActive` 一道（runner 的 phase + runtime 有效性）；
+//      runtime 上那层抛错 stub 只覆盖 `bindCore` **之前**——`bindCore` 之后它被 `Object.assign` 换成宿主真动作，
+//      那一侧不再有 active 检查（仓内没有绕过 `call()` 直调 runtime 动作的用法，故不另设闸）。
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { ImageContent, Model, TextContent } from '@earendil-works/pi-ai';
 import { validateToolDefinition, type ToolDefinition } from './tool';
@@ -168,7 +170,9 @@ export function createExtensionAPI(runtime: ExtensionRuntime, hooks: ExtensionHo
 		getSessionName: () => call(() => runtime.getSessionName()),
 		setLabel: (entryId, label) => call(() => runtime.setLabel(entryId, label)),
 
-		async setModel(model) {
+		// 刻意**不写 async**：相位门要在调用处同步抛（扩展工厂里不 await 时，async 会把 throw 包成
+		// rejection → unhandled rejection，闸门等于失效）。返回值仍是 Promise<boolean>，类型不变。
+		setModel: (model) => {
 			hooks.assertActive();
 			return runtime.setModel(model);
 		},

@@ -109,6 +109,8 @@ interface ScanResult {
 	matchCount: number;
 	matchLimitReached: number | undefined;
 	linesTruncated: boolean;
+	/** 首个读文件失败（权限 / 文件在扫描途中被删 / 后端报错…）。零命中时用它报错，别拿「没匹配」顶掉。 */
+	readFailure?: FileError;
 }
 
 async function scanTargets(
@@ -125,9 +127,17 @@ async function scanTargets(
 		let text: string;
 		try {
 			text = await operations.readFile(target);
-		} catch {
-			continue;   // 读不动（二进制等）的文件跳过，不打断整次搜索
+		} catch (e) {
+			// 记下第一个失败但**继续扫**（文件可能在列举后被删，跳过是对的）；零命中时用它报错——
+			// 否则模型会拿到「No matches found」，以为模式不在文件里，然后反复换 pattern 重试。
+			// 上游 rg 遇到读不了的文件是 exit code 2 + stderr，被显式 reject，不会伪装成「无匹配」。
+			if (found.readFailure === undefined && e instanceof FileError) found.readFailure = e;
+			continue;
 		}
+		// 二进制判定（rg 的判据：内容含 NUL）：上游只提示「binary file matches」，不吐文本行。
+		// 本仓的 readFile 返回解码后的文本，PNG/PDF 不会抛错 —— 不挡的话 `pattern: '.'` 之类会
+		// 吐出整屏 U+FFFD 乱码（上游 rg 也会因为二进制跳过）。
+		if (text.indexOf('\0') !== -1) continue;
 		scanFile(found, target, text, options, searchPath, searchIsDirectory);
 		if (found.matchLimitReached !== undefined) break;
 	}
@@ -219,6 +229,8 @@ async function executeGrep(
 		: [searchPath];
 	const found = await scanTargets(operations, targets, { matcher, limit, contextLines: Math.max(0, input.context ?? 0) }, searchPath, isDirectory, signal);
 	throwIfAborted(signal);
+	// 一个都没匹配上、而且确实有文件读不动 → 报真实的读失败，别报「没匹配」
+	if (found.matchCount === 0 && found.readFailure !== undefined) throw found.readFailure;
 	return formatScanResult(found, limit);
 }
 

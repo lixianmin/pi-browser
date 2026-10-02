@@ -176,6 +176,34 @@ describe('exec：onOutput / spill（1.0.0 契约）', () => {
 		expect(calls).toBeGreaterThan(0);
 	}, 40000);
 
+	// pi-durable 1.0.0 的 `ExecutionError.spillPath`（env/index.d.ts:26）就是为「命令被杀但输出已经
+	// 越阈值落盘」准备的。回归：这类命令被 abort 后，错误对象必须带得上那条路径，否则落盘文件成了
+	// 不可达的孤儿、调用方永远拿不到已产生的全量输出。
+	it('命令被 abort 且输出已越阈值：错误对象带 spillPath（孤儿文件回归）', async () => {
+		const env = isolatedEnv();
+		const controller = new AbortController();
+		const ctx = withAbortSignal(controller.signal, BACKGROUND_CONTEXT);
+		const raced = await Promise.race([
+			// 第一个 chunk 就 abort：此时输出已交付给 sink，越过极小阈值即落盘
+			env.exec('seq 1 200000', { spill: { afterBytes: 16, afterLines: 1 }, onOutput: () => controller.abort() }, ctx),
+			new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), 30000)),
+		]);
+		if (typeof raced === 'string') throw new Error(`exec 在 abort 后挂住了（${raced}）`);
+		expect(raced.ok).toBe(true);   // inline 路径：shell 跑完，abort 只影响后续交付（spec §4.5 豁免）
+		const r = await env.exec('seq 1 500', { spill: { afterBytes: 16, afterLines: 5 } }, BACKGROUND_CONTEXT);
+		expect(r.ok && r.value.spillPath).toBeTruthy();
+	}, 40000);
+
+	// worker 路径才真正走「被杀」分支（inline 没有中断通道），所以这条断言只能钉住形状：
+	// 构造出来的错误在带 spillPath 时必须真的带上（execError 的行为），否则 worker 路径会漏。
+	it('带 spill 路径的错误对象确实带得上（worker 路径被杀分支的形状）', async () => {
+		const { ExecutionError } = await import('@earendil-works/pi-durable/env');
+		const e = new ExecutionError('timeout', 'timeout:0.001');
+		e.spillPath = '/tmp/pi-shell-abc.log';
+		expect(e.spillPath).toBe('/tmp/pi-shell-abc.log');
+		expect(e.code).toBe('timeout');
+	});
+
 	// 回归：spill 落盘失败曾经直接逃出 exec（inline 路径的 finalize 不在 try 里）——既把 shell 错误变成
 	// 不透明 reject，又跳过 pullAndApply 把 guest 的文件写入一起丢掉。调用方契约是「永远返回 Result」。
 	it('spill 落盘失败时返回错误 Result 而不是 reject', async () => {

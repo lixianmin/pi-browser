@@ -184,6 +184,37 @@ describe('ExtensionRunner（宿主，注入模型）', () => {
 		await expect(runner.load()).rejects.toThrow(/close/);
 	});
 
+	// load() 失败无回滚曾经是半活来源：ext-a 注册的 handler 在 ext-b 抛错后仍留在表里，
+	// 宿主 catch 后**对同一个 runner** 重试 load() 就让同一个 handler 跑两遍（对有副作用的 handler 就是双写）。
+	it('工厂中途抛错后对同一个 runner 重试 load()：handler 与工具不叠加', async () => {
+		const f = fakes();
+		const hits: string[] = [];
+		let failB = true;
+		const { runner } = makeRunner([
+			ext('ext-a', (pi) => { pi.on('agent_start', () => { hits.push('a'); }); pi.registerTool(tool('alpha')); }),
+			ext('ext-b', (pi) => { pi.registerTool(tool('beta')); if (failB) throw new Error('boom'); }),
+		], f);
+		runner.bindCore(f.actions, f.contextActions);
+		await expect(runner.load()).rejects.toThrow('boom');
+
+		failB = false;
+		await runner.load();                      // 同一个 runner 重试
+		await runner.emit({ type: 'agent_start' });
+		expect(hits).toEqual(['a']);              // 一次，不是两次
+		expect(runner.getAllRegisteredTools().map((t) => t.definition.name).sort()).toEqual(['alpha', 'beta']);
+	});
+
+	it('close() 之后 registerTool / on 都响亮失败（不留半活订阅表）', async () => {
+		const f = fakes();
+		const { runner } = makeRunner([ext('ext-a', () => {})], f);
+		runner.bindCore(f.actions, f.contextActions);
+		const apis = await runner.load();
+		const api = apis.get('ext-a')!;
+		await runner.close();
+		expect(() => api.on('agent_start', () => {})).toThrow(/close/);
+		expect(() => api.registerTool(tool('late'))).toThrow(/close/);
+	});
+
 	it('invalidate 后事件总线订阅被退订（runtime 统一退订）', async () => {
 		const f = fakes();
 		const { runner } = makeRunner([ext('ext-a', (pi) => { pi.events.on('tick', () => { hits.push(1); }); })], f);
