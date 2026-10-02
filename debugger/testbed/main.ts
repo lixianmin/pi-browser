@@ -1,6 +1,7 @@
 // debugger/testbed/main.ts —— 测试宿主页:在本 origin 造两个 IDB 库的样例数据。
 // spice-sessions 树结构对齐主包真实布局(会话 jsonl / skills);spice-alt 验证库切换。
 // 相对直连 backend(plan 豁免:同仓库工具页),避免把主包 shell/wasi-sh 拖进产物。
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createBrowserFileSystem } from '../../src/env/backend-idb';
 
 const log = (msg: string) => {
@@ -11,7 +12,10 @@ const log = (msg: string) => {
 async function seed(dbName: string, files: Record<string, string>): Promise<void> {
 	const fs = createBrowserFileSystem({ dbName, memory: false });
 	for (const [path, content] of Object.entries(files)) {
-		const r = await fs.writeFile(path, content, {} as never);
+		// 用真的 BACKGROUND_CONTEXT（与主包测试、bridge handler 同一份），不用 `{} as never` 糊过去：
+		// 空对象能被 cast 骗过类型检查，但它是「不存在的 context」——fs 实现里任何读 context 的新代码
+		// 都会在真库上炸、在测试床上静默走 undefined 分支。
+		const r = await fs.writeFile(path, content, BACKGROUND_CONTEXT);
 		if (!r.ok) throw r.error;
 	}
 	await fs.flush();
