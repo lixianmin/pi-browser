@@ -64,6 +64,17 @@ function requireOperations(options: ReadToolOptions | undefined): ReadOperations
 }
 
 /**
+ * 上游 `image-resize-core.js:3` 的常量逐字：4.5MB base64 载荷，给 Anthropic 的 5MB 限制留余量。
+ * 上游比的是 base64 字符串的字节数，这里等价地先按 `4 * ceil(n/3)` 算长度，避免真的去生成它。
+ */
+const MAX_INLINE_IMAGE_BASE64_BYTES = 4.5 * 1024 * 1024;
+
+/** 上游 `image-process.js:56` / `read.js:74-79` 的降级文案（逐字）。 */
+const IMAGE_OMITTED_TOO_LARGE_MESSAGE = '[Image omitted: could not be resized below the inline image size limit.]';
+
+const base64Length = (byteLength: number): number => 4 * Math.ceil(byteLength / 3);
+
+/**
  * 上游 `read.js:24-29`（逐字）：模型不支持 image 时在文本块里追加一行说明。
  * 与 `processImage` 无关 —— D6/R1 裁掉缩放时被连带动掉了，这里补回。
  */
@@ -121,8 +132,18 @@ async function executeRead(
 		// D6：只嗅探、不缩放；data 是原字节的 base64。
 		// 模型不支持 image 时照样说明一句（上游同款）——否则那张图会被 provider 静默丢掉，模型毫无线索。
 		const nonVisionImageNote = getNonVisionImageNote(model);
+		// 上游的超限处理（人类裁决 2026-10-02：能力与 pi-coding-agent 对齐）：`image-resize-core.js` 的
+		// 4.5MB base64 / 2000×2000 上限；`resizeImage` 缩不到限内就返回 null → `processImage` 回 ok:false
+		// → `read.js:74-79` 只返文本 + 那句说明。**对限内的图上游是 no-op**（原样返回），所以我们的偏差
+		// 只在超限图上；我们没有 photon（D6/R1）做不了缩放，于是对齐可观测契约：不把超限载荷塞进结果，
+		// 文案逐字用上游那句。比较点放在生成 base64 **之前**（上游是先生成再比），省掉那次巨大分配。
+		if (base64Length(bytes.length) >= MAX_INLINE_IMAGE_BASE64_BYTES) {
+			const textNote = `Read image file [${mimeType}]\\n${IMAGE_OMITTED_TOO_LARGE_MESSAGE}`
+				+ (nonVisionImageNote ? `\\n${nonVisionImageNote}` : '');
+			return { content: [{ type: 'text', text: textNote }], details: undefined };
+		}
 		const textNote = nonVisionImageNote
-			? `Read image file [${mimeType}]\n${nonVisionImageNote}`
+			? `Read image file [${mimeType}]\\n${nonVisionImageNote}`
 			: `Read image file [${mimeType}]`;
 		return {
 			content: [

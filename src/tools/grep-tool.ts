@@ -207,14 +207,14 @@ async function executeGrep(
 	const operations = customOperations ?? defaultOperations(fs, context);
 	// 正则/glob 先编译：语法错的输入不该等扫完目录才报
 	const matcher = createMatcher(input.pattern, input.ignoreCase, input.literal);
-	const globMatch = input.glob === undefined ? undefined : compileGlob(input.glob);
+	const globMatch = input.glob === undefined ? undefined : compileGlob(input.glob, cwd);
 	const limit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 	const searchPath = resolveToCwd(input.path ?? '.', cwd);
 	const isDirectory = await operations.isDirectory(searchPath);
 	const targets = isDirectory
 		? (await listTree(fs, searchPath, context))
 			.filter((entry) => entry.kind !== 'directory')
-			.filter((entry) => globMatch === undefined || globMatch(displayPath(entry.path, searchPath)))
+			.filter((entry) => globMatch === undefined || globMatch(entry.path, entry.name))
 			.map((entry) => entry.path)
 		: [searchPath];
 	const found = await scanTargets(operations, targets, { matcher, limit, contextLines: Math.max(0, input.context ?? 0) }, searchPath, isDirectory, signal);
@@ -258,10 +258,26 @@ function compilePattern(pattern: string, ignoreCase: boolean | undefined): RegEx
 	}
 }
 
-function compileGlob(pattern: string): (input: string) => boolean {
+/**
+ * `glob` 的匹配语义 = **rg 的 `--glob`**（人类裁决 2026-10-02：能力与 pi-coding-agent 对齐）。
+ * 上游把 pattern 原样交给 `rg --glob`，本仓没有 rg 进程，所以按 rg 的规则复刻（rg 15.2.0 实测钉死）：
+ *   · pattern **不含**斜杠 → 对 **basename** 匹配（任意深度都算；实测 pattern `*.ts` 命中
+ *     `./a.ts` / `./src/a.ts` / `./src/.gen/b.ts` 三个文件）；
+ *   · pattern **含**斜杠 → 对 **相对 cwd** 的路径匹配（不是相对搜索根！实测：cwd=`/tmp`、搜索根=`rgtest` 时，
+ *     只有 `rgtest/**` 开头的 pattern 才命中）；
+ *   · 上游带 `--hidden`，通配符吃点号（实测 `src` 下一层的通配能命中 `src/.gen/b.ts`）→ `dot: true`。
+ * 输出路径是另一回事：仍然相对**搜索根**（上游 formatPath），不要与匹配基准混为一谈。
+ *
+ * 已知偏差（不追平）：pattern 带点斜杠前缀时 rg 不匹配（实测返 0 条），本仓会匹配 ——
+ * 朝着「多给结果」的方向偏，比让模型白跑一趟安全。
+ */
+function compileGlob(pattern: string, cwd: string): (absolutePath: string, name: string) => boolean {
+	let matches: (input: string) => boolean;
 	try {
-		return picomatch(pattern);
+		matches = picomatch(pattern, { dot: true });
 	} catch (e) {
 		throw new FileError('invalid', `Invalid glob pattern: ${(e as Error).message}`);
 	}
+	const byBasename = !pattern.includes('/');
+	return (absolutePath, name) => matches(byBasename ? name : displayPath(absolutePath, cwd));
 }

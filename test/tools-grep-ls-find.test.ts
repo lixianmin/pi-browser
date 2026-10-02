@@ -71,9 +71,39 @@ describe('Grep tool', () => {
 		expect(out).not.toContain('nested/deep.ts');   // src/nested/deep.ts 也含 const：证明 glob 确实在过滤
 	});
 
-	it('glob 相对 `path` 指定的目录匹配（输出相对搜索根，上游 formatPath）', async () => {
-		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'const', path: 'src', glob: 'nested/*.ts' }));
-		expect(out).toBe('nested/deep.ts:1: const deep = true;');
+	// glob 的基准是 **cwd**（rg 把 glob 原样交给 `rg --glob`，rg 对含 `/` 的 pattern 按「相对 rg 进程 cwd」
+	// 匹配），不是搜索根——终审 p2-3-search 的实证。输出仍然是相对搜索根（上游 formatPath），两者不是一回事。
+	it('glob 相对 **cwd** 匹配，输出相对搜索根（两者不是同一个基准）', async () => {
+		const tool = createGrepTool('/', { fs });
+		// cwd=/ → 相对 cwd 就是 src/nested/deep.ts
+		expect(textOf(await tool.execute('id', { pattern: 'const', path: 'src', glob: 'src/nested/*.ts' })))
+			.toBe('nested/deep.ts:1: const deep = true;');
+		// 用搜索根相对的老写法（`nested/*.ts`）在 rg 下不匹配，本仓也不再匹配
+		expect(textOf(await tool.execute('id', { pattern: 'const', path: 'src', glob: 'nested/*.ts' })))
+			.toBe('No matches found');
+	});
+
+	// 终审 p2-3-search 的实证（rg 15.2.0 实测：--hidden --glob '*.ts' 返回 3 个文件）：
+	// pattern 不含 `/` 时 rg 对 **basename** 匹配，任意深度都算；原来本仓对「相对搜索根」的路径匹配，
+	// 所以 '*.ts' 只命中顶层 —— 静默漏结果。
+	it('glob 不含 `/` → 对 basename 匹配（rg 实测语义，任意深度都算）', async () => {
+		const dotFs = createMemoryFileSystem();
+		await seed(dotFs, { 'a.ts': 'needle\n', 'src/a.ts': 'needle\n', 'src/.gen/b.ts': 'needle\n', 'src/.gen/b.js': 'needle\n' });
+		const out = textOf(await createGrepTool('/', { fs: dotFs }).execute('id', { pattern: 'needle', glob: '*.ts' }));
+		expect(out).toContain('a.ts:1: needle');
+		expect(out).toContain('src/a.ts:1: needle');
+		expect(out).toContain('src/.gen/b.ts:1: needle');
+		expect(out).not.toContain('b.js');
+	});
+
+	// rg 带 --hidden：通配符吃点号（实测 `src/*/*.ts` 命中 `src/.gen/b.ts`），
+	// picomatch 默认 `dot: false` 会把点目录挡掉 —— 与 rg 不一致。
+	it('glob 通配符吃点号（rg 的 --hidden 语义）', async () => {
+		const dotFs = createMemoryFileSystem();
+		await seed(dotFs, { 'a.ts': 'needle\n', 'src/a.ts': 'needle\n', 'src/.gen/b.ts': 'needle\n' });
+		const tool = createGrepTool('/', { fs: dotFs });
+		expect(textOf(await tool.execute('id', { pattern: 'needle', glob: 'src/*/*.ts' }))).toContain('src/.gen/b.ts');
+		expect(textOf(await tool.execute('id', { pattern: 'needle', glob: 'src/**/*.ts' }))).toContain('src/.gen/b.ts');
 	});
 
 	it('无 glob 时所有文件都搜（.md / .ino 同样命中）', async () => {

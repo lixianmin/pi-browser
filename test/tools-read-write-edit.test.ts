@@ -181,6 +181,34 @@ describe('Read tool', () => {
 		expect(textOf(visionResult)).not.toContain('does not support images');
 	});
 
+	// 终审 p2-2-rwe：上游对「已在限内」的图是 no-op（image-resize-core.js:49 原样返回），所以偏差只在
+	// 超限图上——上游 resize 缩不到限内就返回 ok:false，read 只回文本并说明（read.js:74-79）。我们没有
+	// photon（D6/R1）做不了缩放，于是对齐「不把超限载荷塞进工具结果」这个**可观测契约**，文案逐字用上游那句。
+	it('超限图片按上游降级：只回文本说明，不塞超大 base64（阈值 4.5MB base64 = 上游常量）', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		const big = new Uint8Array(3.6 * 1024 * 1024);        // base64 后约 4.8MB > 4.5MB
+		big.set(png, 0);
+		const bigFs = createMemoryFileSystem();
+		await bigFs.writeFile('/e/big.png', big, CTX);
+		const def = createReadToolDefinition('/e', { operations: readOps(bigFs) });
+		const result = await (def.execute as never as (...a: unknown[]) => Promise<AgentToolResult<unknown>>)(
+			'c1', { path: 'big.png' }, undefined, undefined, extensionCtx('/e'),
+		);
+		expect(textOf(result)).toContain('[Image omitted: could not be resized below the inline image size limit.]');
+		expect(result.content.some((c) => c.type === 'image')).toBe(false);
+	});
+
+	it('限内图片不受影响（上游对限内图是 no-op：原样投递）', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		await fs.writeFile('/e/small.png', png, CTX);
+		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
+		const result = await (def.execute as never as (...a: unknown[]) => Promise<AgentToolResult<unknown>>)(
+			'c1', { path: 'small.png' }, undefined, undefined, extensionCtx('/e'),
+		);
+		expect(textOf(result)).toBe('Read image file [image/png]');
+		expect(result.content.some((c) => c.type === 'image')).toBe(true);
+	});
+
 	it('ctx.cwd 为空串时回退构造期 cwd（与上游 `||` 同语义，不是 `??`）', async () => {
 		await seed(fs, { '/e/x.txt': 'e' });
 		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
