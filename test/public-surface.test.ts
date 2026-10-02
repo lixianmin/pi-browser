@@ -29,10 +29,9 @@ const RUNTIME_EXPORTS = [
 	'createWriteTool',
 	'defineTool',
 	'ExtensionRunner',
-	'formatSkillInvocation',
-	'formatSkillsForSystemPrompt',
-	'loadBrowserSkills',
-	'loadSkillsFromEnv',
+	'formatSkillsForPrompt',
+	'loadSkills',
+	'loadSkillsFromDir',
 	'normalizePath',
 	'resetFsKernelRegistry',
 ];

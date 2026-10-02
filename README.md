@@ -29,10 +29,9 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createLsTool` | 同上 | 目录列表（`recursive?`），目录带尾斜杠、按名排序 |
 | `createFindTool` | 同上 | picomatch glob 找文件（`*`/`?` 不跨 `/`，`**` 匹配多层）；工具 wire-level `name` = `find`（对齐上游） |
 | `createBashTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明；wire-level `name` = `bash`（对齐上游） |
-| `loadBrowserSkills` | `(o?: { dbName?; mounts?; roots? }) => Promise<{ skills; diagnostics }>` | 自建 env 跑上游 `loadSkills`；默认 roots `['/skills','/.pi/skills']` |
-| `loadSkillsFromEnv` | `(env: ExecutionEnv, roots?: string[]) => Promise<{ skills; diagnostics }>` | 在已有 env 上加载（已有 IDB 会话时不必再建一个） |
-| `formatSkillsForSystemPrompt` | `(skills: Skill[]) => string` | 上游 re-export：清单块（含 `<location>`，过滤 `disableModelInvocation`） |
-| `formatSkillInvocation` | `(skill: Skill, additionalInstructions?) => string` | 上游 re-export：按需调用块 |
+| `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状（异步是本仓偏差，见「平台偏差」）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
+| `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
+| `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
 | `createCompactionSummaryMessage` | `(summary, tokensBefore, timestamp) => CompactionSummaryMessage` | 上游 re-export：`compaction` 条目的消息投影（role `compactionSummary`） |
 | `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | 上游默认值（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下） |
 | `createBrowserExecutionEnv`（续） | `hostCommands?: Record<string, HostCommandHandler>` | 宿主命令注册表（见「宿主命令」节） |
@@ -69,7 +68,9 @@ tools[0].parameters;                                                  // typebox
 - 两者都由 `test/equivalence.node.test.ts` 的策展等价表与上游 `NodeExecutionEnv` 逐条比对（含末行截断、结尾换行、空文件、`maxLines: 0` 短路），`test/memory-backend.test.ts` / `test/idb-backend.test.ts` 另有一份同断言集。
 
 ## skills 与 compaction（S4）
-- **skills**：加载用 `loadBrowserSkills(o?)`（自建 ExecutionEnv）或 `loadSkillsFromEnv(env, roots?)`（复用已有 env）——都是上游 `loadSkills` 的薄封装，默认 roots `['/skills', '/.pi/skills']`，`diagnostics` 原样透出。清单渲染用上游 `formatSkillsForSystemPrompt(skills)`（含 `<location>`、过滤 `disableModelInvocation`），按需调用块用 `formatSkillInvocation(skill)`；产物直接放进 `AgentHarnessResources.skills`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）全归上游，本库不复刻。
+- **skills**：`loadSkills(env, { cwd, agentDir, skillPaths, includeDefaults })`（或 `loadSkillsFromDir(env, { dir, source })`）加载，产物是 `Skill[]`（`{ name, description, filePath, baseDir, sourceInfo, disableModelInvocation }`——**没有 `content`**，调用 skill 时去 `filePath` 读文件）。清单渲染用 `formatSkillsForPrompt(skills, fileReadTool?)`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）由本库自持，形状与文案对齐 `pi-coding-agent@1.0.0`。
+  - **破坏性变更（v0.6）**：`loadBrowserSkills` / `loadSkillsFromEnv` / `formatSkillInvocation` 已删。前两个由 `loadSkills` 的选项形状覆盖（自建 env 的便利路径改成 `createBrowserExecutionEnv()` + `loadSkills()` 两步显式写）；`formatSkillInvocation` 依赖 1.0.0 已删的 `skill.content`，上游没有同名物。
+  - **破坏性变更（v0.6）**：`/skills` 不再是隐式加载的默认 root（1.0.0 没有「默认 roots」概念，`includeDefaults` 只覆盖 `<agentDir>/skills` 与 `<cwd>/.pi/skills`）。要 `/skills` 就在 `skillPaths` 里显式给。
 - **compaction**：本库**不直接调** `compact`/`prepareCompaction`（那两条会引入 pi-ai 运行时依赖）。`AgentHarness` 自带自动压缩，由构造选项 `compaction: CompactionSettings` 驱动，产物是会话里的 `compaction` 条目（`summary` + `retainedTail`）；事件面 `compaction_start`/`compaction_end`（`reason: manual | threshold | overflow`），`before_compaction` 钩子可返回 `{ decline: true }` 拦截。
 - **必须显式给设置**：上游默认 `DEFAULT_COMPACTION_SETTINGS = { enabled: true, reserveTokens: 16384, keepRecentTokens: 20000 }`。`contextWindow` 小于 `reserveTokens` 时必须自己收窄 `reserveTokens`，否则 `contextWindow - reserveTokens` 为负、阈值恒真（每轮都压）。实测（`test/compaction-integration.test.ts`）：`contextWindow: 2048` + `{ enabled: true, reserveTokens: 256, keepRecentTokens: 128 }`，两轮各约 700 token 的对话即触发 `reason: "threshold"`，产出 `retainedTail` 非空的 `compaction` 条目。
 

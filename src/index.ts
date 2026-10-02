@@ -15,9 +15,14 @@ export { createGrepTool } from './tools/grep-tool';
 export { createLsTool } from './tools/ls-tool';
 export { createFindTool } from './tools/find-tool';
 export { createBashTool } from './tools/bash-tool';
-// S4 skills（spec §3.4）：加载是本地薄封装，渲染直接 re-export 上游（不自建渲染器：会丢 `<location>`）
-export { formatSkillInvocation, formatSkillsForSystemPrompt, type Skill, type SkillDiagnostic, type SkillDiagnosticCode } from '@earendil-works/pi-agent-core';
-export { loadBrowserSkills, loadSkillsFromEnv, type SkillsLoadResult } from './skills/loader';
+// S4 skills（spec §3.4 / P4）：发现、校验、渲染全在本包（名字/形状/文案对齐 1.0.0，异步是本仓偏差 D3）。
+// `loadBrowserSkills` / `loadSkillsFromEnv`（自造名，R3）与 `formatSkillInvocation`（依赖 1.0.0 已删的
+// `skill.content`）都已移除。
+export {
+	formatSkillsForPrompt, loadSkills, loadSkillsFromDir,
+	type LoadSkillsFromDirOptions, type LoadSkillsOptions, type LoadSkillsResult,
+	type ResourceCollision, type ResourceDiagnostic, type Skill, type SkillFrontmatter,
+} from './skills/loader';
 // S4 compaction（spec §3.4）：只透出设置与消息构造（`compact`/`prepareCompaction` 不 re-export——
 // 直接调那两条会引入 pi-ai 运行时依赖；harness 自带自动压缩）
 export { createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '@earendil-works/pi-agent-core';
