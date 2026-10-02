@@ -3,7 +3,8 @@
 // 为什么存在：pi 1.0.0 把 `pi-agent-core` 的 `harness/` 整块删掉，编排层落到
 // `@earendil-works/pi-durable`（`dist/harness/`）。`Harness.open(storage, options, context)` 自己已经做了
 // 绝大部分事（会话表、调度器、内建 generation/tool/compaction 任务、恢复），本仓**不重做**其中任何一件
-// （compaction 的执行体在 durable 的内建 `CompactionTask` 里，本装配只给默认策略——见 `session/compaction.ts`）。
+// （compaction 的执行体与缺省策略都在 durable 那边，内建 `CompactionTask` + `resolveSettings`，装配层不
+// 参与——背景与字段清单见 `session/compaction.ts`）。
 // 这里只做两件浏览器侧特有的事：
 //
 //   ① `openBrowserHarness`：把「存储 + 模型 + 工具注册表 + 执行环境」按上游要求的形状接起来，并**逐个从
@@ -39,7 +40,6 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { Context } from '../env/context';
 import { asDurableTool } from '../tools/durable-tool';
-import { DEFAULT_BROWSER_COMPACTION_POLICY } from './compaction';
 
 export interface OpenBrowserHarnessOptions {
 	/** pi-ai 模型访问（`HarnessOptions.models`）：宿主提供，本仓不认 provider。 */
@@ -58,8 +58,8 @@ export interface OpenBrowserHarnessOptions {
 	readonly env?: HarnessOptions['env'];
 	/**
 	 * 运行期策略：扩展默认选择、stream/retry/compaction/工具轮并行度、排队模式。
-	 * 缺省即上游缺省，**唯一例外是 `compaction`**：本装配给 `DEFAULT_BROWSER_COMPACTION_POLICY`
-	 * （durable 那份四字段默认值，见 `session/compaction.ts`）作为浏览器侧缺省，调用方给的字段覆盖它。
+	 * 缺省即上游缺省：原样转发，缺省值由 durable 的 `resolveSettings` 补齐（`compaction` 那一组也包括在内），
+	 * 替上游定默认不是装配的职责。
 	 */
 	readonly settings?: HarnessSettings;
 	/** Harness 时钟（`HarnessOptions.now`）：缺省用 `Date.now`。 */
@@ -80,10 +80,10 @@ export function openBrowserHarness(options: OpenBrowserHarnessOptions): Promise<
 		models,
 		registry,
 		...(env === undefined ? {} : { env }),
-		// compaction 的执行体是 durable 的内建 `CompactionTask`，本装配只定「缺省策略是什么」：给一份
-		// 浏览器侧默认（四字段，取自 durable 的 `DEFAULT_COMPACTION_POLICY`），再让调用方的字段盖上去。
-		// 其余 settings 字段保持原样转发——替它们定默认是上游 `resolveSettings` 的事，不是装配的。
-		settings: { ...settings, compaction: { ...DEFAULT_BROWSER_COMPACTION_POLICY, ...settings?.compaction } },
+		// 原样转发：durable 的 `resolveSettings` 已经在 `settings` 为空时补齐全部缺省
+		// （`compaction: { ...DEFAULT_COMPACTION_POLICY, ...settings?.compaction }`），装配层再 merge 一份
+		// 与它逐字相同的值，产出的对象与不 merge 完全一致。`resolveSettings` 不改调用方的对象，转发安全。
+		...(settings === undefined ? {} : { settings }),
 		...(now === undefined ? {} : { now }),
 		...(onReport === undefined ? {} : { onReport }),
 	}, context);

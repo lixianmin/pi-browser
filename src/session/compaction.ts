@@ -42,21 +42,22 @@
 //     `backgroundTokens: 32768`（低于阻塞阈值这么多就开始后台压缩；`0` 关闭后台压缩）。
 //     喂给 durable 的 `HarnessSettings.compaction`（`HarnessSettings` 那一位是 `Partial<CompactionPolicy>`，
 //     缺省字段由 `resolveSettings` 拿 `DEFAULT_COMPACTION_POLICY` 补齐）。
-// 装配面要决定的是**durable 那份**的值，所以浏览器侧默认值从 `DEFAULT_COMPACTION_POLICY` 取；
-// 差的这一个字段正是后台压缩的开关，用 CLI 侧的三字段冒充会让 durable 侧永远走 `DEFAULT_COMPACTION_POLICY`
-// 的后台阈值，装配层就等于没有可覆盖的默认。
+// 本仓公开面给的是 durable 那一份（不是自持副本那三字段）：`HarnessSettings.compaction` 的缺省由 durable 的
+// `resolveSettings` 拿 `DEFAULT_COMPACTION_POLICY` 补齐，接入方要覆盖就经 `OpenBrowserHarnessOptions.settings`
+// 给 `Partial<CompactionPolicy>`，缺的字段照样由上游补。`backgroundTokens` 那个多出来的字段就是后台压缩的开关。
 import { DEFAULT_COMPACTION_POLICY } from '@earendil-works/pi-durable';
 import type { CompactionPolicy } from '@earendil-works/pi-durable';
 
 /**
- * 装配给 `Harness` 的浏览器侧 compaction 默认策略（`HarnessSettings.compaction` 缺省时用这份）。
+ * durable 侧 compaction 默认策略（`CompactionPolicy` 四字段）在公开面上的本仓名字。
  *
- * 逐字段等于 durable 的 `DEFAULT_COMPACTION_POLICY`（`dist/harness/agent.js`，由 `resolveSettings` 在
- * `Harness.open` 时合并）。这里**重新声明**而不是直接 re-export 上游常量，是为了让公开面上有一个
- * 属于本仓的名字：durable 的 `resolveSettings` 本来就补齐缺省字段，浏览器侧显式给出它，是为了让
- * 「本仓的接缝值是哪几个」在代码与文档里是自陈的，而不是隐在上游实现里。
+ * **逐字段等于** durable 的 `DEFAULT_COMPACTION_POLICY`（`dist/harness/agent.js:9-14`）——这是一份**镜像**，
+ * 存在的理由是让「接缝上用的是哪几个字段、值是多少」在本仓的公开面与文档里是自陈的，接入方不必翻上游源码。
+ * `test/session-compaction.test.ts` 对着上游真常量断言它，上游改数值这里就红。
  *
- * 调用方经 `OpenBrowserHarnessOptions.settings.compaction` 覆盖其中任意字段（`Partial<CompactionPolicy>`），
- * 覆盖优先于这份默认。
+ * **装配层不 merge 它**：`openBrowserHarness` 把 `settings` 原样转发给 `Harness.open`，缺省由 durable 自己的
+ * `resolveSettings` 填（`compaction: { ...DEFAULT_COMPACTION_POLICY, ...settings?.compaction }`），与这份镜像
+ * 逐字相同，所以在这里再 merge 一次是产出同值的死接线。调用方要改就经
+ * `OpenBrowserHarnessOptions.settings.compaction` 覆盖任意字段（`Partial<CompactionPolicy>`）。
  */
 export const DEFAULT_BROWSER_COMPACTION_POLICY: CompactionPolicy = { ...DEFAULT_COMPACTION_POLICY };

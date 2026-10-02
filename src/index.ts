@@ -25,9 +25,11 @@ export { openBrowserSessionStorage } from './session/storage';
 export type { JsonlStorageOptions } from '@earendil-works/pi-durable/storage/jsonl';
 // pi-durable 编排层的会话/Harness 装配（批 2 B-2）：模型/注册表/存储/环境逐个由调用方给，本仓不硬编 provider
 export { openBrowserHarness, asDurableTools, type OpenBrowserHarnessOptions } from './session/harness';
-// pi-durable 编排层的 compaction 接缝（批 2 B-4）：压缩执行体在内建 `CompactionTask` 里，本仓只给浏览器侧
-// 默认策略——durable 的四字段 `CompactionPolicy`，**不是**下面 `./compaction/compaction` 那份三字段的
-// `DEFAULT_COMPACTION_SETTINGS`（后者是 CLI 侧会话文件那一半的适配件，两者不是同一契约，详见该文件头）
+// pi-durable 编排层的 compaction 接缝（批 2 B-4）：压缩执行体在内建 `CompactionTask` 里，本仓不实现压缩；
+// 公开面只透出 durable 的四字段 `CompactionPolicy` 缺省值（镜像上游 `DEFAULT_COMPACTION_POLICY`，见该文件头），
+// **不是**下面 `./compaction/compaction` 那份三字段的 `DEFAULT_COMPACTION_SETTINGS`（后者是 CLI 侧会话文件
+// 那一半的适配件，两者不是同一契约，详见该文件头）。缺省值由 durable 自己在 `Harness.open` 时补齐，
+// 装配层不 merge 这一份。
 export { DEFAULT_BROWSER_COMPACTION_POLICY } from './session/compaction';
 export { createReadTool, createReadToolDefinition, readToolSystemPromptContribution } from './tools/read-tool';
 export { createWriteTool, createWriteToolDefinition, writeToolSystemPromptContribution } from './tools/write-tool';

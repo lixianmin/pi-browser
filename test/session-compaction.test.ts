@@ -1,16 +1,19 @@
 // @vitest-environment node
-// 批 2 B-4：compaction 接缝 —— 浏览器侧的 compaction 默认策略 + 它真的驱动 durable 的内建 CompactionTask。
+// 批 2 B-4：compaction 接缝 —— durable 内建 CompactionTask 真的被驱动起来。
 //
-// 断言四件事：
-//   ① 浏览器侧默认值逐字段等于 durable 的 `DEFAULT_COMPACTION_POLICY`（四字段，含 `backgroundTokens`），
-//      并**明确不等于**本仓自持副本的 `DEFAULT_COMPACTION_SETTINGS`（那份三字段，少 `backgroundTokens`）。
-//   ② 装配线通电：不传 `settings.compaction` 时，Harness 仍按这份默认策略真的跑起一次 threshold
+// 断言三件事：
+//   ① 公开面上那份 `DEFAULT_BROWSER_COMPACTION_POLICY` 逐字段等于 durable 的 `DEFAULT_COMPACTION_POLICY`
+//      （四字段，含 `backgroundTokens`），并**明确不等于**本仓自持副本的 `DEFAULT_COMPACTION_SETTINGS`
+//      （那份三字段，少 `backgroundTokens`）——上游改数值这里就红。
+//   ② 压缩真的跑得起来：不传 `settings.compaction` 时，Harness 仍按 durable 的缺省策略跑起一次 threshold
 //      compaction，产出 `pi.compaction` 条目——且摘要消息是 durable 自己造的 `[UserMessage]`
 //      （不是本仓那份 `createCompactionSummaryMessage` 的 `compactionSummary` 角色）。
-//   ③ `backgroundTokens: 32768` 真被读到：窗口调到只够越过后台阈值时压得动，压到 `0` 就不动。
-//   ④ 调用方覆盖优先：`enabled: false` 后阻塞链路不再压（默认值没有盖住调用方）。
-import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_COMPACTION_POLICY, Harness, createRegistry } from '@earendil-works/pi-durable';
+//   ③ `backgroundTokens: 32768` 真被读到：窗口调到只够越过后台阈值时压得动，压到 `0` 就不动；
+//      调用方给的 `enabled: false` 优先于缺省。
+// 装配层**不**再 merge 一份浏览器侧默认（那份与 durable 缺省逐字同值，merge 与不 merge 同产出），
+// 所以这里没有「装配传了什么」的白盒断言：那类断言验的是实现形状，不是行为。
+import { describe, it, expect } from 'vitest';
+import { DEFAULT_COMPACTION_POLICY, createRegistry } from '@earendil-works/pi-durable';
 import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
 import type { AssistantMessage, Model, Models } from '@earendil-works/pi-ai';
 import type { Conversation, EntryRecord, HarnessSettings } from '@earendil-works/pi-durable';
@@ -122,34 +125,8 @@ const runTwoTurns = async (
 	return compaction;
 };
 
-describe('compaction 接缝：浏览器侧默认策略（批 2 B-4）', () => {
-	it('装配真的把这份策略交到 Harness.open（缺省四字段 / 调用方字段盖上去）', async () => {
-		// 行为测试证明不了这一层：durable 的 `resolveSettings` 本来就拿 `DEFAULT_COMPACTION_POLICY` 补缺省，
-		// 所以「装配传了」与「装配没传」在行为上同值。这里直接看送进 `Harness.open` 的那份 options。
-		const open = vi.spyOn(Harness, 'open');
-		const storage = await openBrowserSessionStorage('/sessions/b4-wiring', createMemoryFileSystem(), CTX);
-		const target = model(8_192);
-		const base = { models: fauxModels(target), registry: createRegistry(), storage, context: CTX };
-		try {
-			await openBrowserHarness(base);
-			expect(open.mock.calls[0]?.[1].settings?.compaction).toEqual(DEFAULT_BROWSER_COMPACTION_POLICY);
-
-			await openBrowserHarness({ ...base, settings: { compaction: { backgroundTokens: 7, keepRecentTokens: 3 } } });
-			expect(open.mock.calls[1]?.[1].settings?.compaction).toEqual({
-				enabled: true,
-				reserveTokens: 16384,
-				keepRecentTokens: 3,
-				backgroundTokens: 7,
-			});
-			// 其余 settings 字段原样转发，不被这层加工
-			expect(open.mock.calls[1]?.[1].settings?.stream).toBeUndefined();
-		} finally {
-			open.mockRestore();
-			for (const call of open.mock.calls) await (call[0] as { close: (c: typeof CTX) => Promise<void> }).close(CTX);
-		}
-	});
-
-	it('四字段逐个取 durable 的 DEFAULT_COMPACTION_POLICY，且不等于自持副本那三字段', () => {
+describe('compaction 接缝：durable 的 CompactionTask（批 2 B-4）', () => {
+	it('公开面上那份默认逐字段等于 durable 的 DEFAULT_COMPACTION_POLICY，且不等于自持副本那三字段', () => {
 		expect(DEFAULT_BROWSER_COMPACTION_POLICY).toEqual({
 			enabled: true,
 			reserveTokens: 16384,
