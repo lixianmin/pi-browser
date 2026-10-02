@@ -430,6 +430,9 @@ function inlineUnsupportedFileSystem(name: string): BrowserFileSystem {
 	};
 	return {
 		cwd: '/',
+		id: `inline-unsupported:${name}`,   // 命名空间标识不参与 IO，不需要 fail
+		truncateFile: () => fail('truncateFile'),
+		flushFile: () => fail('flushFile'),
 		absolutePath: () => fail('absolutePath'),
 		joinPath: () => fail('joinPath'),
 		readTextFile: () => fail('readTextFile'),

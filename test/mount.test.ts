@@ -118,3 +118,22 @@ describe('createMountTable：其余方法的委托与错误码', () => {
 		expect(getOrFail(await table.exists('/d', CTX))).toBe(false);
 	});
 });
+
+describe('FileSystem 1.0.0 新增契约的转发', () => {
+	it('挂载表把 id 透出、把 truncateFile/flushFile 分派到被路由的后端', async () => {
+		const tmp = createMemoryFileSystem('/tmp');
+		const table = createMountTable([
+			{ prefix: '/', fs: createMemoryFileSystem('/') },
+			{ prefix: '/tmp', fs: tmp },
+		]);
+		expect(typeof table.id).toBe('string');
+		await table.writeFile('/tmp/a', 'abcdef', CTX);
+		await table.truncateFile('/tmp/a', 2, CTX);
+		expect(getOrFail(await table.readTextFile('/tmp/a', CTX))).toBe('ab');
+		// 分派证据：后端自身看到的是同一个截断结果（不是表另存了一份）。
+		// 注意表一律传**绝对**路径给后端（各后端 cwd 不参与），所以这里读的是 '/tmp/a' 而非 '/a'
+		expect(getOrFail(await tmp.readTextFile('/tmp/a', CTX))).toBe('ab');
+		expect((await table.flushFile('/tmp/a', CTX)).ok).toBe(true);
+		expect((await table.flushFile('/nope', CTX)).ok).toBe(false);
+	});
+});

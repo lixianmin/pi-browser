@@ -16,6 +16,8 @@ const basename = (p: string): string => normalizePath(p).split('/').filter(Boole
  * （Node 下创建即挂住、jsdom 下仍走 IndexedDB 后端并抛 `indexedDB is not defined`）。
  * 会话存储不需要闪电文件系统的任何特性（无 git、无大文件），Map 版 80 行足够且确定。
  */
+let memoryFsSeq = 0;   // id 的自增源（模块级计数，保证每实例唯一）
+
 export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 	// data 存文本、bytes 存二进制（互斥）；两者都留以支持 writeFile(文本) → readBinaryFile 的混用
 	type Node = { kind: 'file' | 'directory'; data?: string; bytes?: Uint8Array; mtimeMs: number };
@@ -49,6 +51,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 
 	return {
 		cwd,
+		// 文件命名空间 id：memory 后端每次调用都是独立世界（不进注册表），所以每实例一个
+		id: `memory-fs-${++memoryFsSeq}`,
 		absolutePath: async (path: string) => okv(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts: string[]) => okv(normalizePath(parts.join('/'))),
 		canonicalPath: async (path: string) => okv(normalizePath(path)),
@@ -164,6 +168,29 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const file = `/tmp/${options?.prefix ?? ''}${Math.random().toString(36).slice(2, 10)}${options?.suffix ?? ''}`;
 			files.set(file, { kind: 'file', data: '', mtimeMs: Date.now() });
 			return okv(file);
+		},
+		// pi 1.0.0 新增：截断或补零到正好 `size` 字节。`size` 校验与上游 NodeExecutionEnv 同款
+		// （非负安全整数之外返 invalid）；缺文件返 not_found（上游先开 r+，开不到就没有下文）。
+		truncateFile: async (path, size) => {
+			const abs = normalizePath(path);
+			if (!Number.isSafeInteger(size) || size < 0) {
+				return err<void, FileError>(new FileError('invalid', 'File size must be a non-negative safe integer', abs));
+			}
+			const n = files.get(abs);
+			if (!n || n.kind !== 'file') return err(notFound(abs));
+			const bytes = n.bytes ?? new TextEncoder().encode(n.data ?? '');
+			const next = new Uint8Array(size);
+			next.set(bytes.subarray(0, Math.min(size, bytes.length)));
+			// 统一落成 bytes（不再是 data 字符串）：截断到非字符边界时字符串存不住
+			files.set(abs, { kind: 'file', bytes: next, mtimeMs: Date.now() });
+			return okv(undefined);
+		},
+		// pi 1.0.0 新增：内存后端没有落盘面，flush 是 no-op；但存在性照上游（开 r+）如实回答
+		flushFile: async (path) => {
+			const abs = normalizePath(path);
+			const n = files.get(abs);
+			if (!n || n.kind !== 'file') return err(notFound(abs));
+			return okv(undefined);
 		},
 		cleanup: async () => { /* 无资源需释放 */ },
 		// 内存 FS 无 debounce，写入即时完成；同形接口让上层统一调用（见 BrowserFileSystem.flush）

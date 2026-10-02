@@ -165,3 +165,54 @@ describe('错误码针对性覆盖（复审 P1：not_directory）', () => {
 		expect(r.ok === false && r.error.code).toBe('not_directory');
 	});
 });
+
+describe('FileSystem 1.0.0 新增契约（id / truncateFile / flushFile）', () => {
+	it('truncateFile 截短到指定字节数（lightning-fs 无 truncate 原语，走读-改-写）', async () => {
+		await fs.writeFile('/a.txt', 'abcdef', CTX);
+		expect(await fs.truncateFile('/a.txt', 3, CTX)).toMatchObject({ ok: true });
+		expect(await fs.readTextFile('/a.txt', CTX)).toEqual({ ok: true, value: 'abc' });
+	});
+
+	it('truncateFile 变长时补零', async () => {
+		await fs.writeFile('/a.txt', 'ab', CTX);
+		await fs.truncateFile('/a.txt', 4, CTX);
+		const got = await fs.readTextFile('/a.txt', CTX);
+		expect(got.ok && got.value).toBe('ab\0\0');
+	});
+
+	it('truncateFile 拒绝非负安全整数之外的 size', async () => {
+		await fs.writeFile('/a.txt', 'ab', CTX);
+		const r = await fs.truncateFile('/a.txt', -1, CTX);
+		expect(r.ok === false && r.error.code).toBe('invalid');
+	});
+
+	it('truncateFile 缺文件报 not_found', async () => {
+		const r = await fs.truncateFile('/missing.txt', 1, CTX);
+		expect(r.ok === false && r.error.code).toBe('not_found');
+	});
+
+	it('flushFile 幂等、不抛，内容仍可读', async () => {
+		await fs.writeFile('/a.txt', 'x', CTX);
+		expect(await fs.flushFile('/a.txt', CTX)).toMatchObject({ ok: true });
+		expect(await fs.flushFile('/a.txt', CTX)).toMatchObject({ ok: true });
+		expect(await fs.readTextFile('/a.txt', CTX)).toEqual({ ok: true, value: 'x' });
+	});
+
+	it('flushFile 缺文件报 not_found', async () => {
+		const r = await fs.flushFile('/missing.txt', CTX);
+		expect(r.ok === false && r.error.code).toBe('not_found');
+	});
+
+	// Review Focus #3：同 id 是同一世界，但 cwd 是各自的视图
+	it('同 dbName 的两个实例 id 相同且共享文件；cwd 各自独立', async () => {
+		const dbName = `same-world-${Math.random().toString(36).slice(2)}`;
+		const a = createBrowserFileSystem({ dbName, cwd: '/w1', memory: false });
+		const b = createBrowserFileSystem({ dbName, cwd: '/w2', memory: false });
+		expect(a.id).toBe(b.id);
+		expect(a.cwd).toBe('/w1');
+		expect(b.cwd).toBe('/w2');
+		await a.writeFile('/shared.txt', 'v', CTX);
+		const got = await b.readTextFile('/shared.txt', CTX);
+		expect(got.ok && got.value).toBe('v');
+	});
+});

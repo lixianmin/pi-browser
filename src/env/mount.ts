@@ -8,9 +8,9 @@
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
 import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
 import { normalizePath } from './path';
-import type { BrowserFileSystem, MountEntry } from './types';
+import type { BrowserFileSystem, FileSystemV1Additions, MountEntry } from './types';
 
-export interface MountTable extends FileSystem {
+export interface MountTable extends FileSystem, FileSystemV1Additions {
 	/** 挂载顶层名（'/tmp' → 'tmp'；'/' 不入列），供 `listDir('/')` 合成挂载根 */
 	roots(): string[];
 }
@@ -44,6 +44,8 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 
 	return {
 		cwd,
+		// id 取首个挂载点的命名空间（与 cwd 同一来源口径）：'/' 兜底挂载决定整张表的世界
+		id: mounts[0]?.fs.id ?? `mount:${cwd}`,
 		absolutePath: async (path) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts) => ok(normalizePath(parts.join('/'))),
 		canonicalPath: (path, context) => delegate(path, (fs, p) => fs.canonicalPath(p, context)),
@@ -55,6 +57,8 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		writeFile: (path, content, context) => delegate(path, (fs, p) => fs.writeFile(p, content, context)),
 		appendFile: (path, content, context) => delegate(path, (fs, p) => fs.appendFile(p, content, context)),
 		createDir: (path, options, context) => delegate(path, (fs, p) => fs.createDir(p, options, context)),
+		truncateFile: (path, size, context) => delegate(path, (fs, p) => fs.truncateFile(p, size, context)),
+		flushFile: (path, context) => delegate(path, (fs, p) => fs.flushFile(p, context)),
 		remove: (path, options, context) => delegate(path, (fs, p) => fs.remove(p, options, context)),
 		renameFile: async (sourcePath, destinationPath, context) => {
 			const from = abs(sourcePath);

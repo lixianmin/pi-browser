@@ -164,3 +164,47 @@ describe('错误码针对性覆盖（复审 P1：not_directory）', () => {
 		expect(r.ok === false && r.error.code).toBe('not_directory');
 	});
 });
+
+describe('FileSystem 1.0.0 新增契约（id / truncateFile / flushFile）', () => {
+	it('id 标识文件命名空间：memory 后端每实例独立', () => {
+		expect(createMemoryFileSystem().id).not.toBe(createMemoryFileSystem().id);
+	});
+
+	it('truncateFile 截短到指定字节数', async () => {
+		await fs.writeFile('/a.txt', 'abcdef', CTX);
+		expect(await fs.truncateFile('/a.txt', 3, CTX)).toMatchObject({ ok: true });
+		expect(await fs.readTextFile('/a.txt', CTX)).toEqual({ ok: true, value: 'abc' });
+	});
+
+	it('truncateFile 变长时补零（对齐上游 file.truncate 的 extend 语义）', async () => {
+		await fs.writeFile('/a.txt', 'ab', CTX);
+		await fs.truncateFile('/a.txt', 4, CTX);
+		const got = await fs.readTextFile('/a.txt', CTX);
+		expect(got.ok && got.value).toBe('ab\0\0');
+	});
+
+	it('truncateFile 拒绝非负安全整数之外的 size（上游同款校验）', async () => {
+		await fs.writeFile('/a.txt', 'ab', CTX);
+		for (const bad of [-1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
+			const r = await fs.truncateFile('/a.txt', bad, CTX);
+			expect(r.ok === false && r.error.code).toBe('invalid');
+		}
+	});
+
+	it('truncateFile 缺文件报 not_found（上游先开 r+）', async () => {
+		const r = await fs.truncateFile('/missing.txt', 1, CTX);
+		expect(r.ok === false && r.error.code).toBe('not_found');
+	});
+
+	it('flushFile 幂等、不抛，内容仍可读', async () => {
+		await fs.writeFile('/a.txt', 'x', CTX);
+		expect(await fs.flushFile('/a.txt', CTX)).toMatchObject({ ok: true });
+		expect(await fs.flushFile('/a.txt', CTX)).toMatchObject({ ok: true });
+		expect(await fs.readTextFile('/a.txt', CTX)).toEqual({ ok: true, value: 'x' });
+	});
+
+	it('flushFile 缺文件报 not_found（上游先开 r+）', async () => {
+		const r = await fs.flushFile('/missing.txt', CTX);
+		expect(r.ok === false && r.error.code).toBe('not_found');
+	});
+});

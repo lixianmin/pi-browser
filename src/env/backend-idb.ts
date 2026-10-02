@@ -178,6 +178,9 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 
 	return {
 		cwd,
+		// 文件命名空间 id = dbName（上游口径：equal ids see the same files at the same paths,
+		// whatever their cwd —— 同库多 cwd 视图是同一个世界）
+		id: dbName,
 		absolutePath: async (path: string) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts: string[]) => ok(normalizePath(parts.join('/'))),
 
@@ -265,6 +268,27 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			return file;
 		}),
 		// lightning-fs 无 close；实例生命周期由调用方（web 端单例）持有
+		// pi 1.0.0 新增。lightning-fs **没有** truncate 原语（实测 grep 无此方法），所以走读-改-写。
+		// `size` 校验与上游 NodeExecutionEnv 同款；缺文件由 readFile 的 ENOENT 归一为 not_found。
+		truncateFile: (path, size) => wrap(path, async () => {
+			const abs = normalizePath(path);
+			if (!Number.isSafeInteger(size) || size < 0) {
+				throw new FileError('invalid', 'File size must be a non-negative safe integer', abs);
+			}
+			await onFs(async (f) => {
+				const bytes = ensureFileContent(await f.promises.readFile(abs), abs) as Uint8Array;
+				const next = new Uint8Array(size);
+				next.set(bytes.subarray(0, Math.min(size, bytes.length)));
+				await f.promises.writeFile(abs, next);
+			});
+		}),
+		// pi 1.0.0 新增：lightning-fs 没有 per-file flush，如实降级为**整体落盘**
+		// （与自有 BrowserFileSystem.flush() 同一条路径）。存在性照上游先开 r+。
+		flushFile: (path) => wrap(path, async () => {
+			const abs = normalizePath(path);
+			if ((await statChecked(abs)) === null) throw new FileError('not_found', `Not found: ${abs}`, abs);
+			await onFs((f) => f.promises.flush());
+		}),
 		cleanup: async () => { /* 无资源需释放 */ },
 		// 强制把超级块（目录树）写入 IDB，绕开 lightning-fs 的 500ms debounce（见 BrowserFileSystem.flush）
 		flush: async () => { await onFs((f) => f.promises.flush()); },
