@@ -9,6 +9,9 @@ import type { EditOperations } from '../../src/tools/edit-tool';
 import type { GrepOperations } from '../../src/tools/grep-tool';
 import type { FindOperations } from '../../src/tools/find-tool';
 import type { LsOperations } from '../../src/tools/ls-tool';
+import type { BashOperations } from '../../src/tools/bash-tool';
+import type { ExecutionEnv } from '../../src/env/types';
+import { contextFor } from '../../src/tools/fs-ops';
 import { detectSupportedImageMimeType } from '../../src/tools/image-mime';
 import picomatch from '../../src/tools/picomatch-typed';
 import { displayPath, listTree } from '../../src/tools/fs-ops';
@@ -71,4 +74,18 @@ export const lsOps = (fs: BrowserFileSystem): LsOperations => ({
 		return { isDirectory: () => info.kind === 'directory' };
 	},
 	readdir: async (absolutePath) => unwrap(await fs.listDir(absolutePath, BACKGROUND_CONTEXT)).map((entry) => entry.name),
+});
+
+/** 把本仓 `ExecutionEnv.exec`（`onOutput`/`spill` 的 1.0.0 契约）适配成上游 `BashOperations.exec`（`onData`）。 */
+export const bashOps = (env: ExecutionEnv): BashOperations => ({
+	exec: async (command, cwd, { onData, signal, timeout, env: execEnv }) => {
+		const result = await env.exec(command, {
+			cwd,
+			env: execEnv,
+			timeout,
+			onOutput: (text) => onData(new TextEncoder().encode(text)),
+		}, contextFor(signal));
+		if (!result.ok) throw result.error;
+		return { exitCode: result.value.exitCode };
+	},
 });

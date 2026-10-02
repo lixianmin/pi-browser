@@ -10,7 +10,7 @@ import * as api from '../src/index';
 import type { Extension, ExtensionAPI } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
-import { editOps, findOps, grepOps, lsOps, readOps, writeOps } from './helpers/tool-operations';
+import { bashOps, editOps, findOps, grepOps, lsOps, readOps, writeOps } from './helpers/tool-operations';
 
 const RUNTIME_EXPORTS = [
 	'createBrowserExecutionEnv',
@@ -66,7 +66,7 @@ describe('公开面（src/index.ts）', () => {
 			api.createGrepTool('/', { fs }).name,
 			api.createLsTool('/', { operations: lsOps(fs) }).name,
 			api.createFindTool('/', { operations: findOps(fs) }).name,
-			api.createBashTool({ env }).name,
+			api.createBashTool('/', { operations: bashOps(env) }).name,
 		];
 		expect(names).toEqual(['read', 'write', 'edit', 'grep', 'ls', 'find', 'bash']);
 	});
