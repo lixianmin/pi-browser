@@ -3,7 +3,7 @@
 //   走 handler 直接调用而不是 exec：两个命令都要 fs/挂载表，只能跑 worker 路径，
 //   vitest 不起真 worker（worker e2e 由浏览器侧覆盖）。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import type { BrowserFileSystem, MountEntry } from '../src/env/types';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { RESERVED_COMMAND_NAMES, createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer, hostCommandNames, type HostCommandHandler, type HostCommandRequest, type HostCommandResult } from '../src/shell/host-commands';

@@ -4,7 +4,8 @@
 // 输出：相对 cwd 的文件路径、按名排序；只返回文件（目录由 Ls 负责）。
 import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
-import { FileError, type AgentTool } from '@earendil-works/pi-agent-core';
+import { FileError } from '@earendil-works/pi-durable/env';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { resolveToCwd } from './path-utils';
 import { contextFor, displayPath, listTree, statPath, textResult, throwIfAborted } from './fs-ops';

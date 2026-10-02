@@ -2,7 +2,8 @@
 // 与宿主共用同一 IDB 库(同 dbName 的 lightning-fs 实例,Web Locks 互斥),
 // 写操作后必须 flush(spec §6:lightning-fs 超级块 500ms debounce,不 flush 会丢路径)。
 // 纯函数化:不碰 chrome.* / window,page world 与 node 测试(fake-indexeddb)共用。
-import { BACKGROUND_CONTEXT, FileError, type FileInfo } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { FileError, type FileInfo } from '@earendil-works/pi-durable/env';
 import { createBrowserFileSystem, normalizePath, type BrowserFileSystem } from '@lixianmin/pi-browser';
 import {
 	DEFAULT_DB,

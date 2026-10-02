@@ -7,7 +7,9 @@
 // 实现：listDir 栈式遍历（fs-ops.listTree）+ readTextFile；读不动的文件（二进制）跳过——同 spice 跳过未注册资源的语义。
 import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
-import { FileError, type AgentTool, type AgentToolResult, type Context } from '@earendil-works/pi-agent-core';
+import type { Context } from '../env/context';
+import { FileError } from '@earendil-works/pi-durable/env';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine, type TruncationResult } from './truncate';
 import { resolveToCwd } from './path-utils';

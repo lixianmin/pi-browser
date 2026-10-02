@@ -12,7 +12,7 @@
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, utf8ByteLength, type TruncationResult } from '../tools/truncate';
 import type { FileSystem } from '../env/types';
 // T1.4 会把这一行换成 `from '../env/context'`（chord 单点）；本任务在换源之前，先用现有来源
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../env/context';
 
 export interface OutputAccumulatorOptions {
 	/** 展示窗口的行数上限（默认 `DEFAULT_MAX_LINES`） */

@@ -2,7 +2,8 @@
 // S4 spec §3.2 / §4.2-4.3：渲染与消费点接线。渲染器是上游 re-export（不自建，避免丢 `<location>`）；
 // 这里只做冒烟：输出含 name/description/location、`disableModelInvocation` 被过滤、产物能进 `AgentHarnessResources`。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, type AgentHarnessResources } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { AgentHarnessResources } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv, formatSkillInvocation, formatSkillsForSystemPrompt, loadBrowserSkills } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 

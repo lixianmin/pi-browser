@@ -4,7 +4,8 @@
 // 偏离（spec §3.3）：① 数据源 registry → fs；② 删 Resource.editable 门（通用 fs 无「可编辑资源」概念，
 // 能不能写由 fs 决定）；③ 删 spice 只读路径白名单（同 path-utils.ts）；④ 无 replaceAll（spice 注明 YAGNI，沿用）。
 import { type Static, Type } from 'typebox';
-import { FileError, type AgentTool } from '@earendil-works/pi-agent-core';
+import { FileError } from '@earendil-works/pi-durable/env';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { resolveToCwd } from './path-utils';
 import {

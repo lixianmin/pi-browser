@@ -2,7 +2,9 @@
 // spec §3：createBrowserExecutionEnv —— 默认挂载 '/'→IDB、'/tmp'→内存；shell 默认 busybox。
 // 本文件只钉装配面：exec 的 busybox 行为在 shell-exec.test.ts，占位语义在这里用显式 `shell:false` 断言。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, type ExecutionEnv, type FileError, type Result } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileError, Result } from '@earendil-works/pi-durable/env';
+import type { ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 

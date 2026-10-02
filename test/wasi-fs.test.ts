@@ -3,7 +3,8 @@
 // 验收 = wasi-sh 自带的 fs/conformance 套件全绿（21 条，上游对「store 必须做到什么」的权威清单）
 // + 往返（适配器写 → 变更集 → 宿主 fs → 新适配器 seed 读回）+ ino 会话内稳定。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, type FileError, type Result } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileError, Result } from '@earendil-works/pi-durable/env';
 import { conformanceCases } from 'wasi-sh/fs/conformance';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';

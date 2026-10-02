@@ -4,7 +4,8 @@
 // （普通回复 + 摘要），断言 ① 阈值压缩被触发 ② 落盘 `compaction` 条目且 `retainedTail` 非空 ③ 压缩产物是
 // `compactionSummary` 角色消息。devDependency `@earendil-works/pi-ai` 只为构造 faux provider 存在。
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, AgentHarness, JsonlSessionRepo, type CompactionSettings } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { AgentHarness, JsonlSessionRepo, type CompactionSettings } from '@earendil-works/pi-agent-core';
 import { createModels, fauxAssistantMessage, fauxProvider, getCurrentSystemPrompt, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createBrowserFileSystem, createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS } from '../src/index';
 

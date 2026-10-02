@@ -4,10 +4,8 @@
 // description 如实声明 wasi-sh busybox 的架构性缺失（无 fork：后台任务/需 fork 的子 shell/进程替换会响亮报错）
 // 以及 capture.spill 不支持（spec §6：超限截断即弃，不落盘）——模型据此选命令，而不是撞上才学。
 import { type Static, Type } from 'typebox';
-import {
-	applyShellOutputUpdate, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES,
-	type AgentTool, type ExecutionEnv, type ShellOutputTruncation, type ShellOutputView,
-} from '@earendil-works/pi-agent-core';
+
+import { applyShellOutputUpdate, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, type AgentTool, type ShellOutputTruncation, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { contextFor, textResult, throwIfAborted } from './fs-ops';
 
 /** 默认超时（秒）：30 秒足够一次编码 agent 的常规命令，又不至于把卡死的命令拖到用户失耐心 */

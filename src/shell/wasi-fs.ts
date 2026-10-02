@@ -6,7 +6,7 @@
 // run 边界（seed / exportChanges，见 sync-session.ts）。
 //
 // 明确不做：不在这里碰 IDB（单写者协议规定 IDB 只由主线程在 run 边界写）；不做 shell 之外的持久化。
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../env/context';
 import {
 	DEFAULT_DIR_MODE, DEFAULT_FILE_MODE, S_IFDIR, S_IFMT, S_IFREG,
 	fsError, type CreationOptions, type FileSystem, type InodeLike,

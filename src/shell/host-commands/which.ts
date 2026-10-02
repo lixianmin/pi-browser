@@ -15,7 +15,7 @@
 //
 // 输出「名字本身」而不是路径是有意的：`$(which awk)` 得到的 `awk` 仍能被 ash 解析执行，
 // 而编造一个不存在的 `/bin/awk` 才是说谎。
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../../env/context';
 import type { BrowserFileSystem } from '../../env/types';
 import type { HostCommandHandler } from '../host-commands';
 

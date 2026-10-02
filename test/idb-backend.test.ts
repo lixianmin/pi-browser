@@ -6,7 +6,8 @@
 import './helpers/idb';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createBrowserFileSystem } from '../src/env/backend-idb';
-import { BACKGROUND_CONTEXT, type FileInfo } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileInfo } from '@earendil-works/pi-durable/env';
 import type { BrowserFileSystem } from '../src/env/types';
 
 const CTX = BACKGROUND_CONTEXT;   // pi 的方法都要 chord Context；BACKGROUND_CONTEXT 是 pi 现成的背景上下文

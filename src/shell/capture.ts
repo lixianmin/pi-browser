@@ -4,11 +4,8 @@
 // `applyShellOutputUpdate`/`shell-output`/`truncate` 工具），Global Constraints 禁 deep import。
 // 语义按上游对齐：默认尾保留、行/字节双上限先到先触发、增量更新按 replace/append/slide/metadata 交付
 // （消费方用 applyShellOutputUpdate 累积出同一个视图）。
-import {
-	DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, sanitizeBinaryOutput, truncateHead, truncateTail, utf8ByteLength,
-	type Context, type ShellOutputLimits, type ShellOutputMetadata, type ShellOutputRetention,
-	type ShellOutputUpdate, type ShellOutputView,
-} from '@earendil-works/pi-agent-core';
+import type { Context } from '../env/context';
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, sanitizeBinaryOutput, truncateHead, truncateTail, utf8ByteLength, type ShellOutputLimits, type ShellOutputMetadata, type ShellOutputRetention, type ShellOutputUpdate, type ShellOutputView } from '@earendil-works/pi-agent-core';
 
 /** 输出变化的回调签名（上游 OutputCapture 的 onUpdate 同参：update + context） */
 export type ShellExecUpdateCallback = (update: ShellOutputUpdate, context: Context) => void;

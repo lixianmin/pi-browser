@@ -7,7 +7,8 @@
 //
 // 与 Node 版的差别：两个浏览器后端都先把整份文本读进内存（lightning-fs 无真正的流式读），故这里直接从
 // 字符串切，不做分块解码。契约其余部分照抄：`close` 幂等且不抛；关闭后 `readLine` 返 invalid。
-import { FileError, err, ok, type Context, type Result } from '@earendil-works/pi-agent-core';
+import type { Context } from './context';
+import { FileError, err, ok, type Result } from '@earendil-works/pi-durable/env';
 
 // 结构上与上游 `TextLine` / `TextLineReader`（pi-agent-core `dist/harness/types.d.ts`）一致。
 // 不复用上游类型：这两个名字没有从包入口导出（上游只导出 `FileSystem`），deep import 会随内部重构漂。

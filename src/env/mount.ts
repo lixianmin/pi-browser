@@ -6,11 +6,11 @@
 // 前缀，顺其自然按入参分派就会写出「内容在 IDB、路径读走内存」的 split-brain）。
 //
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
-import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
+import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
-import type { BrowserFileSystem, FileSystemV1Additions, MountEntry } from './types';
+import type { BrowserFileSystem, MountEntry } from './types';
 
-export interface MountTable extends FileSystem, FileSystemV1Additions {
+export interface MountTable extends FileSystem {
 	/** 挂载顶层名（'/tmp' → 'tmp'；'/' 不入列），供 `listDir('/')` 合成挂载根 */
 	roots(): string[];
 }

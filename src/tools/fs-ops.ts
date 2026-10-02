@@ -3,10 +3,9 @@
 // 为什么需要：pi FileSystem 的契约是「不抛、失败编码进 Result<_, FileError>」，而工具契约是
 // 「失败即 throw，错误对象携带 FileErrorCode」（spec §3.3）。两套契约的换算只在这里做一次，
 // 工具各自 assert `ok` 会散成七份。顺带收敛三件七工具共用的东西：abort 检查、cwd 相对路径显示、目录树遍历。
-import {
-	BACKGROUND_CONTEXT, FileError, withAbortSignal,
-	type AgentToolResult, type Context, type FileInfo, type Result,
-} from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT, withAbortSignal, type Context } from '../env/context';
+import { FileError, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
+import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { normalizePath } from '../env/path';
 

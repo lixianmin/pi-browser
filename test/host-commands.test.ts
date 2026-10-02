@@ -5,7 +5,9 @@
 // guest 侧的阻塞等待（`wait`/`call` 的成功路径）只在真 worker 里跑得通——单线程下它会让宿主侧没机会应答，
 // 所以那条路径由浏览器 e2e 覆盖（S2 既有豁免），这里只测「无人应答 → 超时抛错」。
 import { describe, it, expect } from 'vitest';
-import { applyShellOutputUpdate, BACKGROUND_CONTEXT, type ExecutionEnv, type ShellOutputUpdate, type ShellOutputView } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+
+import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import type { BuiltinContext } from 'wasi-sh';
 import { createBrowserExecutionEnv } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';

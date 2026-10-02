@@ -4,7 +4,7 @@
 // v2 之前这里走 createMemoryFileSystem 早返回、每调用独立世界。
 // **禁止 import './helpers/idb'**：本文件必须在真·无 indexedDB 环境断言自动内存分支。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;

@@ -3,7 +3,7 @@
 // 逻辑逐字平移：mapError/isNotFound/LfsStats/useMemoryBackend/basename 与工厂函数体均只做改名
 // Spice* → Browser*、normalizePath 改从 ./path 导入、createMemoryFileSystem 改从 ./backend-memory 导入。
 import LightningFS from '@isomorphic-git/lightning-fs';
-import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
+import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import { createMemoryFileSystem } from './backend-memory';

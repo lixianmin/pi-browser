@@ -10,10 +10,9 @@
 //      stdout 判据更严，不放松）；
 //   ② F01 的命令含 ${...}，用单引号 JS 字符串防模板插值（模板字面量会当成 JS 插值报错）。
 import { describe, it, expect } from 'vitest';
-import {
-	BACKGROUND_CONTEXT, applyShellOutputUpdate,
-	type ExecutionEnv, type ShellOutputUpdate, type ShellOutputView,
-} from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+
+import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createBrowserFileSystem } from '../src/env/backend-idb';
 

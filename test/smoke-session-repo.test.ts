@@ -7,7 +7,8 @@
 // 且派生的分支得自己建（pi 的 create() 不建分支，spice 的 createSessionStore 同此处理）。
 import './helpers/idb';
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, JsonlSessionRepo } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { JsonlSessionRepo } from '@earendil-works/pi-agent-core';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
 
 const CTX = BACKGROUND_CONTEXT;

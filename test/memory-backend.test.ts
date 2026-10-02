@@ -5,7 +5,8 @@
 // 所以这批断言本来就只验证内存后端）；此处断言逐字保留，仅把工厂换成 createMemoryFileSystem。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
-import { BACKGROUND_CONTEXT, type FileInfo } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileInfo } from '@earendil-works/pi-durable/env';
 import type { BrowserFileSystem } from '../src/env/types';
 
 const CTX = BACKGROUND_CONTEXT;   // pi 的方法都要 chord Context；BACKGROUND_CONTEXT 是 pi 现成的背景上下文

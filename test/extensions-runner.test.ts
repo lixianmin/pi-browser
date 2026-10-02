@@ -4,7 +4,7 @@
 // 覆盖：装载→注册表→两层工具面同步 / 重名后写覆盖+warn / 相位门 / appendEntry / setActiveTools / close。
 import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { ExtensionRunner } from '../src/extensions/runner';
 import type { ToolDefinition } from '../src/extensions/tool';
 

@@ -7,7 +7,7 @@
 // 其余逐字平移：LF 归一化（保留原始行尾）、BOM 剥离、智能引号/Unicode 标点/全角空格 1-1 归一（fuzzy 兜底，
 // offset 不变）、多次替换按「原始文件」匹配不增量、重复/重叠报错、display diff + unified patch 组装在工具侧。
 
-import { FileError } from '@earendil-works/pi-agent-core';
+import { FileError } from '@earendil-works/pi-durable/env';
 
 export function detectLineEnding(content: string): '\r\n' | '\n' {
 	const crlfIdx = content.indexOf('\r\n');

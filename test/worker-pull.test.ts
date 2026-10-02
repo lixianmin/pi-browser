@@ -8,7 +8,7 @@
 // 修法：worker 的 PULL_CHANGES 回 `snapshot()`（非 drain 的全量快照），对账的全量前提才真正成立。
 import { readFile } from 'node:fs/promises';
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createWasiFileSystem, readMountTree, type WasiFileSystem, type WasiFsChanges } from '../src/shell/wasi-fs';

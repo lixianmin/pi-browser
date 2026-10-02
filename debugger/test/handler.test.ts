@@ -2,7 +2,7 @@
 // 跑在 node + fake-indexeddb 上(lightning-fs 完整可用,主仓库先例);
 // 每个用例独立 dbName,规避 lightning-fs 模块级实例表的状态泄漏。
 import 'fake-indexeddb/auto';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '@lixianmin/pi-browser';
 import { bytesToBase64, type FsOp } from '../src/shared/protocol';

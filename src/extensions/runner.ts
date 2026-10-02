@@ -8,7 +8,8 @@
 //   ② 工具注册表：重名**后写覆盖先写**（对齐 pi 宿主的 Map 语义）+ 一行 `console.warn`（唯一刻意的行为差异，
 //      见 spec §3.5——本仓有「静默失效比报错更糟」的教训，但不新增自造接口名来承载告警）；
 //   ③ `on(event, handler)` 路由：pi 事件名 → pi-agent-core 的 hooks / events（表见下）。
-import type { AgentHarness, AgentLane, Context, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { Context } from '../env/context';
+import type { AgentHarness, AgentLane, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { SUPPORTED_EVENTS, UNSUPPORTED_EVENTS } from './contract';
 import { createExtensionAPI, type Extension, type ExtensionAPI, type ExtensionBindings, type HostLifecycleListener, type SourceInfo, type ToolInfo } from './api';

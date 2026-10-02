@@ -2,7 +2,7 @@
 // 源：spice `packages/harness/src/session/fs-adapters.ts:87-238`（Plan 7b T6a），函数体逐字平移，
 // 只做三处改名：类型 SpiceFileSystem → BrowserFileSystem、normalizePath 改从 ./path 导入、
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
-import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-agent-core';
+import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import type { BrowserFileSystem } from './types';

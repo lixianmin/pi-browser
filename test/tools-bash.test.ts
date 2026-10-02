@@ -3,11 +3,9 @@
 // exitCode + 截断元数据）；shell:false 的占位错误；abort；description 如实声明 busybox 的不支持项与 capture.spill。
 // 硬杀/超时路径不在本测试范围（spec §4.2：node 环境走 inline，timeout 不生效，以 spike 真浏览器实测 + 评审为据）。
 import { describe, it, expect } from 'vitest';
-import {
-	BACKGROUND_CONTEXT, ok,
-	type AgentToolResult, type ExecutionEnv, type ExecutionError, type Result,
-	type ShellExecOptions, type ShellExecResult, type ShellOutputTruncation,
-} from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { ok, type ExecutionError, type Result } from '@earendil-works/pi-durable/env';
+import type { AgentToolResult, ShellExecOptions, ShellExecResult, ShellOutputTruncation, ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';

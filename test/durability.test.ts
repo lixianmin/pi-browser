@@ -4,7 +4,7 @@
 // 且断言 flush 被调用（承诺 flush 契约不在搬运中丢失，spec §8.2 的线上事故复发闸门）。
 import './helpers/idb';
 import { test, expect, vi } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/env/backend-idb';
 
 // pi 的方法都要 chord Context；BACKGROUND_CONTEXT 是 pi 现成的背景上下文

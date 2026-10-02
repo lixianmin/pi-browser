@@ -2,11 +2,9 @@
 // spec §3.2/§4.2：exec 接线 wasi-sh busybox。vitest 是 node env（无 Worker 全局）→ 走 inline 路径；
 // worker/硬杀路径的自动化不在 M3 闸门内（spec §4.2：以 spike 真浏览器实测 + 代码评审为据）。
 import { describe, it, expect } from 'vitest';
-import {
-	BACKGROUND_CONTEXT, applyShellOutputUpdate, withAbortSignal,
-	type ExecutionEnv, type ExecutionError, type Result,
-	type ShellExecOptions, type ShellOutputUpdate, type ShellOutputView,
-} from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
+import type { ExecutionError, Result } from '@earendil-works/pi-durable/env';
+import { applyShellOutputUpdate, type ShellExecOptions, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';

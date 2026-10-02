@@ -6,7 +6,8 @@
 //   ② `--help` 打真实 usage（上游 SHOW_USAGE 关闭时 `--help` 静默 exit 0，是静默错误）。
 // 走 createBrowserExecutionEnv 的 inline 路径——于是「exec.ts 默认加载自带 wasm」这条接线也被覆盖。
 import { describe, it, expect } from 'vitest';
-import { applyShellOutputUpdate, BACKGROUND_CONTEXT, type ShellOutputUpdate, type ShellOutputView } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 

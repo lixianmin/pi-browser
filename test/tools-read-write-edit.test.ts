@@ -4,7 +4,9 @@
 // 数据源差异（registry→fs）带来的用例改写：未注册路径 → not_found；read-only 路径白名单 → 删除
 // （那是 spice 域的 docs/ 规则，通用 fs 无此概念）；新增 spec §3.3 要求的「多命中并列位置」。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT, err, FileError, type AgentToolResult } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { err, FileError } from '@earendil-works/pi-durable/env';
+import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createReadTool } from '../src/tools/read-tool';

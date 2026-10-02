@@ -4,10 +4,9 @@
 // CASE 5 的 awk 程序用**单引号**（双引号会被 ash 当变量展开，awk 直接报 Unexpected token）。
 // 断言 = exit code + 输出二值（exec 的输出视图合并 stdout/stderr，与上游 Node 实现同口径）。
 import { describe, it, expect } from 'vitest';
-import {
-	BACKGROUND_CONTEXT, applyShellOutputUpdate,
-	type ExecutionEnv, type ShellOutputUpdate, type ShellOutputView,
-} from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+
+import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createBrowserFileSystem } from '../src/env/backend-idb';
 

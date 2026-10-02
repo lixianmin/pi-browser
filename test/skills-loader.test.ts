@@ -4,7 +4,9 @@
 // 双后端：内存（MemoryFileSystem）与 lightning-fs/IDB（`memory:false` + fake-indexeddb）。
 import './helpers/idb';
 import { describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, type ExecutionEnv } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { ExecutionEnv } from '@earendil-works/pi-agent-core';   // T1.5 会换到 pi-durable/env（ExecutionEnv 与 Shell 契约一起换）
+
 import { createBrowserExecutionEnv, createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { DEFAULT_SKILL_ROOTS, loadBrowserSkills, loadSkillsFromEnv } from '../src/skills/loader';

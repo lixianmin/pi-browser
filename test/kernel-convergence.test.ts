@@ -9,7 +9,7 @@
 // 行为，非本重构引入），自愈写回只在错误真的冒泡时才有意义（保留为防御）。
 // 因此覆盖只能到「收敛结果」这一层；R9 仍禁止用 stub 驱动自愈（会引入 unhandled rejection 假阳性）。
 import { describe, it, expect, afterEach } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;

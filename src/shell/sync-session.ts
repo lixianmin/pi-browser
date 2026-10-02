@@ -5,7 +5,7 @@
 //   ② run：guest 只在缓存上读写（worker 内的 store 是纯内存临时面）
 //   ③ run 后 pullAndApply()：变更集 → 宿主 fs → flush()
 // 单写者由此成立：IDB 只由主线程在第 ③ 步写，guest 从不直接碰持久面。
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../env/context';
 import { createMountTable } from '../env/mount';
 import { createWasiFileSystem, type ShellFsStore, type WasiFsChanges, type WasiFileSystem } from './wasi-fs';
 

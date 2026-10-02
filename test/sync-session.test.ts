@@ -1,7 +1,8 @@
 // @vitest-environment node
 // spec §3.2/§4.1：run 边界的单写者同步（seed / pullAndApply）+ 三条验收（双向 + 两次会话串行）。
 import { describe, it, expect, vi } from 'vitest';
-import { BACKGROUND_CONTEXT, type FileError, type Result } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileError, Result } from '@earendil-works/pi-durable/env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createSyncSession } from '../src/shell/sync-session';

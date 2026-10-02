@@ -11,7 +11,8 @@
 //   · `compact` 只接 `customInstructions`：pi 的 `onComplete`/`onError` 回调要它的 `CompactionResult` 类型，
 //     浏览器侧没有同形类型。
 //   · `ContextUsage` 是**照抄的数据形状**（pi 的原始定义在 CLI 仓，不在 pi-agent-core）。
-import type { AgentLane, Context } from '@earendil-works/pi-agent-core';
+import type { Context } from '../env/context';
+import type { AgentLane } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 
 /** 上下文用量（pi `ContextUsage` 逐字段照抄）。 */

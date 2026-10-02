@@ -4,7 +4,9 @@
 //   node/vitest（无 Worker 全局）→ `run({inline:true, fs: guestFs})`：主线程同步跑，run 边界同步见 sync-session。
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
-import { BACKGROUND_CONTEXT, ExecutionError, err, ok, toError, type Context, type Result, type Shell, type ShellExecOptions, type ShellExecResult } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT, type Context } from '../env/context';
+import { ExecutionError, err, ok, toError, type Result } from '@earendil-works/pi-durable/env';
+import type { Shell, ShellExecOptions, ShellExecResult } from '@earendil-works/pi-agent-core';
 import { run, spawn, type RunResult, type Session, type WasmSource } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
 import { createMountTable } from '../env/mount';

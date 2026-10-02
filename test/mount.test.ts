@@ -2,7 +2,8 @@
 // spec §3 测试：MountTable 路由（先归一后分派 / 段边界 / 最长前缀 / temp 固定投递 / 跨 mount 拒绝 / 挂载根合成）。
 // 探测技巧：两个内存后端当探针——各自写入不同内容，断言读到谁的等于断言路由到了谁（内存后端各持一份 Map）。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT, type FileError, type Result } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import type { FileError, Result } from '@earendil-works/pi-durable/env';
 import { createMountTable, type MountTable } from '../src/env/mount';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';

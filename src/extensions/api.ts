@@ -7,7 +7,8 @@
 //      外部绕过 API 改值的场景不在本仓用例内（已在类型注释写明）。
 //   ③ **相位门**：注册期（扩展工厂执行中）调用运行期成员 → 响亮抛错（对齐 pi 的 `assertActive()`），
 //      绝不静默用旧 context。
-import type { AgentHarness, AgentLane, Context, HarnessEvent, HookInvocation, HookMap, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { Context } from '../env/context';
+import type { AgentHarness, AgentLane, HarnessEvent, HookInvocation, HookMap, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { validateToolDefinition, type ToolDefinition } from './tool';
 import type { ExtensionContext } from './context';

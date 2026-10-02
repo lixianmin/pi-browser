@@ -3,7 +3,9 @@
 // limit/no-match 断言语义保留；`file:line: text` 与 context 行 `file-line- text` 格式逐字保留），
 // 偏离点（spec §3.3）：递归全目录 + `include` glob 过滤（spice 是白名单非递归）。Ls/Glob 无 spice 基线，新写。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT, FileError, type AgentToolResult } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { FileError } from '@earendil-works/pi-durable/env';
+import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createGrepTool } from '../src/tools/grep-tool';

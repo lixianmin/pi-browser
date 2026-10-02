@@ -9,8 +9,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, it, expect } from 'vitest';
-import { BACKGROUND_CONTEXT, ok, err, type FileError, type FileSystem, type Result } from '@earendil-works/pi-agent-core';
-import { NodeExecutionEnv } from '@earendil-works/pi-agent-core/node';   // 测试文件可用；src/** 禁（浏览器产物面）
+import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { ok, err, type FileError, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
+import { NodeExecutionEnv } from '@earendil-works/pi-durable/env/node';   // 测试文件可用；src/** 禁（浏览器产物面）
 import { createBrowserFileSystem } from '../src/index';
 
 const CTX = BACKGROUND_CONTEXT;

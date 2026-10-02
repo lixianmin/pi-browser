@@ -3,7 +3,7 @@
 // 断言口径：pi 事件名 → pi-agent-core 落点名（hooks / events），handler 拿到的是 harness 事件 + 一份 ctx；
 // 不支持的事件**注册即抛**（错误消息必须列出支持清单，不静默丢弃）。
 import { describe, it, expect, vi } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import type { Extension, ExtensionAPI } from '../src/index';
 import { ExtensionRunner } from '../src/extensions/runner';
 import type { ExtensionEventMap } from '../src/extensions/api';

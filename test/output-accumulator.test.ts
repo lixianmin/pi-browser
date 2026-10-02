@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { OutputAccumulator, createMountSpill } from '../src/shell/output-accumulator';
 import { createMountTable } from '../src/env/mount';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';   // T1.4 换到 ../src/env/context
+import { BACKGROUND_CONTEXT } from '../src/env/context';   // T1.4 换到 ../src/env/context
 
 const enc = (s: string) => new TextEncoder().encode(s);
 

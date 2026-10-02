@@ -3,7 +3,8 @@
 // offset/limit 分页、`truncateHead` 双阈值截断、continuation 文案逐字保留（LLM 依赖该语义）、abort 透传。
 // 唯一偏离：数据源 registry → BrowserFileSystem（`resource.read()` → `fs.readTextFile`，缺文件改为后端给的 not_found）。
 import { type Static, Type } from 'typebox';
-import { FileError, type AgentTool } from '@earendil-works/pi-agent-core';
+import { FileError } from '@earendil-works/pi-durable/env';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from './truncate';
 import { resolveToCwd } from './path-utils';

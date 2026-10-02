@@ -5,7 +5,7 @@
 // 自动内存（无 IDB）路径的注册表行为见 registry-auto-memory.test.ts（本文件有 fake indexedDB，走不到）。
 import './helpers/idb';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/env/backend-idb';
 
 const CTX = BACKGROUND_CONTEXT;

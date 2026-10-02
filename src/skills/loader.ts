@@ -3,7 +3,9 @@
 // 本文件**不含**发现/校验规则，也不含渲染器：`SKILL.md` 遍历、frontmatter 解析、忽略文件、
 // diagnostics 编码全归上游 `loadSkills`（两份真相 = 两份行为漂移，S4 spec §6 明确非目标）。
 // diagnostics 原样透出（不吞、不重排）——调用方要能看见「哪个声明文件坏了」。
-import { BACKGROUND_CONTEXT, loadSkills, type ExecutionEnv, type Skill, type SkillDiagnostic } from '@earendil-works/pi-agent-core';
+import { BACKGROUND_CONTEXT } from '../env/context';
+
+import { loadSkills, type Skill, type SkillDiagnostic, type ExecutionEnv } from '@earendil-works/pi-agent-core';
 import { createBrowserExecutionEnv, type BrowserExecutionEnvOptions } from '../env/execution-env';
 
 /** 默认 skills 根：`/skills`（仓库内约定）+ `/.pi/skills`（上游 agent 布局约定） */

@@ -1,7 +1,8 @@
 // src/env/execution-env.ts —— 浏览器 ExecutionEnv（S1 主产物 + S2 exec 接线）。
 // 装配默认挂载表（'/'→lightning-fs/IDB 持久面、'/tmp'→内存临时面），fs 各方法全部委托 MountTable；
 // exec 默认装配 wasi-sh busybox（spec §3.2）：fs 之外的 exec 面在 src/shell/exec.ts。
-import { ExecutionError, err, type ExecutionEnv } from '@earendil-works/pi-agent-core';
+import { ExecutionError, err } from '@earendil-works/pi-durable/env';
+import type { ExecutionEnv } from '@earendil-works/pi-agent-core';
 import type { WasmSource } from 'wasi-sh';
 import { createMountTable } from './mount';
 import type { MountEntry } from './types';
