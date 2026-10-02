@@ -29,14 +29,15 @@ const isolatedEnv = (): ExecutionEnv => createBrowserExecutionEnv({
 const busyboxEnv = (root: BrowserFileSystem = createMemoryFileSystem('/')): ExecutionEnv =>
 	createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: root }] });
 
-/** 假 env：只记录 exec 收到什么、按 1.0.0 语义喂一次 onOutput（断言选项映射，不跑真 shell） */
-function recordingEnv(seen: ShellExecOptions[]): ExecutionEnv {
+/** 假 env：只记录 exec 收到什么、按 1.0.0 语义喂一次 onOutput（断言选项映射，不跑真 shell）。
+ *  `emit` 可换成任意载荷（用来造「env 落盘但工具不截断」这类字节基准分叉）。 */
+function recordingEnv(seen: ShellExecOptions[], reply: { emit?: string; spillPath?: string } = {}): ExecutionEnv {
 	return {
 		...createMemoryFileSystem(),
 		exec: async (_command: string, options: ShellExecOptions | undefined): Promise<Result<ShellExecResult, ExecutionError>> => {
 			seen.push(options ?? {} as ShellExecOptions);
-			options?.onOutput?.('hi\n', CTX);
-			return ok<ShellExecResult, ExecutionError>({ exitCode: 0 });
+			options?.onOutput?.(reply.emit ?? 'hi\n', CTX);
+			return ok<ShellExecResult, ExecutionError>({ exitCode: 0, ...(reply.spillPath === undefined ? {} : { spillPath: reply.spillPath }) });
 		},
 		cleanup: async () => {},
 	};
@@ -96,6 +97,24 @@ describe('bash tool', () => {
 		// 全量读得回（同一 env 的 /tmp 挂载）
 		const read = await env.readTextFile(path!, CTX);
 		expect(read.ok && read.value.trimEnd().split('\n')).toHaveLength(3000);
+	});
+
+	// 回归：截断/落盘曾经被算两遍、两个字节基准（env 数原始字节，工具数净化后的字节）。净化只减字节，
+	// 所以「env 落盘」⊇「工具截断」：>50KB 全是控制字符时 env 建了 spill 文件，而工具根本没截断 ——
+	// 那个文件模型无从发现（提示行只在截断时出现），却曾经被塞进 details。
+	it('env 落盘但工具未截断：details 不带 fullOutputPath（不把模型看不到的文件塞给调用方）', async () => {
+		const seen: ShellExecOptions[] = [];
+		const env = recordingEnv(seen, { emit: '\r'.repeat(60_000), spillPath: '/tmp/pi-shell-fake.log' });
+		const r = await createBashTool({ env }).execute('id', { command: 'echo x' });
+		expect(textOf(r)).toBe('(no output)');
+		expect(r.details.truncation).toBeUndefined();
+		expect(r.details.fullOutputPath).toBeUndefined();
+	});
+
+	// Task 6 的行为变更（净化 + 去 \r）曾经零覆盖：拿掉 sanitize/去 \r，384 条测试全绿。
+	it('净化：控制字符与 \\r 不进展示文本', async () => {
+		const r = await createBashTool({ env: busyboxEnv() }).execute('id', { command: `printf 'a\\rb\\001c\\n'` });
+		expect(textOf(r)).toBe('abc\n');
 	});
 
 	it('shell:false 的占位 env → shell_unavailable（ExecutionError 原样抛出）', async () => {

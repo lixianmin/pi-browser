@@ -1,6 +1,6 @@
 // T1.2：OutputAccumulator —— 上游 pi-coding-agent@1.0.0 `dist/core/tools/output-accumulator.js` 的转写。
 // 平台偏差（spec D1/D2）：`append` 收 Uint8Array（上游收 Buffer）；spill 走注入 seam（上游直接 node:os + node:fs）。
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { OutputAccumulator, createMountSpill } from '../src/shell/output-accumulator';
 import { createMountTable } from '../src/env/mount';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
@@ -133,5 +133,28 @@ describe('OutputAccumulator', () => {
 	it('createMountSpill 的两次 create 路径互不相同', () => {
 		const { spill } = memSpill();
 		expect(spill.create('p').path).not.toBe(spill.create('p').path);
+	});
+
+	// 回归：`counter` 是实例内计数，而 exec 每次命令都新建一个 createMountSpill，
+	// 路径熵曾只剩 Date.now() 的毫秒 —— 同毫秒的两次 exec 会拿到同一路径，后者覆盖前者。
+	it('两个独立 createMountSpill 实例在同一毫秒内也给出不同路径', () => {
+		const { table } = memSpill();
+		const frozen = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+		try {
+			const first = createMountSpill(table, 'pi-bash').create('pi-shell').path;
+			const second = createMountSpill(table, 'pi-bash').create('pi-shell').path;
+			expect(first).not.toBe(second);
+		} finally {
+			frozen.mockRestore();
+		}
+	});
+
+	// 回归：未接 seam 时越阈值的分片确实丢了，readFullOutput 不得谎报「完整」。
+	it('未接 spill seam 时 readFullOutput 报 truncated，不谎报完整', async () => {
+		const acc = new OutputAccumulator({ maxLines: 100, maxBytes: 8 });
+		acc.append(enc('12345678901234567890'));   // 20 字节 > 8 字节上限
+		acc.finish();
+		const full = await acc.readFullOutput(1024);
+		expect(full.truncated).toBe(true);
 	});
 });

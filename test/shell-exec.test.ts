@@ -4,7 +4,7 @@
 // Task 6：契约换成 1.0.0 的 onOutput/spill（呈现归调用方），补 4 条 Review Focus 测试（#1 #2 #5 + onOutput 拼接）。
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
-import type { ExecutionError, Result } from '@earendil-works/pi-durable/env';
+import { err, FileError, type ExecutionError, type Result } from '@earendil-works/pi-durable/env';
 import type { ExecutionEnv } from '../src/env/types';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
@@ -141,9 +141,26 @@ describe('exec：onOutput / spill（1.0.0 契约）', () => {
 			env.exec('seq 1 200000', { onOutput: () => { calls++; controller.abort(); } }, ctx),
 			new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), 30000)),
 		]);
-		expect(raced).not.toBe('HANG');
+		if (typeof raced === 'string') throw new Error(`exec 在 abort 后挂住了（${raced}）`);
+		expect(raced.ok).toBe(true);
 		expect(calls).toBeGreaterThan(0);
 	}, 40000);
+
+	// 回归：spill 落盘失败曾经直接逃出 exec（inline 路径的 finalize 不在 try 里）——既把 shell 错误变成
+	// 不透明 reject，又跳过 pullAndApply 把 guest 的文件写入一起丢掉。调用方契约是「永远返回 Result」。
+	it('spill 落盘失败时返回错误 Result 而不是 reject', async () => {
+		const tmp = createMemoryFileSystem('/tmp');
+		const failWrite = async (): Promise<Result<void, FileError>> => err<void, FileError>(new FileError('unknown', 'disk full'));
+		const env = createBrowserExecutionEnv({
+			mounts: [
+				{ prefix: '/', fs: createMemoryFileSystem('/') },
+				{ prefix: '/tmp', fs: { ...tmp, writeFile: failWrite, appendFile: failWrite } },
+			],
+		});
+		const r = await env.exec('seq 1 500', { spill: { afterBytes: 16, afterLines: 5 } }, BACKGROUND_CONTEXT);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error.code).toBe('unknown');
+	});
 
 	// Review Focus #5：cleanup 后 exec 响亮失败
 	it('cleanup 之后再 exec 返回错误而不是挂住', async () => {

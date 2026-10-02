@@ -22,7 +22,10 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 	const mounts = entries
 		.map((e) => ({ prefix: normalizePath(e.prefix), fs: e.fs }))
 		.sort((a, b) => b.prefix.length - a.prefix.length);
-	const cwd = entries[0]?.fs.cwd ?? '/';
+	// '/' 兜底挂载决定整张表的世界：id 是**命名空间身份**（上游契约：equal ids 看到同一批文件，与 cwd 无关），
+	// 所以它必须与路由顺序（最长前缀优先）无关。无 '/' 挂载时退回首个注册项。
+	const rootEntry = entries.find((e) => normalizePath(e.prefix) === '/') ?? entries[0];
+	const cwd = rootEntry?.fs.cwd ?? '/';
 	/** 相对路径按表的 cwd 解析；所有委托都传**绝对**路径，后端各自的 cwd 不参与（避免两份 cwd 漂移） */
 	const abs = (path: string) => normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`);
 	const mountFor = (p: string) => mounts.find((m) => m.prefix === '/' || p === m.prefix || p.startsWith(`${m.prefix}/`));
@@ -44,8 +47,7 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 
 	return {
 		cwd,
-		// id 取首个挂载点的命名空间（与 cwd 同一来源口径）：'/' 兜底挂载决定整张表的世界
-		id: mounts[0]?.fs.id ?? `mount:${cwd}`,
+		id: rootEntry?.fs.id ?? `mount:${cwd}`,
 		absolutePath: async (path) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts) => ok(normalizePath(parts.join('/'))),
 		canonicalPath: (path, context) => delegate(path, (fs, p) => fs.canonicalPath(p, context)),

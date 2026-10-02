@@ -102,6 +102,18 @@ for (const backend of ['memory', 'indexeddb'] as const) {
 
 			expect(await loadSkillsFromDir(env, { dir: '/nope', source: 'path' }, CTX)).toEqual({ skills: [], diagnostics: [] });
 		});
+
+		// 回归：BOM 曾经让合法 SKILL.md 静默消失，且结果依后端而异 —— 内存后端的 TextDecoder 会吃掉 BOM，
+		// IDB 后端（lightning-fs 的 utf8 读）会留着；解析前不归一，同一文件就一边加载一边消失。
+		it('带 BOM 的 SKILL.md 照常加载（Windows 编辑器产物）', async () => {
+			const env = makeEnv(backend, 'bom');
+			await write(env, '/skills/pdf/SKILL.md', `\uFEFF${SKILL('name: pdf\ndescription: 处理 PDF')}`);
+
+			const { skills, diagnostics } = await loadSkillsFromDir(env, { dir: '/skills', source: 'path' }, CTX);
+
+			expect(diagnostics).toEqual([]);
+			expect(skills.map((s) => s.name)).toEqual(['pdf']);
+		});
 	});
 }
 
@@ -137,6 +149,21 @@ describe('loadSkills：选项形状（1.0.0）', () => {
 			{ type: 'warning', message: 'skill path does not exist', path: '/work/not-there' },
 			{ type: 'warning', message: 'skill path is not a markdown file', path: '/work/notes.txt' },
 		]);
+	});
+
+	// 回归：`exists` 的 err（例如挂载表对无挂载点覆盖的路径返 not_supported）曾被压成「路径不存在」，
+	// 把「挂载没配」误导成「目录不存在」。
+	it('skillPaths 指向无挂载点覆盖的路径：报真实原因，不谎称路径不存在', async () => {
+		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/work', fs: createMemoryFileSystem('/work') }] });
+
+		const { skills, diagnostics } = await loadSkills(env, {
+			cwd: '/work', agentDir: '/.pi/agent', includeDefaults: false, skillPaths: ['/elsewhere/skills'],
+		}, CTX);
+
+		expect(skills).toEqual([]);
+		expect(diagnostics).toHaveLength(1);
+		expect(diagnostics[0]?.message).toContain('无挂载点覆盖');
+		expect(diagnostics[0]?.path).toBe('/elsewhere/skills');
 	});
 
 	it('同名冲突：先到者胜，出一条 collision 诊断（不顶掉 winner）', async () => {

@@ -156,7 +156,15 @@ export async function loadSkills(
 	for (const rawPath of options.skillPaths) {
 		const resolvedPath = await resolveSkillPath(env, rawPath, resolvedCwd, context);
 		const exists = await env.exists(resolvedPath, context);
-		if (!exists.ok || !exists.value) {
+		if (!exists.ok) {
+			// `exists` 的 err **不是**「不存在」：例如挂载表对没有挂载点覆盖的路径返 not_supported。
+			// 用真实原因告警，否则用户会照「路径不存在」去查一个其实是挂载配置的问题。
+			if (exists.error.code !== 'not_found') {
+				allDiagnostics.push({ type: 'warning', message: exists.error.message, path: resolvedPath });
+			}
+			continue;
+		}
+		if (!exists.value) {
 			allDiagnostics.push({ type: 'warning', message: 'skill path does not exist', path: resolvedPath });
 			continue;
 		}
@@ -361,6 +369,15 @@ async function loadSkillFromFile(env: ExecutionEnv, filePath: string, source: st
 	};
 }
 
+/**
+ * 去掉 UTF-8 BOM（上游 `pi-coding-agent dist/utils/text.js:stripBom` 的同义物）。
+ * 必须在解析前归一：`startsWith('---')` 会把带 BOM 的 frontmatter 当成「没有 frontmatter」，
+ * 于是一个合法 `SKILL.md` 静默变成一个没有 description 的文件——Windows 编辑器存出来的就是这形状。
+ */
+function stripBom(text: string): string {
+	return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 function validateName(name: string): string[] {
 	const errors: string[] = [];
 	if (name.length > MAX_NAME_LENGTH) errors.push(`name exceeds ${MAX_NAME_LENGTH} characters (${name.length})`);
@@ -380,7 +397,7 @@ function validateDescription(description: string | undefined): string[] {
 
 function parseFrontmatter(content: string): { ok: true; value: { frontmatter: SkillFrontmatter } } | { ok: false; error: Error } {
 	try {
-		const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+		const normalized = stripBom(content).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 		if (!normalized.startsWith('---')) return { ok: true, value: { frontmatter: {} } };
 		const endIndex = normalized.indexOf('\n---', 3);
 		if (endIndex === -1) return { ok: true, value: { frontmatter: {} } };

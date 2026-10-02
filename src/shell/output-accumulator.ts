@@ -8,7 +8,9 @@
 // 平台偏差（spec D1/D2，两处，都是有意的）：
 //   D1 `append(data: Uint8Array)`——上游收 Node 全局 `Buffer`（`Buffer` 是 `Uint8Array` 子类，只按字节用，语义无损）。
 //   D2 spill 走**注入 seam**——上游直接 `node:crypto`/`node:os`/`node:fs` 开临时文件；浏览器没有 node fs，
-//      落盘点是宿主给的挂载表（`/tmp`），因此从构造注入。未接 seam 时超限只截断展示、不落盘、不抛。
+//      落盘点是宿主给的挂载表（`/tmp`），因此从构造注入。未接 seam 时超限只截断展示、不落盘、不抛；
+//      但溢出的分片也不再进 `#rawChunks`，所以此时 `readFullOutput` 只能给前缀并如实报 `truncated: true`
+//      （上游不可能处于这个状态：它的 `ensureTempFile()` 无条件建流，每片不是落盘就是进缓冲）。
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, utf8ByteLength, type TruncationResult } from '../tools/truncate';
 import type { FileSystem } from '../env/types';
 // T1.4 会把这一行换成 `from '../env/context'`（chord 单点）；本任务在换源之前，先用现有来源
@@ -138,7 +140,9 @@ export class OutputAccumulator {
 	 */
 	async readFullOutput(maxBytes: number): Promise<FullOutput> {
 		if (!this.#spillPath || !this.#spill) {
-			return { content: new TextDecoder().decode(concatChunks(this.#rawChunks)), truncated: false };
+			// 无 spill 时只有阈值以下的 rawChunks（越阈值的分片在 append 里就被丢了）：如实报 truncated，
+			// 不能因为「没落盘」就声称 content 是完整输出
+			return { content: new TextDecoder().decode(concatChunks(this.#rawChunks)), truncated: this.#shouldUseSpill() };
 		}
 		const bytes = await this.#spill.read(this.#spillPath);
 		if (bytes.length <= maxBytes) {
@@ -221,6 +225,13 @@ export class OutputAccumulator {
 	}
 }
 
+/** spill 文件名的随机段（上游用 `randomBytes(8)`；浏览器没有 node:crypto，用 Web Crypto 的同义物） */
+function randomToken(): string {
+	let token = '';
+	for (const byte of crypto.getRandomValues(new Uint8Array(8))) token += byte.toString(16).padStart(2, '0');
+	return token;
+}
+
 function concatChunks(chunks: readonly Uint8Array[]): Uint8Array {
 	let total = 0;
 	for (const c of chunks) total += c.length;
@@ -238,10 +249,11 @@ function concatChunks(chunks: readonly Uint8Array[]): Uint8Array {
  * 返回的路径是**虚拟路径**——只有同一个 env 读得到（spec Review Focus #1 有测试钉住）。
  */
 export function createMountSpill(table: FileSystem, prefix = 'pi-output'): OutputAccumulatorSpill {
-	let counter = 0;
 	return {
 		create(tempFilePrefix: string): OutputAccumulatorSpillFile {
-			const path = `/tmp/${tempFilePrefix || prefix}-${Date.now().toString(36)}-${(counter++).toString(36)}.log`;
+			// 路径熵必须够：`exec` **每次命令**都新建一个 createMountSpill，只用毫秒时间戳或实例内计数，
+			// 同毫秒的两次命令会撞同一个路径，后者的首次写是覆盖 —— 前一次命令的 spill 全文被静默顶掉。
+			const path = `/tmp/${tempFilePrefix || prefix}-${randomToken()}.log`;
 			let queue: Promise<void> = Promise.resolve();
 			let failure: Error | undefined;
 			let opened = false;

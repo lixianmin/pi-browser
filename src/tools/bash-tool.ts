@@ -55,14 +55,18 @@ export function createBashTool(opts: BashToolOptions): AgentTool<typeof bashSche
 			if (!result.ok) throw result.error;
 			accumulator.finish();
 			const snapshot = accumulator.snapshot();
-			const fullOutputPath = result.value.spillPath;
+			const truncated = snapshot.truncation.truncated;
+			// 只在**真截断**时给 fullOutputPath：env 的 spill 按**原始**字节计数、工具的截断按**净化后**字节，
+			// 所以「env 落盘」⊇「工具截断」（净化只减字节）——不 gate 就会把一个模型无从发现
+			// （提示行只在截断时出现）的文件塞进 details。
+			const fullOutputPath = truncated ? result.value.spillPath : undefined;
 			const parts = [snapshot.content === '' ? '(no output)' : snapshot.content];
-			if (snapshot.truncation.truncated) {
+			if (truncated) {
 				parts.push(truncationNotice(snapshot.truncation, accumulator.getLastLineBytes(), fullOutputPath));
 			}
 			if (result.value.exitCode !== 0) parts.push(`[exit code: ${result.value.exitCode}]`);
 			return textResult(parts.join('\n'), {
-				...(snapshot.truncation.truncated ? { truncation: snapshot.truncation } : {}),
+				...(truncated ? { truncation: snapshot.truncation } : {}),
 				...(fullOutputPath === undefined ? {} : { fullOutputPath }),
 			});
 		},

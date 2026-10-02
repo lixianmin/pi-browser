@@ -121,6 +121,24 @@ describe('createMountTable：其余方法的委托与错误码', () => {
 });
 
 describe('FileSystem 1.0.0 新增契约的转发', () => {
+	// 回归：`id` 曾取自 `mounts[0]`，而 mounts 为最长前缀分派按前缀长度降序排过 ⇒ 默认表里是 '/tmp' 的 id。
+	// 契约（上游 FileSystem 注释：「equal ids see the same files at the same paths, whatever their cwd」）
+	// 要求 id 是**命名空间身份**，所以它必须来自 '/' 兜底挂载，与路由顺序无关。
+	it('id 取根挂载（\'/\'）而不是最长前缀挂载', () => {
+		const root = createMemoryFileSystem('/');
+		const withFreshTmp = createMountTable([
+			{ prefix: '/', fs: root },
+			{ prefix: '/tmp', fs: createMemoryFileSystem('/tmp') },
+		]);
+		const withOtherTmp = createMountTable([
+			{ prefix: '/', fs: root },
+			{ prefix: '/tmp', fs: createMemoryFileSystem('/tmp') },
+		]);
+		// 同一个根后端 ⇒ 同一个世界 ⇒ 同一个 id，尽管 /tmp 是两份不同实例
+		expect(withFreshTmp.id).toBe(root.id);
+		expect(withOtherTmp.id).toBe(root.id);
+	});
+
 	it('挂载表把 id 透出、把 truncateFile/flushFile 分派到被路由的后端', async () => {
 		const tmp = createMemoryFileSystem('/tmp');
 		const table = createMountTable([
