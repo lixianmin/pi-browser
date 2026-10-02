@@ -62,6 +62,8 @@ export interface BashToolOptions {
 	spill?: OutputAccumulatorSpill;
 	/** 每条命令前拼一段前缀（例如 shell 初始化），对齐上游 `commandPrefix` */
 	commandPrefix?: string;
+	// 不声明 shellPath / exposeSessionEnvironment / spawnHook（D7）；工具也不构造 `env`（不暴露 PI_*），
+	// 所以注入的 `BashOperations.exec` 永远拿不到 `options.env`（宿主需要时在操作实现里自己补）。
 }
 
 const ENCODER = new TextEncoder();
@@ -87,35 +89,46 @@ async function executeBash(
 	// 上游 `handleData` 是 raw append；本仓保留 P1 的净化（P1 Task 6 ruling）：流式解码 → 净化 → 去 CR → 喂字节
 	const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 	const sanitized = (text: string): Uint8Array => ENCODER.encode(sanitizeBinaryOutput(text).replace(/\r/g, ''));
-	const result = await operations.exec(command, cwd, {
-		onData: (data) => accumulator.append(sanitized(decoder.decode(data, { stream: true }))),
-		signal,
-		timeout: input.timeout,
-	});
-	accumulator.append(sanitized(decoder.decode()));
-	accumulator.finish();
-	const snapshot = accumulator.snapshot({ persistIfTruncated: true });
-	await accumulator.closeTempFile();
-	const truncated = snapshot.truncation.truncated;
-	// 只在真截断时给 fullOutputPath：提示行只在截断时出现，否则调用方拿到一个模型无从发现的文件
-	const fullOutputPath = truncated ? snapshot.fullOutputPath : undefined;
-	const parts = [snapshot.content === '' ? '(no output)' : snapshot.content];
-	if (truncated) {
-		parts.push(truncationNotice(snapshot.truncation, accumulator.getLastLineBytes(), fullOutputPath));
+	// 闸门（上游 `acceptingOutput` 同款）：exec settle 之后迟到的一帧 onData 不能再喂——accumulator 已 finish
+	let acceptingOutput = true;
+	try {
+		const result = await operations.exec(command, cwd, {
+			onData: (data) => {
+				if (acceptingOutput) accumulator.append(sanitized(decoder.decode(data, { stream: true })));
+			},
+			signal,
+			timeout: input.timeout,
+		});
+		accumulator.append(sanitized(decoder.decode()));
+		accumulator.finish();
+		const snapshot = accumulator.snapshot({ persistIfTruncated: true });
+		const truncated = snapshot.truncation.truncated;
+		// 只在真截断时给 fullOutputPath：提示行只在截断时出现，否则调用方拿到一个模型无从发现的文件
+		const fullOutputPath = truncated ? snapshot.fullOutputPath : undefined;
+		const parts = [snapshot.content === '' ? '(no output)' : snapshot.content];
+		if (truncated) {
+			parts.push(truncationNotice(snapshot.truncation, accumulator.getLastLineBytes(), fullOutputPath));
+		}
+		const exitCode = result.exitCode;
+		if (exitCode === null) {
+			throw new Error(`${parts.join('\n')}\n\nCommand terminated without an exit code`);
+		}
+		const text = exitCode === 0 ? parts.join('\n') : `${parts.join('\n')}\n\nCommand exited with code ${exitCode}`;
+		// details 与上游/兄弟件一致：无结构化信息时为 undefined，不是 `{}`
+		const details =
+			truncated || fullOutputPath !== undefined
+				? { ...(truncated ? { truncation: snapshot.truncation } : {}), ...(fullOutputPath === undefined ? {} : { fullOutputPath }) }
+				: undefined;
+		return {
+			content: [{ type: 'text', text }],
+			details,
+			...(exitCode === 0 ? {} : { isError: true }),
+		};
+	} finally {
+		acceptingOutput = false;
+		// `closeTempFile` 是 accumulator 自己写明的必调项（不调则落盘失败被永久吞掉）；错误路径也要跑
+		await accumulator.closeTempFile();
 	}
-	const exitCode = result.exitCode;
-	if (exitCode === null) {
-		throw new Error(`${parts.join('\n')}\n\nCommand terminated without an exit code`);
-	}
-	const text = exitCode === 0 ? parts.join('\n') : `${parts.join('\n')}\n\nCommand exited with code ${exitCode}`;
-	return {
-		content: [{ type: 'text', text }],
-		details: {
-			...(truncated ? { truncation: snapshot.truncation } : {}),
-			...(fullOutputPath === undefined ? {} : { fullOutputPath }),
-		},
-		...(exitCode === 0 ? {} : { isError: true }),
-	};
 }
 
 /** 截断提示（形状取自上游 1.0.0 `formatOutput`）：模型靠它知道输出不完整、去哪读全文 */

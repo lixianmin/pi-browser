@@ -11,7 +11,7 @@ import type { BrowserFileSystem, ExecutionEnv } from '../src/env/types';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { createMountTable } from '../src/env/mount';
-import { createMountSpill } from '../src/shell/output-accumulator';
+import { createMountSpill, type OutputAccumulatorSpill } from '../src/shell/output-accumulator';
 import { createBashTool, createBashToolDefinition, bashToolSystemPromptContribution, type BashOperations } from '../src/tools/bash-tool';
 import * as upstreamBash from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/bash.js';
 import { bashOps } from './helpers/tool-operations';
@@ -32,7 +32,7 @@ const isolated = (): { env: ExecutionEnv; spill: ReturnType<typeof createMountSp
 		{ prefix: '/', fs: createMemoryFileSystem('/') },
 		{ prefix: '/tmp', fs: createMemoryFileSystem('/tmp') },
 	];
-	return { env: createBrowserExecutionEnv({ mounts }), spill: createMountSpill(createMountTable(mounts), 'pi-bash') };
+	return { env: createBrowserExecutionEnv({ mounts }), spill: createMountSpill(createMountTable(mounts)) };
 };
 
 interface SeenExec {
@@ -54,8 +54,9 @@ function recordingOps(seen: SeenExec[], reply: { emit?: string; exitCode?: numbe
 
 describe('bash tool', () => {
 	it('经 BashOperations.exec 跑 busybox，onData 累积成 content', async () => {
-		const out = textOf(await createBashTool('/', { operations: bashOps(busyboxEnv()) }).execute('id', { command: 'echo hello' }));
-		expect(out).toBe('hello\n');
+		const r = await createBashTool('/', { operations: bashOps(busyboxEnv()) }).execute('id', { command: 'echo hello' });
+		expect(textOf(r)).toBe('hello\n');
+		expect(r.details).toBeUndefined();   // 无结构化信息时 details 是 undefined（上游/兄弟件同形）
 	});
 
 	it('退出码非 0 → content 附 `Command exited with code N`，isError=true（details 无 exitCode）', async () => {
@@ -111,6 +112,44 @@ describe('bash tool', () => {
 		const r = await createBashTool('/', { operations: bashOps(env) }).execute('id', { command: 'seq 1 3000' });
 		expect(r.details?.truncation?.truncated).toBe(true);
 		expect(r.details?.fullOutputPath).toBeUndefined();
+	});
+
+	it('exec 抛错时也 close spill 文件（closeTempFile 是 accumulator 自述的必调项）', async () => {
+		const closed: string[] = [];
+		const spill: OutputAccumulatorSpill = {
+			create: (prefix: string) => ({ path: `/tmp/${prefix}.log`, append: () => {}, close: async () => { closed.push('closed'); } }),
+			read: async () => new Uint8Array(),
+		};
+		const ops: BashOperations = {
+			exec: async (_command, _cwd, { onData }) => {
+				onData(ENCODER.encode('x\n'.repeat(30000)));   // 60KB > 50KB → 建 spill
+				throw new Error('boom');
+			},
+		};
+		await expect(createBashTool('/', { operations: ops, spill }).execute('id', { command: 'x' })).rejects.toThrow('boom');
+		expect(closed).toEqual(['closed']);
+	});
+
+	it('exec settle 之后再来的 onData 被闸门丢弃（不抛 Cannot append …）', async () => {
+		let late: ((data: Uint8Array) => void) | undefined;
+		const ops: BashOperations = { exec: async (_command, _cwd, options) => { late = options.onData; return { exitCode: 0 }; } };
+		const r = await createBashTool('/', { operations: ops }).execute('id', { command: 'x' });
+		expect(textOf(r)).toBe('(no output)');
+		expect(() => late?.(ENCODER.encode('trailing\n'))).not.toThrow();
+	});
+
+	it('构造期 cwd 决定命令的工作目录（经 bashOps 透传）', async () => {
+		const fs = createMemoryFileSystem('/');
+		await fs.createDir('/proj', { recursive: true }, CTX);
+		await createBashTool('/proj', { operations: bashOps(busyboxEnv(fs)) }).execute('id', { command: 'echo x > a.txt' });
+		const read = await fs.readTextFile('/proj/a.txt', CTX);
+		expect(read.ok && read.value).toBe('x\n');
+	});
+
+	it('不暴露 PI_*：工具不给 exec 传 env（恒 undefined）', async () => {
+		const seen: SeenExec[] = [];
+		await createBashTool('/', { operations: recordingOps(seen) }).execute('id', { command: 'echo hi' });
+		expect(seen[0].env).toBeUndefined();
 	});
 
 	it('净化：控制字符与 \\r 不进展示文本（P1 保留行为）', async () => {
