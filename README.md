@@ -28,7 +28,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createGrepTool` | `(cwd, o?: { operations?: GrepOperations; fs: BrowserFileSystem }) => AgentTool` | 正则/字面量搜索；`glob` 过滤 + 上下文行 + `file:line: text`；遍历走本仓 `fs`（**仅 grep**：上游把遍历外包给 rg，浏览器没有） |
 | `createLsTool` | `(cwd, o?: { operations?: LsOperations }) => AgentTool` | 目录列表（`limit?`，默认 500）：条目名、目录带尾斜杠、不区分大小写排序；`operations` 缺省即抛 |
 | `createFindTool` | `(cwd, o?: { operations?: FindOperations }) => AgentTool` | glob 找文件（`limit?`，默认 1000），结果相对**搜索根**；工具 `name` = `find`；`operations` 缺省即抛 |
-| `createBashTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明；wire-level `name` = `bash`（对齐上游） |
+| `createBashTool` | `(cwd, o?: { operations?: BashOperations; spill?; commandPrefix? }) => AgentTool` | `{ command, timeout? }`（无默认超时）经注入的 `BashOperations.exec` 跑 busybox；输出截断 + `spill` seam；wire-level `name` = `bash`（对齐上游） |
 | `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状（异步是本仓偏差，见「平台偏差」）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
 | `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
