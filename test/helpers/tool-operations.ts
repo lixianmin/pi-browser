@@ -7,7 +7,10 @@ import type { ReadOperations } from '../../src/tools/read-tool';
 import type { WriteOperations } from '../../src/tools/write-tool';
 import type { EditOperations } from '../../src/tools/edit-tool';
 import type { GrepOperations } from '../../src/tools/grep-tool';
+import type { FindOperations } from '../../src/tools/find-tool';
 import { detectSupportedImageMimeType } from '../../src/tools/image-mime';
+import picomatch from '../../src/tools/picomatch-typed';
+import { displayPath, listTree } from '../../src/tools/fs-ops';
 
 const unwrap = <T>(result: Result<T, FileError>): T => {
 	if (!result.ok) throw result.error;
@@ -46,4 +49,16 @@ export const editOps = (fs: BrowserFileSystem): EditOperations => ({
 export const grepOps = (fs: BrowserFileSystem): GrepOperations => ({
 	isDirectory: async (absolutePath) => unwrap(await fs.fileInfo(absolutePath, BACKGROUND_CONTEXT)).kind === 'directory',
 	readFile: async (absolutePath) => unwrap(await fs.readTextFile(absolutePath, BACKGROUND_CONTEXT)),
+});
+
+export const findOps = (fs: BrowserFileSystem): FindOperations => ({
+	exists: async (absolutePath) => unwrap(await fs.exists(absolutePath, BACKGROUND_CONTEXT)),
+	glob: async (pattern, cwd, options) => {
+		const match = picomatch(pattern);
+		const tree = await listTree(fs, cwd, BACKGROUND_CONTEXT);
+		return tree
+			.filter((entry) => entry.kind !== 'directory' && match(displayPath(entry.path, cwd)))
+			.map((entry) => entry.path)
+			.slice(0, options.limit);
+	},
 });

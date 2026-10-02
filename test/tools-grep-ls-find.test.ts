@@ -11,9 +11,10 @@ import { createExtensionContext } from '../src/extensions/context';
 import type { BrowserFileSystem } from '../src/env/types';
 import { createGrepTool, createGrepToolDefinition } from '../src/tools/grep-tool';
 import * as upstreamGrep from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/grep.js';
-import { grepOps } from './helpers/tool-operations';
+import { findOps, grepOps } from './helpers/tool-operations';
 import { createLsTool } from '../src/tools/ls-tool';
-import { createFindTool } from '../src/tools/find-tool';
+import { createFindTool, createFindToolDefinition, relativizeFindResultPath } from '../src/tools/find-tool';
+import * as upstreamFind from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/find.js';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -217,47 +218,82 @@ describe('find tool', () => {
 	});
 
 	it('**/*.ts 递归匹配（含根层文件）', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.ts' }));
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '**/*.ts' }));
 		expect(out).toBe(['a.ts', 'ab.ts', 'src/b.ts', 'src/nested/c.ts'].join('\n'));
 	});
 
 	it('* 不跨 /（只匹配根层）', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '*.md' }));
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '*.md' }));
 		expect(out).toBe('a.md');
 	});
 
 	it('? 匹配单字符', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: 'a?.ts' }));
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: 'a?.ts' }));
 		expect(out).toBe('ab.ts');
 	});
 
-	it('path 选项：相对被搜目录匹配、相对 cwd 输出', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.ts', path: 'src' }));
-		expect(out).toBe(['src/b.ts', 'src/nested/c.ts'].join('\n'));
+	it('path 选项：相对被搜目录匹配、输出也相对搜索根（上游语义）', async () => {
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '**/*.ts', path: 'src' }));
+		expect(out).toBe(['b.ts', 'nested/c.ts'].join('\n'));
 	});
 
 	it('只返回文件（目录不入选）', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '*' }));
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '*' }));
 		expect(out).toBe(['a.md', 'a.ts', 'ab.ts'].join('\n'));
 	});
 
-	it('无匹配 → No files matched.', async () => {
-		const out = textOf(await createFindTool({ fs }).execute('id', { pattern: '**/*.py' }));
-		expect(out).toBe('No files matched.');
+	it('无匹配 → No files found matching pattern', async () => {
+		const out = textOf(await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '**/*.py' }));
+		expect(out).toBe('No files found matching pattern');
 	});
 
 	it('base 是文件 → not_directory', async () => {
-		const t = createFindTool({ fs });
+		const t = createFindTool('/', { operations: findOps(fs) });
 		expect(await rejectionCode(t.execute('id', { pattern: '*.ts', path: 'a.ts' }))).toBe('not_directory');
 	});
 
 	it('非法 pattern（空串）→ invalid', async () => {
-		const t = createFindTool({ fs });
+		const t = createFindTool('/', { operations: findOps(fs) });
 		expect(await rejectionCode(t.execute('id', { pattern: '' }))).toBe('invalid');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createFindTool({ fs });
+		const t = createFindTool('/', { operations: findOps(fs) });
 		expect(await rejectionCode(t.execute('id', { pattern: '*.ts' }, AbortSignal.abort()))).toBe('aborted');
+	});
+
+	it('limit + resultLimitReached notice（上游 custom-ops 文案）', async () => {
+		const r = await createFindTool('/', { operations: findOps(fs) }).execute('id', { pattern: '**/*.ts', limit: 2 });
+		expect(textOf(r)).toContain('[2 results limit reached]');
+		expect(r.details?.resultLimitReached).toBe(2);
+	});
+
+	it('relativizeFindResultPath：搜索根之下相对化、保留尾斜杠、非绝对原样', () => {
+		expect(relativizeFindResultPath('/w/src/a.ts', '/w/src')).toBe('a.ts');
+		expect(relativizeFindResultPath('/w/src/nested/', '/w/src')).toBe('nested/');
+		expect(relativizeFindResultPath('rel/a.ts', '/w')).toBe('rel/a.ts');
+		expect(relativizeFindResultPath('/w/a.ts', '/')).toBe('w/a.ts');   // 与 node path.relative('/', '/w/a.ts') 一致
+	});
+
+	it('静态字段与上游产物逐字相等（P2c 契约）', () => {
+		const up = upstreamFind.createFindToolDefinition('/tmp');
+		const mine = createFindToolDefinition('/tmp', { operations: findOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('operations 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createFindToolDefinition('/tmp')).toThrow(/operations/);
+		expect(() => createFindTool('/tmp')).toThrow(/operations/);
+	});
+
+	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
+		const def = createFindToolDefinition('/e', { operations: findOps(fs) });
+		const ctx = createExtensionContext({ cwd: '/src', lane: { abort: async () => ({}) } as never, context: {} as never });
+		expect(textOf(await def.execute('id', { pattern: '**/*.ts' }, undefined, undefined, ctx))).toContain('b.ts');
 	});
 });

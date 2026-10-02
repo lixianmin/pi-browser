@@ -1,51 +1,142 @@
-// src/tools/find-tool.ts —— Find 工具（Task 6；spec §3.3 表第六行；上游同名对齐，spice 无基线，新写）。
-// 匹配用 picomatch（micromatch 语义；spec §3.4 的第三方理由：glob 事实标准、MIT、零传递依赖）。
-// 语义差异写进 description：`*`/`?` 不跨 `/`，`**` 匹配零或多层目录，前导通配不匹配点文件（同 bash 默认）。
-// 输出：相对 cwd 的文件路径、按名排序；只返回文件（目录由 Ls 负责）。
+// src/tools/find-tool.ts —— Find 工具（P2c Task 15）。
+// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/find.{js,d.ts}：schema 字段描述 / description /
+// promptSnippet / FindOperations / FindToolDetails / 导出 `relativizeFindResultPath` / 两导出形状。
+// 实现体自持：上游把文件查找外包给 fd，本仓由调用方注入 `FindOperations.glob`（D5），工具只做
+// 结果相对化、limit 与截断。平台偏差：文案声明 `respects .gitignore`，本仓不读 .gitignore（P6 README）。
+
 import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
-import type { AgentTool } from '@earendil-works/pi-agent-core';
-import type { BrowserFileSystem } from '../env/types';
+import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
+import type { ToolDefinition } from '../extensions/tool';
+import { normalizePath } from '../env/path';
+import { DEFAULT_MAX_BYTES, formatSize, truncateHead, type TruncationResult } from './truncate';
 import { resolveToCwd } from './path-utils';
-import { contextFor, displayPath, listTree, statPath, textResult, throwIfAborted } from './fs-ops';
+import { throwIfAborted } from './fs-ops';
+
+const DEFAULT_LIMIT = 1000;
 
 const findSchema = Type.Object({
-	pattern: Type.String({ description: 'Glob pattern matched against file paths relative to `path`, e.g. "**/*.ts". `*` and `?` do not cross "/", `**` matches zero or more directories, and a leading wildcard does not match dotfiles.' }),
-	path: Type.Optional(Type.String({ description: 'Base directory to search (relative to cwd or absolute). Default: cwd.' })),
+	pattern: Type.String({
+		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
+	}),
+	path: Type.Optional(Type.String({ description: 'Directory to search in (default: current directory)' })),
+	limit: Type.Optional(Type.Number({ description: 'Maximum number of results (default: 1000)' })),
 });
+
+export const findToolSystemPromptContribution = {
+	snippet: 'Find files by glob pattern (respects .gitignore)',
+	guidelines: [],
+} as const;
+
+const findToolDescription = `Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} results or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`;
 
 export type FindToolInput = Static<typeof findSchema>;
 
-/** 结果的 details 为空：匹配结果本身就在 content 里 */
-export type FindToolDetails = Record<string, never>;
-
-export interface FindToolOptions {
-	fs: BrowserFileSystem;
-	/** 相对路径基准（默认 fs.cwd） */
-	cwd?: string;
+export interface FindToolDetails {
+	truncation?: TruncationResult;
+	resultLimitReached?: number;
 }
 
-export function createFindTool(opts: FindToolOptions): AgentTool<typeof findSchema, FindToolDetails> {
-	const { fs } = opts;
-	const cwd = opts.cwd ?? fs.cwd;
+/** 可插拔的文件查找操作（对齐上游 `FindOperations`）。 */
+export interface FindOperations {
+	/** 路径是否存在 */
+	exists(absolutePath: string): Promise<boolean> | boolean;
+	/** 按 glob 找文件；返回相对或绝对路径 */
+	glob(pattern: string, cwd: string, options: { ignore: string[]; limit: number }): Promise<string[]> | string[];
+}
+
+export interface FindToolOptions {
+	/** 文件查找操作。浏览器没有默认文件系统，缺省即抛（D5） */
+	operations?: FindOperations;
+}
+
+function requireOperations(options: FindToolOptions | undefined): FindOperations {
+	const operations = options?.operations;
+	if (operations === undefined) {
+		throw new Error('find tool: 浏览器没有默认文件系统，请在 options.operations 注入 FindOperations（D5）');
+	}
+	return operations;
+}
+
+/** 上游同名（`find.js:10`）：把结果相对搜索根、归一为 posix 分隔符。浏览器版去掉 node `pathModule` 参数。 */
+export function relativizeFindResultPath(resultPath: string, searchPath: string): string {
+	const hadTrailingSeparator = resultPath.endsWith('/');
+	const relativePath = resultPath.startsWith('/') ? relativeTo(resultPath, searchPath) : resultPath;
+	const posixPath = relativePath;
+	return hadTrailingSeparator && !posixPath.endsWith('/') ? `${posixPath}/` : posixPath;
+}
+
+/** 搜索根之下的相对路径；根外或根自身按归一后的绝对路径返回（浏览器路径层已是 '/' 分隔）。 */
+function relativeTo(target: string, base: string): string {
+	const from = normalizePath(base);
+	const to = normalizePath(target);
+	if (to === from) return '';
+	if (from === '/') return to.slice(1);
+	return to.startsWith(`${from}/`) ? to.slice(from.length + 1) : to;
+}
+
+async function executeFind(
+	cwd: string,
+	input: FindToolInput,
+	signal: AbortSignal | undefined,
+	operations: FindOperations,
+): Promise<AgentToolResult<FindToolDetails | undefined>> {
+	throwIfAborted(signal);
+	const searchPath = resolveToCwd(input.path ?? '.', cwd);
+	const effectiveLimit = input.limit ?? DEFAULT_LIMIT;
+	if (!(await operations.exists(searchPath))) {
+		throw new FileError('not_found', `Path not found: ${searchPath}`, searchPath);
+	}
+	throwIfAborted(signal);
+	compileGlob(input.pattern);   // 浏览器 glob 引擎（picomatch）的语法校验 → FileError invalid
+	const results = await operations.glob(input.pattern, searchPath, { ignore: ['**/node_modules/**', '**/.git/**'], limit: effectiveLimit });
+	throwIfAborted(signal);
+	if (results.length === 0) {
+		return { content: [{ type: 'text', text: 'No files found matching pattern' }], details: undefined };
+	}
+	// 与上游一致：结果相对搜索根（不是 cwd）
+	const relativized = results.map((resultPath) => relativizeFindResultPath(resultPath, searchPath));
+	const resultLimitReached = relativized.length >= effectiveLimit;
+	const truncation = truncateHead(relativized.join('\n'), { maxLines: Number.MAX_SAFE_INTEGER });
+	let output = truncation.content;
+	const details: FindToolDetails = {};
+	const notices: string[] = [];
+	if (resultLimitReached) {
+		notices.push(`${effectiveLimit} results limit reached`);
+		details.resultLimitReached = effectiveLimit;
+	}
+	if (truncation.truncated) {
+		notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+		details.truncation = truncation;
+	}
+	if (notices.length > 0) output += `\n\n[${notices.join('. ')}]`;
+	return { content: [{ type: 'text', text: output }], details: Object.keys(details).length > 0 ? details : undefined };
+}
+
+export function createFindToolDefinition(
+	cwd: string,
+	options?: FindToolOptions,
+): ToolDefinition<typeof findSchema, FindToolDetails | undefined> {
+	const operations = requireOperations(options);
 	return {
 		name: 'find',
 		label: 'find',
-		description: 'Find files by glob pattern (matched against paths relative to the searched directory). Returns matching file paths relative to cwd, sorted by name. Directories are not returned (use Ls for directories).',
+		description: findToolDescription,
+		promptSnippet: findToolSystemPromptContribution.snippet,
 		parameters: findSchema,
-		async execute(_toolCallId, input, signal) {
-			throwIfAborted(signal);
-			const context = contextFor(signal);
-			const base = resolveToCwd(input.path ?? '.', cwd);
-			const baseInfo = await statPath(fs, base, context);
-			if (baseInfo.kind !== 'directory') throw new FileError('not_directory', `Not a directory: ${input.path ?? base}`, base);
-			const isMatch = compileGlob(input.pattern);
-			const matched = (await listTree(fs, base, context))
-				.filter((e) => e.kind !== 'directory' && isMatch(displayPath(e.path, base)));
-			if (matched.length === 0) return textResult('No files matched.');
-			return textResult(matched.map((e) => displayPath(e.path, cwd)).join('\n'));
-		},
+		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeFind(ctx?.cwd || cwd, input, signal, operations),
+	};
+}
+
+export function createFindTool(cwd: string, options?: FindToolOptions): AgentTool<typeof findSchema> {
+	const operations = requireOperations(options);
+	return {
+		name: 'find',
+		label: 'find',
+		description: findToolDescription,
+		parameters: findSchema,
+		execute: (toolCallId, input, signal, _onUpdate) => executeFind(cwd, input, signal, operations),
 	};
 }
 
