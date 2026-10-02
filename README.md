@@ -10,7 +10,7 @@ M9（v1.0.0）：**pi-coding-agent 1.0.0 对齐完成**——依赖从 0.99.1 �
 
 ## 公开面 API
 
-S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 seam（`src/index.ts`）；消费者一律从包入口 import（浏览器产物面禁 deep import）。
+S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 seam + 批 2 的 pi-durable 接线（`src/index.ts`）；消费者一律从包入口 import（浏览器产物面禁 deep import）。
 
 | 导出 | 签名 | 用途 |
 |---|---|---|
@@ -22,6 +22,8 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl?; wasm?; hostCommands? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |
 | `createWasiFileSystem` | `(store: { mounts: MountEntry[] }) => FileSystem` | wasi-sh 的同步 `FileSystem` 适配器（busybox guest 侧视图） |
+| `openBrowserSessionStorage` | `(directory: string, fs: BrowserFileSystem, context: Context, options?: JsonlStorageOptions) => Promise<Storage>` | pi-durable 会话存储的**浏览器侧装配**（批 2 B-1）：`JsonlStorage` 是 fs 注入式的（自己不开文件、不 import `node:fs`），`BrowserFileSystem` 是 `FileSystem` 契约的超集，直接喂进去，不需要 adapter；返回值就是 `createSession(storage)` 吃的 `Storage`。`JsonlStorageOptions`（**纯类型**）随该行透出（与下方类型行同一个惯例），目前只有 `fsync`；落盘时机仍要宿主自己调 `fs.flush()`（IDB 目录项写入有 500ms debounce） |
+| `asDurableTool` | `<TParameters extends TSchema>(tool: AgentTool<TParameters, any>) => ToolRegistration<TParameters, any>` | pi-durable 编排层的工具接线（批 2 B-3）：把任一本仓工具（七工厂的产物）包成可装进 pi-durable `Registry` 的 `ToolRegistration`。一个通用函数覆盖七个工具——差别（grep 的 `fs`、bash 的 `operations`/`spill`）都在工厂的构造参数里，适配层只做 execute 的翻译（`onUpdate` 文本块 → `api.output`）与结果投影（`content`/`details`/`isError`/`usage`）。有意不搬：`label`（durable 侧无此位）、`structuredContent`（durable 结果面无此字段，七工厂也不产它）、`replay`/`executionMode`（两边**词表不同**，且是恢复策略不是翻译——归 B-2/B-4）；fs 在**构造期**捕获而非从 `api.env` 取（`ExecutionEnv` 取不出 `BrowserFileSystem`），详见 `src/tools/durable-tool.ts` 文件头 |
 | `createReadTool` | `(cwd, o?: { operations?: ReadOperations; autoResizeImages?; resizeOptions?; photon?: ImagePhoton }) => AgentTool` | 读文本或图片（magic-byte 嗅探）；`operations` 缺省即抛（浏览器无默认 fs）；图片缩放的像素活要注入 `photon`（上游 photon-node 是 CJS + `fs.readFileSync(wasm)`，浏览器不可用，缝的名字与签名逐字取自上游的 `resizeImage` / `convertImageBytesToPng`）——不注入则只查 base64 字节上限 4.5MB（上游常量）并原样投递限内图片，超限按上游文案降级成文本；上游签名 + `createReadToolDefinition` / `readToolSystemPromptContribution` |
 | `createWriteTool` | `(cwd, o?: { operations?: WriteOperations }) => AgentTool` | 覆盖写（`mkdir(dirname)` + writeFile）；成功文案 `Successfully wrote to <path>`（上游逐字）；`operations` 缺省即抛 |
 | `createEditTool` | `(cwd, o?: { operations?: EditOperations }) => AgentTool` | `edits: [{ oldText, newText }]` 精确替换（上游 edit-diff 语义）；details 出 diff/patch/`firstChangedLine?`；`operations` 缺省即抛 |

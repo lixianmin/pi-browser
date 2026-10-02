@@ -3,6 +3,8 @@
 // + 类型导出（BrowserFileSystem / MountEntry / Skill / ExtensionAPI …）在类型层，不进这两张运行时表。
 // 新增导出必须同步本表与 README 的公开面表格。
 //
+// 批 2 B-3 变化：新增 `asDurableTool`（`AgentTool` → pi-durable `ToolRegistration` 的适配）。
+//
 // S6 变化：删 `defineExtension` / `composeToolset` / `toHarnessTool`（S5 自造名，`harness-tool.ts` 降为内部件），
 // 新增 `ExtensionRunner`（宿主类，pi 同名）。扩展面换成 pi 的工厂式注册：`(pi: ExtensionAPI) => void`。
 import { describe, it, expect } from 'vitest';
@@ -14,6 +16,7 @@ import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { bashOps, editOps, findOps, grepOps, lsOps, readOps, writeOps } from './helpers/tool-operations';
 
 const RUNTIME_EXPORTS = [
+	'asDurableTool',
 	'createBrowserExecutionEnv',
 	'createBrowserFileSystem',
 	'createCompactionSummaryMessage',

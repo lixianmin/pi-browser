@@ -30,6 +30,8 @@ export { createGrepTool, createGrepToolDefinition, grepToolSystemPromptContribut
 export { createLsTool, createLsToolDefinition, lsToolSystemPromptContribution } from './tools/ls-tool';
 export { createFindTool, createFindToolDefinition, findToolSystemPromptContribution, relativizeFindResultPath } from './tools/find-tool';
 export { createBashTool, createBashToolDefinition, bashToolSystemPromptContribution } from './tools/bash-tool';
+// pi-durable 编排层的工具接线（批 2 B-3）：`AgentTool` → `ToolRegistration` 的适配，一个通用函数覆盖七工具
+export { asDurableTool } from './tools/durable-tool';
 // D5 注入缝与各工具的 options/details/入参类型（逐模块导，不另开 barrel 文件）
 export type { BashOperations, BashToolDetails, BashToolInput, BashToolOptions } from './tools/bash-tool';
 export type { EditOperations, EditToolDetails, EditToolInput, EditToolOptions } from './tools/edit-tool';
