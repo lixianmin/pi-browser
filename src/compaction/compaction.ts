@@ -9,8 +9,9 @@
 //   · `createCompactionSummaryMessage` ← `dist/core/messages.js:48-55`
 //   · `DEFAULT_COMPACTION_SETTINGS`    ← `dist/core/compaction/compaction.js:53-57`
 //   · `CompactionSettings`             ← `dist/core/compaction/compaction.d.ts:28-32`
-// 保真不靠人眼：`test/compaction-integration.test.ts` 直接 import 上游 `dist/core/messages.js` 逐字比对
-// （与 P2 的「静态契约面 import 上游产物」同一手法）。
+// 保真不靠人眼：`test/compaction-selfhosted.test.ts` 直接 import 上游 `dist/core/messages.js` 逐条比对
+// （与 P2 的「静态契约面 import 上游产物」同一手法）；`test/compaction-integration.test.ts` 另有一条
+// 间接覆盖：本包造的消息能被上游 `buildSessionContext` 还原成 `compactionSummary`。
 /**
  * 上游 `CompactionSummaryMessage`（两版逐字相同：`messages.js` 旁的 interface，四字段）。
  * 本地声明的原因：0.99.1 的 agent-core 根入口**不导出**这个类型（只在 `harness/messages` 内部），

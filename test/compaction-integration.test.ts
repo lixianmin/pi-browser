@@ -18,7 +18,6 @@ import { describe, it, expect } from 'vitest';
 import { createCompactionSummaryMessage, DEFAULT_COMPACTION_SETTINGS, type CompactionSettings } from '../src/compaction/compaction';
 import { shouldCompact, prepareCompaction } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/compaction.js';
 import { buildSessionContext } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js';
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 /**
  * 必须显式写死：默认 `reserveTokens: 16384` 配 2048 的 `contextWindow` 会让阈值退化成「恒真」
@@ -27,8 +26,12 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 const SETTINGS: CompactionSettings = { enabled: true, reserveTokens: 256, keepRecentTokens: 128 };
 const CONTEXT_WINDOW = 2048;
 
+// pi-ai@1.0.0 的 `Usage.totalTokens` 是**必填**（types.d.ts:302）；漏了它，上游的
+// `calculateContextTokens` 会回退到 input+output+…，而测试仍然绿 —— 于是「usage 路径坏掉」这件事
+// 会被估算回退掩盖。补上，并让断言断在一个具体数字上（见下面 tokensBefore）。
 const usage = (input: number, output: number) => ({
 	input, output, cacheRead: 0, cacheWrite: 0,
+	totalTokens: input + output,
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 });
 
@@ -42,7 +45,7 @@ const turn = (id: string, parentId: string | null, index: number) => {
 			message: {
 				role: 'assistant', content: [{ type: 'text', text: `回答 ${index}`.repeat(80) }],
 				api: 'faux', provider: 'faux', model: 'faux', usage: usage(400, 300), stopReason: 'stop', timestamp: index,
-			} as unknown as AgentMessage,
+			},
 		},
 	];
 };
@@ -80,11 +83,17 @@ describe('compaction：阈值触发与切点（上游 1.0.0 纯函数）', () =>
 		expect(preparation).toBeDefined();
 		if (!preparation) return;
 		expect(preparation.messagesToSummarize.length).toBeGreaterThan(0);
-		expect(preparation.turnPrefixMessages.length).toBeGreaterThan(0);   // keepRecentTokens=128 < 一轮 → 切在轮中间
+		// 切在轮中间（isSplitTurn）：预算 128 从尾部回走累计，80 → 100 → 180 越界，
+		// 落点 t10-a 是 assistant（不是 turn 的第一条），于是切点判定为「切在一轮中间」。
+		expect(preparation.turnPrefixMessages.length).toBeGreaterThan(0);
 		// firstKeptEntryId 必须是真实存在的条目 id
 		const ids = entries.map((e) => (e as { id: string }).id);
 		expect(ids).toContain(preparation.firstKeptEntryId);
-		expect(preparation.tokensBefore).toBeGreaterThan(0);
+		// 断具体值而不是 `> 0`：末条 assistant 的 usage 是 400+300=700。这条断言实测能区分
+		// 「上游走 usage 路径」与「回退到按文本估算」——把夹具里的 usage 整段删掉会得到 1250（红）。
+		// （单独删掉 `totalTokens` 不会红：上游的兜底公式是 `totalTokens || input+output+cacheRead+cacheWrite`，
+		//   cacheRead=0 时两条路径同值——那是上游的既定语义，不是这条断言的漏洞。）
+		expect(preparation.tokensBefore).toBe(700);
 		expect(preparation.settings).toEqual(SETTINGS);
 	});
 

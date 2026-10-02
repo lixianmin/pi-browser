@@ -29,10 +29,15 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createLsTool` | `(cwd, o?: { operations?: LsOperations }) => AgentTool` | 目录列表（`limit?`，默认 500）：条目名、目录带尾斜杠、不区分大小写排序；`operations` 缺省即抛 |
 | `createFindTool` | `(cwd, o?: { operations?: FindOperations }) => AgentTool` | glob 找文件（`limit?`，默认 1000），结果相对**搜索根**；工具 `name` = `find`；`operations` 缺省即抛 |
 | `createBashTool` | `(cwd, o?: { operations?: BashOperations; spill?; commandPrefix? }) => AgentTool` | `{ command, timeout? }`（无默认超时）经注入的 `BashOperations.exec` 跑 busybox；输出截断 + `spill` seam；wire-level `name` = `bash`（对齐上游） |
+| `createReadToolDefinition` … `createBashToolDefinition` | 7 个定义件（各 `(cwd, o?) => ToolDefinition`） | 与工厂件同参数，但 execute 是**五参**（末位多 `ctx: ExtensionContext`）且读 `ctx.cwd` / `ctx.model` —— 「ctx.cwd 覆盖构造期 cwd」只有定义件能做到。宿主按定义件装配工具面（`wrapToolDefinition` 是内部件，从 `createExtensionRuntime` 之外拿不到） |
+| `readToolSystemPromptContribution` … `bashToolSystemPromptContribution` | 7 个 `{ snippet: string; guidelines: string[] }` | 拼进宿主自己的 system prompt（定义件不带 prompt 文本）。文案逐字对齐上游，由 `test/tools-*.test.ts` 对着上游 `createXToolDefinition` 比对 |
+| `OutputAccumulator` | `class`（`new OutputAccumulator(options)` / `append(bytes)` / `finish()` / `snapshot({ persistIfTruncated })` / `close()`） | shell 输出的累积与截断（替代 0.99.1 的 `ShellOutputView` 增量 diff 模型：上游已删）。配 `OutputAccumulatorSpill` 落盘（挂载表的 `/tmp`，见平台偏差 D2） |
+| `relativizeFindResultPath` | `(resultPath: string, searchPath: string) => string` | 把 find 的结果路径相对化（find 内部也用它，导出供宿主拼自己的消息） |
+| `DEFAULT_MAX_LINES` / `DEFAULT_MAX_BYTES` / `formatSize` | `2000` / `50 * 1024` / `(bytes: number) => string` | 截断阈值与「已截断」提示里的尺寸文案（上游 `core/tools/truncate.js` 的同名导出，值一致）。配 `TruncationResult` / `MiddleTruncationResult` 读结果字段 |
 | `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状；首参的 `env` 是 fs 缝（同 grep 遍历 / find glob / bash operations：上游 1.0.0 的 loader 直接吃 node:fs，浏览器侧必须注入）——异步也是本仓偏差（上游同步）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
 | `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
-| `createCompactionSummaryMessage` | `(summary, tokensBefore, timestamp) => CompactionSummaryMessage` | 上游 re-export：`compaction` 条目的消息投影（role `compactionSummary`） |
+| `createCompactionSummaryMessage` | `(summary: string, tokensBefore: number, timestamp: string) => CompactionSummaryMessage` | `compaction` 条目的消息投影（role `compactionSummary`）。**本包自持**（1.0.0 把 compaction 搬进 CLI 仓、不再从 agent-core 导出），实现体逐字对齐上游 1.0.0 并由 `test/compaction-selfhosted.test.ts` 对着上游 `dist/core/messages.js` 比对。⚠️ **破坏性**：`timestamp` 从 0.99.1 的 `string \| number` 收窄为 `string`（运行期等价，`new Date(n).getTime() === n`） |
 | `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | 上游默认值（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下） |
 | `createBrowserExecutionEnv`（续） | `hostCommands?: Record<string, HostCommandHandler>` | 宿主命令注册表（见「宿主命令」节） |
 | `createHostCommandChannel` | `(sab: SharedArrayBuffer, o?: { timeoutMs? }) => { hostSide; guestSide }` | SAB/futex 双端协议（可脱离 exec 自建宿主/单测） |
@@ -43,6 +48,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `ExtensionRunner` | `class`（`new ExtensionRunner(extensions, runtime, cwd)` / `bindCore(actions, contextActions)` / `load()` / `emit(...)` 与具名 `emitXxx` / `onError` / `hasHandlers` / `getAllRegisteredTools()` / `getToolDefinition(name)` / `createContext()` / `close()`） | S6/P3 宿主：持有 runtime 与注册表，装载扩展并由宿主在对应时机调 emit 入口（见「扩展」节） |
 | `defineTool` | `<TParams, TDetails>(def: ToolDefinition<TParams, TDetails>) => ToolDefinition<TParams, TDetails>` | S6：上游同名辅助——顶住参数推断（赋给变量/进数组时 `params` 不被拓宽成 `unknown`） |
 | `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionRuntime` / `ExtensionRuntimeState` / `ExtensionActions` / `ExtensionContextActions` / `ExtensionError` / `ExtensionErrorListener` / `RegisteredTool` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6/P3 扩展面（见「扩展」节；`tool-definition-wrapper.ts` 的适配**函数**是内部件，只导出 `ToolContextFactory` 类型） |
+| `ReadOperations` / `WriteOperations` / `EditOperations` / `EditDiffOperations` / `GrepOperations` / `FindOperations` / `LsOperations` / `BashOperations` + 各自的 `XToolOptions` / `XToolInput` / `XToolDetails`、`ImagePhoton` / `ImageResizeOptions` / `ProcessedImage` / `ResizedImage`、`OutputSnapshot` / `OutputAccumulatorOptions` / `OutputAccumulatorSpill`、`TruncationResult` / `MiddleTruncationResult` | 类型 | D5 注入缝与结果面（grep 的 `fs` 是本仓扩展字段：遍历留在库里，平台偏差见「平台偏差」节） |
 
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 
@@ -248,6 +254,13 @@ grep 的遍历与 glob 过滤、find / ls 的 glob / stat、bash 的 exec、edit
 **不注入时**只查 base64 字节上限 4.5MB（上游常量）并原样投递限内图片，超限按上游文案降级成文本说明 ——
 刻意不抄上游「缺 photon 就把图全丢」的退化路径（那是宿主没装可选原生依赖的副作用）。**注入后**与上游一致，
 含 2000×2000 的尺寸降采样。
+
+**D8 compaction 是本包持有的一份上游实现副本。** `createCompactionSummaryMessage` /
+`DEFAULT_COMPACTION_SETTINGS` / `CompactionSettings` 曾经是 pi-agent-core 的 re-export，而 1.0.0 把整套
+compaction 搬进 CLI 仓、不再从 agent-core 导出。实现体逐字转写并由 `test/compaction-selfhosted.test.ts`
+对着上游 `dist/core/messages.js` 逐条比对（`DEFAULT_COMPACTION_SETTINGS` 的三字段也一致）——
+**代价是升级上游时要人工复核这份副本**。同类的还有 `src/extensions/events.ts`（25 条事件的载荷类型，
+由 `test/extensions-events-types.test.ts` 对着上游 `.d.ts` 做双向 assignability 对照）。
 
 **D7 浏览器没有的 shell 能力照旧声明不实现。** `spawnHook` / `shellPath` /
 `exposeSessionEnvironment`（`PI_*`）在浏览器侧无对应物，不声明不生效的字段。相关平台事实：

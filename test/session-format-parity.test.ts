@@ -18,9 +18,9 @@
 import './helpers/idb';
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
-import { createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
+import { createBrowserFileSystem } from '../src/index';
 import {
-	CURRENT_SESSION_VERSION, parseSessionEntries, buildSessionContext,
+	CURRENT_SESSION_VERSION, migrateSessionEntries, parseSessionEntries, buildSessionContext,
 } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js';
 
 const CTX = BACKGROUND_CONTEXT;
@@ -37,20 +37,32 @@ const sessionFile = (): string => {
 };
 
 describe('会话 JSONL：浏览器 fs 写出 → 上游 1.0.0 读回（P5）', () => {
-	it('版本号 = 上游 CURRENT_SESSION_VERSION（本仓不另定版本号）', () => {
+	it('版本号 = 上游 CURRENT_SESSION_VERSION（本仓不另定版本号），且 v3 是终态：上游迁移器不改我们的条目', () => {
 		expect(CURRENT_SESSION_VERSION).toBe(3);
+		// 「用了 3 这个常量」只能证明我们没自己编一个号；真正的断言是**上游的迁移器认为它已是最新**：
+		// migrateSessionEntries 是原地改的，跑完逐字相等就说明没有任何迁移被应用。
+		const entries = parseSessionEntries(sessionFile());
+		const before = structuredClone(entries);
+		migrateSessionEntries(entries);
+		expect(entries).toEqual(before);
 	});
 
-	it('浏览器 fs（真 IDB）写出的文件，上游 parseSessionEntries 原样读回', async () => {
-		const fs = createBrowserFileSystem({ dbName: 'p5-db', memory: false });
+	it('坏行被上游跳过（parseSessionEntries 只做 JSON.parse，容错语义也是契约的一部分）', () => {
+		const withBadLine = sessionFile() + '{ 这不是 JSON\n' + '\n';
+		const entries = parseSessionEntries(withBadLine);
+		// 上游对无法解析的行是 catch 后跳过（不是整份失败）——宿主写了一半的会话文件要能读回来
+		expect(entries.map((e) => e.type)).toEqual(['session', 'message', 'custom', 'message']);
+	});
+
+	// 「真 IDB 跨实例落盘」那半在 test/session-fs-roundtrip.test.ts（连追加一起验），这里只管格式。
+	it('浏览器 fs 写出的文件，上游 parseSessionEntries 原样读回', async () => {
+		const fs = createBrowserFileSystem({ dbName: 'p5-db', memory: true });
 		const content = sessionFile();
 		const written = await fs.writeFile('/sessions/s1.jsonl', content, CTX);
 		expect(written.ok).toBe(true);
 		await fs.flush();
 
-		// 真 IDB：新实例（= 刷新页面）读回，验证「写进去的东西真的落盘」，而不是内存里那份
-		resetFsKernelRegistry();
-		const reopened = createBrowserFileSystem({ dbName: 'p5-db', memory: false });
+		const reopened = fs;
 		const read = await reopened.readTextFile('/sessions/s1.jsonl', CTX);
 		expect(read.ok && read.value).toBe(content);
 
@@ -58,7 +70,6 @@ describe('会话 JSONL：浏览器 fs 写出 → 上游 1.0.0 读回（P5）', (
 		expect(entries.map((e) => e.type)).toEqual(['session', 'message', 'custom', 'message']);
 		expect(entries[0]).toMatchObject({ type: 'session', version: 3, id: 's1', cwd: '/projects/x' });
 
-		await reopened.cleanup(CTX);
 		await fs.cleanup(CTX);
 	});
 
@@ -85,9 +96,10 @@ describe('会话 JSONL：浏览器 fs 写出 → 上游 1.0.0 读回（P5）', (
 		].join('\n') + '\n';
 		const entries = parseSessionEntries(content);
 		const context = buildSessionContext(entries.filter((e) => e.type !== 'session'));
+		// 钉**顺序**而不是只钉「含有」：上游的语义是摘要置首、`firstKeptEntryId` 起的保留尾在后 ——
+		// 这正是 v3 格式里 firstKeptEntryId 存在的意义。
 		const roles = context.messages.map((m) => m.role);
-		// 摘要消息（compactionSummary）+ 首条 user + 末条 user；custom 类条目不进上下文
-		expect(roles).toContain('compactionSummary');
+		expect(roles).toEqual(['compactionSummary', 'user', 'user']);
 		const summary = context.messages.find((m) => m.role === 'compactionSummary');
 		expect(summary).toMatchObject({ role: 'compactionSummary', summary: '之前的对话摘要', tokensBefore: 5000 });
 	});

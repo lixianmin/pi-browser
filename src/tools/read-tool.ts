@@ -48,7 +48,11 @@ export interface ReadOperations {
 export interface ReadToolOptions {
 	/** 是否自动缩放图片。默认 true（上游语义）。 */
 	autoResizeImages?: boolean;
-	/** 模型元数据缺失时的兜底缩放档（缺省 2000×2000 / 4.5MB base64 / jpegQuality 80）。 */
+	/**
+	 * 模型元数据缺失时的兜底缩放档。**透传给注入的 `photon.resizeImage`（上游同样原样透传，不替宿主补缺省）**；
+	 * 不注入 `photon` 时只有 `maxBytes` 在本包生效（缺省 4.5MB base64，上游常量），2000×2000 / jpegQuality 80
+	 * 需要宿主自己的 `photon` 实现兜。
+	 */
 	resizeOptions?: ImageResizeOptions;
 	/**
 	 * 像素活实现（上游 `@silvia-odwyer/photon-node` 的浏览器版缝：上游 `loadPhoton()` 加载的是 CJS +
