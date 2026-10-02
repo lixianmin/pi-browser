@@ -13,7 +13,6 @@
 //      （上游不可能处于这个状态：它的 `ensureTempFile()` 无条件建流，每片不是落盘就是进缓冲）。
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, utf8ByteLength, type TruncationResult } from '../tools/truncate';
 import type { FileSystem } from '../env/types';
-// T1.4 会把这一行换成 `from '../env/context'`（chord 单点）；本任务在换源之前，先用现有来源
 import { BACKGROUND_CONTEXT } from '../env/context';
 
 export interface OutputAccumulatorOptions {
@@ -38,7 +37,8 @@ export interface FullOutput {
 	truncated: boolean;
 }
 
-/** spill 文件句柄：`append` 同步入队（内部串行），`close` 时 await 全部落地 */
+/** spill 文件句柄：`append` 同步入队（内部串行），`close` 时 await 全部落地。
+ *  写入失败只会在 `close()` 处抛——**调用方必须 close**，否则一次落盘失败会被永久吞掉（见 `closeTempFile`）。 */
 export interface OutputAccumulatorSpillFile {
 	readonly path: string;
 	append(data: Uint8Array): void;
@@ -126,7 +126,11 @@ export class OutputAccumulator {
 		return { content: truncation.content, truncation, fullOutputPath: this.#spillPath };
 	}
 
-	/** 关掉 spill 文件（写队列落地）。路径保留，之后再 `readFullOutput` 仍可读 */
+	/**
+	 * 关掉 spill 文件（写队列落地）。路径保留，之后再 `readFullOutput` 仍可读。
+	 * **必调**：spill 的写入失败只在 `close()` 处抛（`append` 把第一个失败记下来），不调就等于把落盘失败吞掉，
+	 * 而且此时 `readFullOutput` 会读到写了一半的文件。
+	 */
 	async closeTempFile(): Promise<void> {
 		const file = this.#spillFile;
 		if (!file) return;
@@ -247,6 +251,10 @@ function concatChunks(chunks: readonly Uint8Array[]): Uint8Array {
 /**
  * 用挂载表实现 spill seam（D2）：落在挂载表的临时文件面（默认 `/tmp`，即内存挂载）。
  * 返回的路径是**虚拟路径**——只有同一个 env 读得到（spec Review Focus #1 有测试钉住）。
+ *
+ * 两个已知后果（有意，非待办）：① 不走表的 `createTempFile` 原语而是自己拼 `/tmp/...`，因为句柄要同步给出
+ * `path` 而那个原语是异步的；② 文件永不删除（上游 tempfile 也不删）。没有 `/tmp` 挂载时，路径会落到兜底
+ * 的 `/` 挂载上——默认浏览器装配里那是**持久的 IDB 会话库**，所以宿主不该只挂 `/` 却又要 spill。
  */
 export function createMountSpill(table: FileSystem, prefix = 'pi-output'): OutputAccumulatorSpill {
 	return {

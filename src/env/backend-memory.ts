@@ -171,6 +171,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		},
 		// pi 1.0.0 新增：截断或补零到正好 `size` 字节。`size` 校验与上游 NodeExecutionEnv 同款
 		// （非负安全整数之外返 invalid）；缺文件返 not_found（上游先开 r+，开不到就没有下文）。
+		// 内存后端是**立即分配**：`size` 就是一次 `new Uint8Array(size)` 的大小（上游 ftruncate 是稀疏扩），
+		// 所以「合法的巨大 size」会当场吃掉对应内存（1e9 = 1GB）。本库没有调用方，先如实记着。
 		truncateFile: async (path, size) => {
 			const abs = normalizePath(path);
 			if (!Number.isSafeInteger(size) || size < 0) {

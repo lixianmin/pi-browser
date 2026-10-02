@@ -270,6 +270,7 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		// lightning-fs 无 close；实例生命周期由调用方（web 端单例）持有
 		// pi 1.0.0 新增。lightning-fs **没有** truncate 原语（实测 grep 无此方法），所以走读-改-写。
 		// `size` 校验与上游 NodeExecutionEnv 同款；缺文件由 readFile 的 ENOENT 归一为 not_found。
+		// 同内存后端：这是**立即分配**（`new Uint8Array(size)`），上游 ftruncate 是稀疏扩。
 		truncateFile: (path, size) => wrap(path, async () => {
 			const abs = normalizePath(path);
 			if (!Number.isSafeInteger(size) || size < 0) {

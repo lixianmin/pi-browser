@@ -6,7 +6,7 @@ import './helpers/idb';
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 import type { ExecutionEnv } from '../src/env/types';
-import { createBrowserExecutionEnv, createBrowserFileSystem } from '../src/index';
+import { createBrowserExecutionEnv, createBrowserFileSystem, resetFsKernelRegistry } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { formatSkillsForPrompt, loadSkills, loadSkillsFromDir, type Skill } from '../src/skills/loader';
 
@@ -182,6 +182,30 @@ describe('loadSkills：选项形状（1.0.0）', () => {
 			path: '/two/pdf/SKILL.md',
 			collision: { resourceType: 'skill', name: 'pdf', winnerPath: '/one/pdf/SKILL.md', loserPath: '/two/pdf/SKILL.md' },
 		}]);
+	});
+});
+
+// Task 1.2 前身那条「IDB flush + 重开新实例」测试在本地化时丢了，这里补回：skills 的持久面靠 IDB，
+// 而 flush 后的新实例能不能读到 skill 是**另一个问题**（不是「loadSkills 能否发现目录」）。
+describe('IDB 持久面：flush + 重开新实例后 skills 仍在', () => {
+	it('flush 并清内核注册表后，新实例从 IDB 读到同一批 skills', async () => {
+		const fs = createBrowserFileSystem({ dbName: 'skills-shared', memory: false });
+		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs }] });
+		await write(env, '/skills/pdf/SKILL.md', SKILL('name: pdf\ndescription: 处理 PDF'));
+		await fs.flush();
+		await fs.cleanup(CTX);
+
+		// 清内核注册表：reopened 必须是真·新实例从 IDB 重载，否则共享 CacheFS 恒绿、不再测落盘本身
+		resetFsKernelRegistry();
+		const reopened = createBrowserExecutionEnv({
+			mounts: [{ prefix: '/', fs: createBrowserFileSystem({ dbName: 'skills-shared', memory: false }) }],
+		});
+		const { skills, diagnostics } = await loadSkills(
+			reopened, { cwd: '/', agentDir: '/.pi/agent', includeDefaults: false, skillPaths: ['/skills'] }, CTX,
+		);
+
+		expect(diagnostics).toEqual([]);
+		expect(skills.map((s) => s.description)).toEqual(['处理 PDF']);
 	});
 });
 

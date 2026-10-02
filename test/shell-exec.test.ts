@@ -2,7 +2,7 @@
 // spec §3.2/§4.2：exec 接线 wasi-sh busybox。vitest 是 node env（无 Worker 全局）→ 走 inline 路径；
 // worker/硬杀路径的自动化不在 M3 闸门内（spec §4.2：以 spike 真浏览器实测 + 代码评审为据）。
 // Task 6：契约换成 1.0.0 的 onOutput/spill（呈现归调用方），补 4 条 Review Focus 测试（#1 #2 #5 + onOutput 拼接）。
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
 import { err, FileError, type ExecutionError, type Result } from '@earendil-works/pi-durable/env';
 import type { ExecutionEnv } from '../src/env/types';
@@ -16,12 +16,23 @@ const getOrFail = <T>(r: Result<T, { code: string; message: string }>): T => {
 	return r.value;
 };
 
+/** 本文件造出的 env 统一收尾：新测试一度忘了 cleanup，与文件其余部分的自律相反 */
+const liveEnvs: ExecutionEnv[] = [];
+
 /** 与其它实例零共享的 env：显式独立挂载表，不走默认 IDB 注册表（否则同 dbName 的两个 env 会同世界） */
-const isolatedEnv = (): ExecutionEnv => createBrowserExecutionEnv({
-	mounts: [
-		{ prefix: '/', fs: createMemoryFileSystem('/') },
-		{ prefix: '/tmp', fs: createMemoryFileSystem('/tmp') },
-	],
+const isolatedEnv = (): ExecutionEnv => {
+	const env = createBrowserExecutionEnv({
+		mounts: [
+			{ prefix: '/', fs: createMemoryFileSystem('/') },
+			{ prefix: '/tmp', fs: createMemoryFileSystem('/tmp') },
+		],
+	});
+	liveEnvs.push(env);
+	return env;
+};
+
+afterEach(async () => {
+	await Promise.all(liveEnvs.splice(0).map((env) => env.cleanup(BACKGROUND_CONTEXT)));
 });
 
 describe('exec：busybox inline 路径', () => {
@@ -96,6 +107,25 @@ describe('exec：onOutput / spill（1.0.0 契约）', () => {
 		const r = await env.exec("printf 'a\\nb\\n'", { onOutput: (text) => chunks.push(text) }, BACKGROUND_CONTEXT);
 		expect(r.ok).toBe(true);
 		expect(chunks.join('')).toBe('a\nb\n');
+	});
+
+	// 回归：分片边界落在多字节字符中间时，流式解码器会吐出空串；上游显式跳过空串。
+	it('onOutput 不交付空串（多字节字符跨分片）', async () => {
+		const env = isolatedEnv();
+		const chunks: string[] = [];
+		// 分两次写 UTF-8 的 '中'（E4 B8 AD）+ 换行，逼解码器在分片边界上扣住不完整的序列
+		const r = await env.exec("printf '\\344'; printf '\\270\\255\\n'", { onOutput: (text) => chunks.push(text) }, BACKGROUND_CONTEXT);
+		expect(r.ok).toBe(true);
+		expect(chunks.join('')).toBe('中\n');
+		expect(chunks).not.toContain('');
+	});
+
+	// 回归：消费者 onOutput 抛错曾被当成 spawn_error（inline）或被无人接（worker）——上游转成 callback_error。
+	it('消费者 onOutput 抛错 → callback_error（不误标成 spawn_error）', async () => {
+		const env = isolatedEnv();
+		const r = await env.exec('echo hi', { onOutput: () => { throw new Error('consumer boom'); } }, BACKGROUND_CONTEXT);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error.code).toBe('callback_error');
 	});
 
 	it('spill 阈值触发时结果带 spillPath，且同一 env 读得到全文', async () => {

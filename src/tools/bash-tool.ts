@@ -41,7 +41,7 @@ export function createBashTool(opts: BashToolOptions): AgentTool<typeof bashSche
 	return {
 		name: 'bash',
 		label: 'bash',
-		description: `Run a shell command in the workspace. The shell is busybox ash + coreutils (a single busybox process): background jobs (&), sub shells that require a fork, and process substitution are not supported and fail loudly instead of silently. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, the complete output is saved to a temp file.`,
+		description: `Run a shell command in the workspace. The shell is busybox ash + coreutils (a single busybox process): background jobs (&), sub shells that require a fork, and process substitution are not supported and fail loudly instead of silently. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, the complete output is saved to a temp file. Timeouts are enforced by the browser worker backend only: on a single-threaded host the timeout value is ignored.`,
 		parameters: bashSchema,
 		async execute(_toolCallId, input, signal) {
 			throwIfAborted(signal);

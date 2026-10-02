@@ -136,5 +136,6 @@ describe('bash tool', () => {
 		expect(description).toContain('process substitution');
 		expect(description).toContain('fail loudly');
 		expect(description).toContain('saved to a temp file');
+		expect(description).toContain('browser worker backend only');
 	});
 });

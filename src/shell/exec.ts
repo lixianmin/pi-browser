@@ -64,6 +64,8 @@ interface OutputSink {
 	deliver(bytes: Uint8Array): void;
 	/** 收尾：刷解码器、落盘 spill；返回 spill 的虚拟路径（未越阈值或无 spill 时为 undefined） */
 	finalize(): Promise<string | undefined>;
+	/** 消费者的 `onOutput` 抛过的错（上游语义：转成 `callback_error` 并杀进程） */
+	callbackFailure(): Error | undefined;
 }
 
 export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOptions = {}): Shell {
@@ -76,16 +78,17 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	 * wasi-sh 的 `session.exited` 只在 worker 的 exit 消息或 error 事件上 settle，硬 terminate 两者都不产生，
 	 * 于是 in-flight 的 `await session.exited` 会永久挂住。
 	 */
-	let killLiveExec: ((why: 'timeout' | 'aborted') => void) | undefined;
+	let killLiveExec: ((why: 'timeout' | 'aborted' | 'callback') => void) | undefined;
 	// 注册表校验一次就够（与 applet/内建同名 → 抛错）；worker 消息与 builtins 的 lookup 都用这份名单
 	const hostCommands: HostCommandRegistry = options.hostCommands ?? {};
 	const hostNames = hostCommandNames(hostCommands);
 	const wasm: WasmSource = options.wasm ?? DEFAULT_WASM_URL;
 
-	const createOutputSink = (execOptions: ShellExecOptions | undefined, context: Context): OutputSink => {
+	const createOutputSink = (execOptions: ShellExecOptions | undefined, context: Context, onConsumerError: () => void): OutputSink => {
 		const onOutput = execOptions?.onOutput;
 		const spill = execOptions?.spill;
 		const decoder = onOutput ? new TextDecoder() : undefined;
+		let consumerError: Error | undefined;
 		// spill 借 OutputAccumulator 的「阈值以下有界、越线时把已攒的 rawChunks 全量落盘」实现（spec D2：落点是挂载表）
 		const accumulator = spill
 			? new OutputAccumulator(
@@ -95,9 +98,25 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			: undefined;
 		return {
 			deliver(bytes) {
-				if (decoder && onOutput) onOutput(decoder.decode(bytes, { stream: true }), context);
+				// 消费者抛错后不再交付（上游同款：`callbackError !== undefined` 即 return）
+				if (consumerError) return;
+				if (decoder && onOutput) {
+					const text = decoder.decode(bytes, { stream: true });
+					// 空串不交付（上游显式跳过）：分片边界落在多字节字符中间时解码器会吐出空串
+					if (text !== '') {
+						try {
+							onOutput(text, context);
+						} catch (e) {
+							// 消费者的错不能让异常逃出 exec（契约是永远返回 Result），也不能被误标成 spawn_error。
+							// 上游的处置是记下 callback_error 并杀掉子进程。
+							consumerError = toError(e);
+							onConsumerError();
+						}
+					}
+				}
 				accumulator?.append(bytes);
 			},
+			callbackFailure: () => consumerError,
 			async finalize() {
 				if (decoder && onOutput) {
 					const tail = decoder.decode();
@@ -128,7 +147,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 
 	const exec = async (command: string, execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
 		if (closed) return err(new ExecutionError('shell_unavailable', 'shell 已 cleanup：不能再 exec'));
-		const output = createOutputSink(execOptions, context);
+		// 消费者回调抛错时由 sink 直接叫停活着的那次 exec（worker 路径需要杀子进程；上行传给 kill 的 'callback'
+		// 不写进 killed，因收尾原因由返回值给出，是 callback_error）
+		const output = createOutputSink(execOptions, context, () => killLiveExec?.('callback'));
 		const cwd = normalizePath(execOptions?.cwd ?? store.mounts[0]?.fs.cwd ?? '/');
 		return typeof Worker === 'undefined'
 			? await execInline(command, execOptions, context, output, cwd)
@@ -175,6 +196,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			return err(new ExecutionError('unknown', toError(e).message, toError(e)));
 		}
 		if (finalized.failure) return err(finalized.failure);
+		const consumerError = output.callbackFailure();
+		if (consumerError) return err(new ExecutionError('callback_error', consumerError.message, consumerError));
 		return ok({ exitCode: result.exitCode, ...(finalized.spillPath === undefined ? {} : { spillPath: finalized.spillPath }) });
 	}
 
@@ -188,8 +211,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		// 硬杀语义（spec §3.2）：被杀运行的**文件变更整体丢弃**（变更集没拉），已发布的输出保留
 		let killed: 'timeout' | 'aborted' | undefined;
 		let session: Session | undefined;
-		const kill = (why: 'timeout' | 'aborted'): void => {
-			killed ??= why;
+		const kill = (why: 'timeout' | 'aborted' | 'callback'): void => {
+			// 'callback' 不写 killed：收尾原因由返回值给出（callback_error），不能被 abort 分支盖掉
+			if (why !== 'callback') killed ??= why;
 			session?.terminate();
 		};
 		killLiveExec = kill;
@@ -227,6 +251,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			if (killed === 'timeout') return err(new ExecutionError('timeout', `timeout:${execOptions?.timeout}`));
 			if (killed === 'aborted') return err(new ExecutionError('aborted', 'aborted'));
 			if (finalized.failure) return err(finalized.failure);
+			const consumerError = output.callbackFailure();
+			if (consumerError) return err(new ExecutionError('callback_error', consumerError.message, consumerError));
 			await applyChanges(store, await pulledChanges(worker, pushed));
 			return ok({ exitCode, ...(finalized.spillPath === undefined ? {} : { spillPath: finalized.spillPath }) });
 		} catch (e) {

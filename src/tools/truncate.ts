@@ -154,7 +154,13 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 	};
 }
 
-/** 从字符串尾部按 UTF-8 字节取，只在字符边界切断（上游同名私有函数的逐字转写）。 */
+/** 从字符串尾部按 UTF-8 字节取，只在字符边界切断。
+ *
+ * **本仓自写**（plan Task 1 Step 3 指定手写，不是上游转写）：从 UTF-16 尾部按码点回扫，输出恒为合法 UTF-8
+ * （未配对的代理项换成 U+FFFD），所以 `outputBytes === utf8ByteLength(content)` 恒成立。
+ * 与上游 1.0.0 的 Buffer 切片版（`truncate.js` 里按 `buf.length - maxBytes` 切再跳过续接字节）在切点
+ * 恰好落在多字节字符边界时最多差 3 字节，且上游那版会在头部留一个替换字符。
+ */
 function truncateStringToBytesFromEnd(str: string, maxBytes: number): string {
 	if (maxBytes <= 0) return '';
 	let outputBytes = 0;
