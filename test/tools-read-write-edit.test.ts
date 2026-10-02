@@ -134,6 +134,53 @@ describe('Read tool', () => {
 		expect(textOf(await createReadTool('/e', { operations: readOps(fs) }).execute('id', { path: 'inner.txt' }))).toBe('other');
 	});
 
+	// 终审 p2-2-rwe 的 Important：上游 read.js 的 execute 是 promise + abort 监听器包住整个执行体，
+	// abort 事件一到就 reject；只靠 `throwIfAborted` 检查点的话，注入的慢 I/O（IDB / 远端）挂起期间
+	// 取消不生效，必须等那次 I/O 返回。
+	// 关键：abort 必须发生在**已经挂进 readFile 之后**——否则会被路径解析后的那个检查点兜住，这条用例变假绿。
+	it('挂在 I/O 上时取消，立刻 reject（不等 I/O 落地）', async () => {
+		await seed(fs, { '/e/slow.txt': 'x' });
+		let enteredRead = (): void => {};
+		let releaseRead = (): void => {};
+		const readEntered = new Promise<void>((resolve) => { enteredRead = resolve; });
+		const slowRead = new Promise<Uint8Array>((resolve) => { releaseRead = () => resolve(new TextEncoder().encode('late')); });
+		const def = createReadToolDefinition('/e', {
+			operations: { ...readOps(fs), readFile: () => { enteredRead(); return slowRead; } },
+		});
+		const ac = new AbortController();
+		const pending = (def.execute as never as (...a: unknown[]) => Promise<unknown>)(
+			'c1', { path: 'slow.txt' }, ac.signal, undefined, undefined,
+		);
+		await readEntered;                       // 现在它确定挂在 readFile 上
+		ac.abort();
+		const raced = await Promise.race([
+			pending.then(() => 'RESOLVED', (e: unknown) => `REJECTED:${(e as Error).message}`),
+			new Promise<string>((resolve) => setTimeout(() => resolve('HANG'), 50)),
+		]);
+		releaseRead();
+		expect(raced).toMatch(/^REJECTED:.*aborted/i);
+	});
+
+	// 终审 p2-2-rwe 的 Important：getNonVisionImageNote 与 processImage 无关（只拼一行文案），
+	// 裁掉 processImage（D6/R1）时被连带动掉了。模型不支持图片却收到 image 块 = 静默丢内容。
+	it('模型不支持 image 时，图片结果带上上游那句说明（不静默丢图）', async () => {
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
+		await fs.writeFile('/e/a.png', png, CTX);
+		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
+		const textOnly = { model: { input: ['text'] } } as never;
+		const result = await (def.execute as never as (...a: unknown[]) => Promise<AgentToolResult<unknown>>)(
+			'c1', { path: 'a.png' }, undefined, undefined, textOnly,
+		);
+		expect(textOf(result)).toContain('[Current model does not support images. The image will be omitted from this request.]');
+		expect(result.content.some((c) => c.type === 'image')).toBe(true);
+
+		const vision = { model: { input: ['text', 'image'] } } as never;
+		const visionResult = await (def.execute as never as (...a: unknown[]) => Promise<AgentToolResult<unknown>>)(
+			'c1', { path: 'a.png' }, undefined, undefined, vision,
+		);
+		expect(textOf(visionResult)).not.toContain('does not support images');
+	});
+
 	it('ctx.cwd 为空串时回退构造期 cwd（与上游 `||` 同语义，不是 `??`）', async () => {
 		await seed(fs, { '/e/x.txt': 'e' });
 		const def = createReadToolDefinition('/e', { operations: readOps(fs) });

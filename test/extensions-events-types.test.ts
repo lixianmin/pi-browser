@@ -88,6 +88,20 @@ describe('支持事件的载荷与上游逐字同形', () => {
 		same<Ours.BashToolResultEvent, Upstream.BashToolResultEvent>(true);
 		same<Ours.WriteToolResultEvent, Upstream.WriteToolResultEvent>(true);
 		same<Ours.CustomToolResultEvent, Upstream.CustomToolResultEvent>(true);
+		// 18 个变体逐个钉住（终审 p3-B3：原来只对了 5 个，标题却说「9 变体」）
+		same<Ours.PowerShellToolCallEvent, Upstream.PowerShellToolCallEvent>(true);
+		same<Ours.ReadToolCallEvent, Upstream.ReadToolCallEvent>(true);
+		same<Ours.EditToolCallEvent, Upstream.EditToolCallEvent>(true);
+		same<Ours.WriteToolCallEvent, Upstream.WriteToolCallEvent>(true);
+		same<Ours.GrepToolCallEvent, Upstream.GrepToolCallEvent>(true);
+		same<Ours.FindToolCallEvent, Upstream.FindToolCallEvent>(true);
+		same<Ours.LsToolCallEvent, Upstream.LsToolCallEvent>(true);
+		same<Ours.PowerShellToolResultEvent, Upstream.PowerShellToolResultEvent>(true);
+		same<Ours.ReadToolResultEvent, Upstream.ReadToolResultEvent>(true);
+		same<Ours.EditToolResultEvent, Upstream.EditToolResultEvent>(true);
+		same<Ours.GrepToolResultEvent, Upstream.GrepToolResultEvent>(true);
+		same<Ours.FindToolResultEvent, Upstream.FindToolResultEvent>(true);
+		same<Ours.LsToolResultEvent, Upstream.LsToolResultEvent>(true);
 	});
 
 	it('handler 返回值类型', () => {

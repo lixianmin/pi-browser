@@ -250,6 +250,11 @@ describe('Ls tool', () => {
 		};
 		const out = textOf(await createLsTool('/', { operations: ops }).execute('id', {}));
 		expect(out).toBe('src/');
+
+		// 终审 p2-7：原来没传 limit（走 DEFAULT_LIMIT），「跳过的条目不消耗配额」这半个属性没被验证。
+		// 传 limit=1：若跳过也占配额，readme.md 吃掉唯一名额，src 就该被 limit 截掉。
+		const limited = textOf(await createLsTool('/', { operations: ops }).execute('id', { limit: 1 }));
+		expect(limited).toContain('src/');
 	});
 
 	it('静态字段与上游产物逐字相等（P2c 契约）', () => {

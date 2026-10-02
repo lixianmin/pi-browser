@@ -175,6 +175,15 @@ describe('ExtensionRunner（宿主，注入模型）', () => {
 		expect(() => ctx.cwd).toThrow();
 	});
 
+	it('close() 之后 load() 抛错（不接受「半活」runner：runtime 已失效却能再装载一次）', async () => {
+		const f = fakes();
+		const { runner } = makeRunner([ext('ext-a', () => {})], f);
+		runner.bindCore(f.actions, f.contextActions);
+		await runner.load();
+		await runner.close();
+		await expect(runner.load()).rejects.toThrow(/close/);
+	});
+
 	it('invalidate 后事件总线订阅被退订（runtime 统一退订）', async () => {
 		const f = fakes();
 		const { runner } = makeRunner([ext('ext-a', (pi) => { pi.events.on('tick', () => { hits.push(1); }); })], f);

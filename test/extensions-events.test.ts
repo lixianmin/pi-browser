@@ -217,6 +217,42 @@ describe('emit 家族的结果语义（照抄上游）', () => {
 		expect(bad.entries).toEqual([]);
 	});
 
+	// 终审 p3-A1 的覆盖缺口：只有通用 emit 测了「handler 抛错 → emitError 且后续 handler 照跑」，
+	// 其余 6 个具名入口都没测。表驱动逐入口钉：先注册一个必抛的 handler，再注册一个记名的，
+	// 断言「报了 1 条 error + 记名那个照跑」。
+	it.each([
+		['context', (r: ExtensionRunner) => r.emitContext([userMessage])],
+		['tool_result', (r: ExtensionRunner) => r.emitToolResult({ type: 'tool_result', toolCallId: 'c', toolName: 'custom', input: {}, content: [], details: {}, isError: false })],
+		['message_end', (r: ExtensionRunner) => r.emitMessageEnd({ type: 'message_end', message: assistantMessage })],
+		['before_provider_request', (r: ExtensionRunner) => r.emitBeforeProviderRequest({ n: 1 })],
+		['before_provider_headers', (r: ExtensionRunner) => r.emitBeforeProviderHeaders({ a: '1' })],
+		['before_agent_start', (r: ExtensionRunner) => r.emitBeforeAgentStart('hi', undefined, { cwd: '/w' }, () => 'S')],
+		['turn_end', (r: ExtensionRunner) => r.emitBoundary(
+			{ type: 'turn_end', turnIndex: 0, message: assistantMessage, toolResults: [], messageEntryId: 'e', toolResultEntryIds: [], outcome: 'completed' },
+			async () => boundaryPreview,
+		)],
+	] as const)('%s：handler 抛错 → emitError 上报，不外泄，后续 handler 照跑', async (event, fire) => {
+		const seen: string[] = [];
+		const runner = await loaded((pi) => {
+			pi.on(event, () => { throw new Error('boom'); });
+			pi.on(event, () => { seen.push('after'); });
+		});
+		const errors: unknown[] = [];
+		runner.onError((e) => errors.push(e));
+		await fire(runner);
+		expect(errors).toHaveLength(1);
+		expect((errors[0] as { error: string }).error).toBe('boom');
+		expect(seen).toEqual(['after']);
+	});
+
+	it('emitToolCall：handler 抛错直接冒泡给宿主（照抄上游：阻止/放行是同一条同步决策链）', async () => {
+		const runner = await loaded((pi) => {
+			pi.on('tool_call', () => { throw new Error('boom'); });
+		});
+		await expect(runner.emitToolCall({ type: 'tool_call', toolCallId: 'c', toolName: 'custom', input: {} }))
+			.rejects.toThrow('boom');
+	});
+
 	it('session_before_*：cancel 短路（后跑的 handler 不再执行）', async () => {
 		const seen: string[] = [];
 		const runner = await loaded((pi) => {

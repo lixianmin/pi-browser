@@ -8,6 +8,7 @@
 import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
+import type { Model } from '@earendil-works/pi-ai';
 import type { ToolDefinition } from '../extensions/tool';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, utf8ByteLength, type TruncationResult } from './truncate';
 import { resolveReadPathAsync } from './path-utils';
@@ -62,6 +63,33 @@ function requireOperations(options: ReadToolOptions | undefined): ReadOperations
 	return operations;
 }
 
+/**
+ * 上游 `read.js:24-29`（逐字）：模型不支持 image 时在文本块里追加一行说明。
+ * 与 `processImage` 无关 —— D6/R1 裁掉缩放时被连带动掉了，这里补回。
+ */
+function getNonVisionImageNote(model: Model<any> | undefined): string | undefined {
+	if (!model || model.input.includes('image')) return undefined;
+	return '[Current model does not support images. The image will be omitted from this request.]';
+}
+
+/**
+ * 上游 `read.js:41-60` 的形状：abort 事件一到就 reject，**不等执行体里那次挂起的 I/O**。
+ * 只靠 `throwIfAborted` 检查点的话，注入的慢 I/O（IDB / 远端）挂起期间取消不生效。
+ * 内层执行体之后的拒绝被吞掉（已经 reject 过了），但仍接住它，避免 unhandled rejection。
+ */
+function abortable<T>(signal: AbortSignal | undefined, run: () => Promise<T>): Promise<T> {
+	if (!signal) return run();
+	if (signal.aborted) return Promise.reject(new FileError('aborted', 'Operation aborted'));
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => reject(new FileError('aborted', 'Operation aborted'));
+		signal.addEventListener('abort', onAbort, { once: true });
+		run().then(
+			(value) => { signal.removeEventListener('abort', onAbort); resolve(value); },
+			(err: unknown) => { signal.removeEventListener('abort', onAbort); if (!signal.aborted) reject(err); },
+		);
+	});
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
 	let binary = '';
 	const chunkSize = 0x8000;   // 32768：一次展开的实参上限内，避免 String.fromCharCode 逐字节调用
@@ -77,6 +105,7 @@ async function executeRead(
 	input: ReadToolInput,
 	signal: AbortSignal | undefined,
 	operations: ReadOperations,
+	model?: Model<any>,
 ): Promise<AgentToolResult<ReadToolDetails | undefined>> {
 	throwIfAborted(signal);
 	const absolutePath = await resolveReadPathAsync(input.path, cwd, (path) => operations.access(path));
@@ -89,10 +118,15 @@ async function executeRead(
 	if (mimeType) {
 		const bytes = await operations.readFile(absolutePath);
 		throwIfAborted(signal);
-		// D6：只嗅探、不缩放；data 是原字节的 base64
+		// D6：只嗅探、不缩放；data 是原字节的 base64。
+		// 模型不支持 image 时照样说明一句（上游同款）——否则那张图会被 provider 静默丢掉，模型毫无线索。
+		const nonVisionImageNote = getNonVisionImageNote(model);
+		const textNote = nonVisionImageNote
+			? `Read image file [${mimeType}]\n${nonVisionImageNote}`
+			: `Read image file [${mimeType}]`;
 		return {
 			content: [
-				{ type: 'text', text: `Read image file [${mimeType}]` },
+				{ type: 'text', text: textNote },
 				{ type: 'image', data: bytesToBase64(bytes), mimeType },
 			],
 			details: undefined,
@@ -156,7 +190,8 @@ export function createReadToolDefinition(
 		promptSnippet: readToolSystemPromptContribution.snippet,
 		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		parameters: readSchema,
-		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeRead(ctx?.cwd || cwd, input, signal, operations),
+		execute: (toolCallId, input, signal, _onUpdate, ctx) =>
+			abortable(signal, () => executeRead(ctx?.cwd || cwd, input, signal, operations, ctx?.model)),
 	};
 }
 

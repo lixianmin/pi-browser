@@ -15,6 +15,7 @@ import { createMountSpill, type OutputAccumulatorSpill } from '../src/shell/outp
 import { createBashTool, createBashToolDefinition, bashToolSystemPromptContribution, type BashOperations } from '../src/tools/bash-tool';
 import * as upstreamBash from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/bash.js';
 import { bashOps } from './helpers/tool-operations';
+import { extensionCtx } from './helpers/extension-context';
 
 const CTX = BACKGROUND_CONTEXT;
 const ENCODER = new TextEncoder();
@@ -143,6 +144,20 @@ describe('bash tool', () => {
 		await fs.createDir('/proj', { recursive: true }, CTX);
 		await createBashTool('/proj', { operations: bashOps(busyboxEnv(fs)) }).execute('id', { command: 'echo x > a.txt' });
 		const read = await fs.readTextFile('/proj/a.txt', CTX);
+		expect(read.ok && read.value).toBe('x\n');
+	});
+
+	// 终审 p2-7：bash 定义件的 `ctx.cwd` 分支零覆盖（兄弟 grep/find/ls 三件都有）。这行
+	// `executeBash(ctx?.cwd || cwd, …)` 是独立于工厂件那条的拷贝代码，它决定真实命令的工作目录。
+	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
+		const fs = createMemoryFileSystem('/');
+		await fs.createDir('/ctor', { recursive: true }, CTX);
+		await fs.createDir('/from-ctx', { recursive: true }, CTX);
+		const def = createBashToolDefinition('/ctor', { operations: bashOps(busyboxEnv(fs)) });
+		await (def.execute as never as (...a: unknown[]) => Promise<unknown>)(
+			'id', { command: 'echo x > a.txt' }, undefined, undefined, extensionCtx('/from-ctx'),
+		);
+		const read = await fs.readTextFile('/from-ctx/a.txt', CTX);
 		expect(read.ok && read.value).toBe('x\n');
 	});
 

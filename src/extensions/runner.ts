@@ -110,6 +110,7 @@ export class ExtensionRunner {
 	private readonly apiPerSource = new Map<string, ExtensionAPI>();
 	private readonly errorListeners = new Set<ExtensionErrorListener>();
 	private phase: 'loading' | 'active' = 'loading';
+	private closed = false;
 	private contextActions: ExtensionContextActions | undefined;
 
 	constructor(
@@ -149,8 +150,14 @@ export class ExtensionRunner {
 	/**
 	 * 装载扩展：跑完各扩展工厂（可 await）并收下工具与订阅。
 	 * 返回装载好的 `ExtensionAPI` 列表（宿主可直接调运行期成员）。
+	 *
+	 * `close()` 之后不再接受装载：runtime 已永久失效，再跑一次工厂会得到一个「注册期一切正常、
+	 * 运行期每个 ctx 都抛」的半活 runner，比直接报错更难查。
 	 */
 	async load(): Promise<Map<string, ExtensionAPI>> {
+		if (this.closed) {
+			throw new Error('ExtensionRunner：宿主已 close，不能再 load（要重新装载请新建 runner + runtime）');
+		}
 		this.phase = 'loading';
 		let anonymous = 0;
 		for (const ext of this.extensions) {
@@ -165,6 +172,7 @@ export class ExtensionRunner {
 
 	/** 关掉宿主：作废 runtime（ctx 与事件总线订阅一并失效）并把相位落回 `loading`。 */
 	async close(): Promise<void> {
+		this.closed = true;
 		this.runtime.invalidate('ExtensionRunner：宿主已 close，拿到的 ctx 与订阅不可再用');
 		this.phase = 'loading';
 	}
@@ -359,7 +367,16 @@ export class ExtensionRunner {
 	 */
 	async emitContext(messages: AgentMessage[]): Promise<AgentMessage[]> {
 		const ctx = this.createContext();
-		let currentMessages = structuredClone(messages);
+		// 上游用 structuredClone（有意：handler 拿到的是快照，改它不污染宿主那份）。但深拷贝一旦遇到
+		// 不可结构化克隆的对象就会抛，而这里在 try 之外 —— 异常会直接打断轮次，绕过了「handler 异常走
+		// emitError」的整体承诺。降级为浅拷贝并报错（不静默：走的是 onError 那条路）。
+		let currentMessages: AgentMessage[];
+		try {
+			currentMessages = structuredClone(messages);
+		} catch (err) {
+			this.emitError(this.toError('<runtime>', 'context', new Error(`消息列表无法深拷贝，已降级为浅拷贝：${errText(err)}`)));
+			currentMessages = messages.slice();
+		}
 		for (const { path, handler } of this.snapshot('context')) {
 			try {
 				const visibleMessages = currentMessages.filter((message) => message.role !== 'system');
