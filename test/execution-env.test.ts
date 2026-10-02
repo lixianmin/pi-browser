@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 import type { FileError, Result } from '@earendil-works/pi-durable/env';
-import type { ExecutionEnv } from '@earendil-works/pi-agent-core';
+import type { ExecutionEnv } from '../src/env/types';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 

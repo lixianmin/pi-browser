@@ -12,9 +12,10 @@
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 
-import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
+import type { ExecutionEnv } from '../src/env/types';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createBrowserFileSystem } from '../src/env/backend-idb';
+import { execWithOutput } from './helpers/shell-output';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -110,11 +111,10 @@ async function runCase(c: CommonTask): Promise<{ exitCode: number; output: strin
 		const written = await env.writeFile(path, content, CTX);
 		if (!written.ok) throw new Error(`装配失败 ${path}: ${written.error.code} ${written.error.message}`);
 	}
-	let view: ShellOutputView | undefined;
-	const result = await env.exec(c.cmd, { onUpdate: (u: ShellOutputUpdate) => { view = applyShellOutputUpdate(view, u); } }, CTX);
+	const { result, output } = await execWithOutput(env, c.cmd);
 	if (!result.ok) throw new Error(`exec 失败: ${result.error.code} ${result.error.message}`);
 	await env.cleanup(CTX);
-	return { exitCode: result.value.exitCode, output: view?.text ?? '' };
+	return { exitCode: result.value.exitCode, output };
 }
 
 describe('常见任务用例集（50 条）', () => {

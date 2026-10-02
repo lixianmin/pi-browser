@@ -1,14 +1,16 @@
 // @vitest-environment node
-// spec §4.2：spike v2 验收矩阵（**修正版**）进 CI + `capture.limits` 截断断言。
+// spec §4.2：spike v2 验收矩阵（**修正版**）进 CI + 「exec → 调用方 OutputAccumulator」截断接缝。
 // 原样输出不能照抄的两处修正：CASE 3 先 `mkdir -p /out`（否则重定向本身就失败，原 stdout '0\n' 是错的）；
 // CASE 5 的 awk 程序用**单引号**（双引号会被 ash 当变量展开，awk 直接报 Unexpected token）。
 // 断言 = exit code + 输出二值（exec 的输出视图合并 stdout/stderr，与上游 Node 实现同口径）。
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 
-import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
+import type { ExecutionEnv } from '../src/env/types';
 import { createBrowserExecutionEnv } from '../src/env/execution-env';
 import { createBrowserFileSystem } from '../src/env/backend-idb';
+import { execWithOutput } from './helpers/shell-output';
+import { OutputAccumulator } from '../src/shell/output-accumulator';
 
 const CTX = BACKGROUND_CONTEXT;
 
@@ -42,15 +44,10 @@ const CASES: AcceptanceCase[] = [
 	{ name: 'CASE 10 退出码 7', command: 'exit 7', exitCode: 7, output: '' },
 ];
 
-async function execCase(env: ExecutionEnv, command: string, limits?: { maxBytes: number; maxLines: number; retain?: 'head' | 'tail' }) {
-	let view: ShellOutputView | undefined;
-	const result = await env.exec(
-		command,
-		{ ...(limits ? { capture: { limits } } : {}), onUpdate: (u: ShellOutputUpdate) => { view = applyShellOutputUpdate(view, u); } },
-		CTX,
-	);
+async function execCase(env: ExecutionEnv, command: string) {
+	const { result, output, truncation } = await execWithOutput(env, command);
 	if (!result.ok) throw new Error(`exec 失败: ${result.error.code} ${result.error.message}`);
-	return { exitCode: result.value.exitCode, output: view?.text ?? '', view };
+	return { exitCode: result.value.exitCode, output, truncation };
 }
 
 describe('语义验收矩阵（spike v2 修正版）', () => {
@@ -65,26 +62,23 @@ describe('语义验收矩阵（spike v2 修正版）', () => {
 	}
 });
 
-describe('capture.limits 截断', () => {
-	it('尾保留按行截断：保留最后 3 行 + 截断元数据（先到先触发）', async () => {
+describe('输出截断（Task 6 起归调用方）', () => {
+	// `capture.limits` 随 0.99.1 的契约一起消失：exec 只交付原始分片，截断/尾保留由调用方的 OutputAccumulator 决定。
+	// 按行、按字节（含 lastLinePartial 与 lastLineBytes）的两条原始断言已移到 test/output-accumulator.test.ts，
+	// 这里只钉「exec → 调用方累积」这条新接缝仍然通畅。
+	it('调用方用受限的 OutputAccumulator 截断 exec 的输出', async () => {
 		const env = independentEnv();
-		const { output, view } = await execCase(env, 'seq 1 10', { maxBytes: 1024, maxLines: 3, retain: 'tail' });
-		expect(output).toBe('8\n9\n10');
-		expect(view?.truncation.truncated).toBe(true);
-		expect(view?.truncation.truncatedBy).toBe('lines');
-		expect(view?.truncation.totalLines).toBe(10);
-		await env.cleanup(CTX);
-	});
-
-	it('尾保留按字节截断时给 lastLineBytes（首行超限的判据）', async () => {
-		const env = independentEnv();
-		const { output, view } = await execCase(env, 'printf "aaaaaaaaaa\\nbbbbbbbbbb\\n"', { maxBytes: 6, maxLines: 100, retain: 'tail' });
-		expect(view?.truncation.truncated).toBe(true);
-		expect(view?.truncation.truncatedBy).toBe('bytes');
-		expect(output).toBe('bbbbbb');   // 末行 11 字节 > 6 字节上限：按上游 truncateTail 语义只留该行的最后 6 字节
-		expect(view?.truncation.lastLinePartial).toBe(true);
-		// lastLineBytes = 「最后一个换行之后那一段」的字节数：输出以 \n 收尾时当前行为空 → 0（上游同义）
-		expect(view?.lastLineBytes).toBe(0);
+		const chunks: string[] = [];
+		const result = await env.exec('seq 1 10', { onOutput: (text) => chunks.push(text) }, CTX);
+		expect(result.ok).toBe(true);
+		const accumulator = new OutputAccumulator({ maxLines: 3, maxBytes: 1024 });
+		for (const chunk of chunks) accumulator.append(new TextEncoder().encode(chunk));
+		accumulator.finish();
+		const snapshot = accumulator.snapshot();
+		expect(snapshot.content).toBe('8\n9\n10');
+		expect(snapshot.truncation.truncated).toBe(true);
+		expect(snapshot.truncation.truncatedBy).toBe('lines');
+		expect(snapshot.truncation.totalLines).toBe(10);
 		await env.cleanup(CTX);
 	});
 });

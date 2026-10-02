@@ -7,10 +7,11 @@
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 
-import { applyShellOutputUpdate, type ShellOutputUpdate, type ShellOutputView, type ExecutionEnv } from '@earendil-works/pi-agent-core';
+import type { ExecutionEnv } from '../src/env/types';
 import type { BuiltinContext } from 'wasi-sh';
 import { createBrowserExecutionEnv } from '../src/index';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
+import { execWithOutput } from './helpers/shell-output';
 import {
 	createGuestHostBuiltins, createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer,
 	hostCommandNames, type HostCommandExchangeRequest, type HostCommandRegistry,
@@ -25,13 +26,6 @@ const storeOf = (fs = createMemoryFileSystem()) => ({ mounts: [{ prefix: '/', fs
 
 const envWith = (hostCommands?: HostCommandRegistry, fs = createMemoryFileSystem()) =>
 	createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs }], hostCommands });
-
-/** 命令输出只经 onUpdate 交付（ShellExecResult 里只有 exitCode + 截断元数据），与 shell-exec.test 同法累积 */
-async function execWithOutput(env: ExecutionEnv, command: string) {
-	let view: ShellOutputView | undefined;
-	const result = await env.exec(command, { onUpdate: (update: ShellOutputUpdate) => { view = applyShellOutputUpdate(view, update); } }, CTX);
-	return { result, output: view?.text ?? '' };
-}
 
 /** 从 guest 缓存同步读一个文件（adapter 的读接口是 run 期唯一的同步真相） */
 function readGuest(guestFs: WasiFileSystem, path: string): string {

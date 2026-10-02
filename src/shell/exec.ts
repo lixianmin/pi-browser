@@ -6,12 +6,12 @@
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
 import { BACKGROUND_CONTEXT, type Context } from '../env/context';
 import { ExecutionError, err, ok, toError, type Result } from '@earendil-works/pi-durable/env';
-import type { Shell, ShellExecOptions, ShellExecResult } from '@earendil-works/pi-agent-core';
+import type { Shell, ShellExecOptions, ShellExecResult } from '../env/types';
 import { run, spawn, type RunResult, type Session, type WasmSource } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
 import { createMountTable } from '../env/mount';
 import { normalizePath } from '../env/path';
-import { ShellCapture } from './capture';
+import { createMountSpill, OutputAccumulator } from './output-accumulator';
 import {
 	createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer, createInlineHostBuiltins,
 	DEFAULT_HOST_COMMAND_TIMEOUT_MS, hostCommandNames, HOST_COMMAND_SAB_MESSAGE,
@@ -59,28 +59,65 @@ function quoteForShell(value: string): string {
 	return `'${value.split("'").join("'\\''")}'`;
 }
 
+/** 输出交付 sink：1.0.0 的契约是「env 只转发原始解码分片 + 超阈值把全量 spill 到文件」——截断与呈现归调用方 */
+interface OutputSink {
+	deliver(bytes: Uint8Array): void;
+	/** 收尾：刷解码器、落盘 spill；返回 spill 的虚拟路径（未越阈值或无 spill 时为 undefined） */
+	finalize(): Promise<string | undefined>;
+}
+
 export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOptions = {}): Shell {
 	/** 活着的 worker（浏览器路径）：cleanup 要能把它杀掉，否则页面刷新前一直挂着 */
 	let liveWorker: Worker | undefined;
+	/** cleanup 之后置位：exec 入口先查它（Review Focus #5——cleanup 后再 exec 要响亮失败，不能挂住） */
+	let closed = false;
 	// 注册表校验一次就够（与 applet/内建同名 → 抛错）；worker 消息与 builtins 的 lookup 都用这份名单
 	const hostCommands: HostCommandRegistry = options.hostCommands ?? {};
 	const hostNames = hostCommandNames(hostCommands);
 	const wasm: WasmSource = options.wasm ?? DEFAULT_WASM_URL;
 
-	const makeCapture = (execOptions: ShellExecOptions | undefined, context: Context): ShellCapture =>
-		// capture.spill（超限全文落盘）不支持：pi-browser 没有 execution-environment-local 落盘面，传了忽略（spec §6）
-		new ShellCapture({ limits: execOptions?.capture?.limits, onUpdate: execOptions?.onUpdate, context });
+	const createOutputSink = (execOptions: ShellExecOptions | undefined, context: Context): OutputSink => {
+		const onOutput = execOptions?.onOutput;
+		const spill = execOptions?.spill;
+		const decoder = onOutput ? new TextDecoder() : undefined;
+		// spill 借 OutputAccumulator 的「阈值以下有界、越线时把已攒的 rawChunks 全量落盘」实现（spec D2：落点是挂载表）
+		const accumulator = spill
+			? new OutputAccumulator(
+				{ maxLines: spill.afterLines, maxBytes: spill.afterBytes, tempFilePrefix: 'pi-shell' },
+				createMountSpill(createMountTable(store.mounts)),
+			)
+			: undefined;
+		return {
+			deliver(bytes) {
+				if (decoder && onOutput) onOutput(decoder.decode(bytes, { stream: true }), context);
+				accumulator?.append(bytes);
+			},
+			async finalize() {
+				if (decoder && onOutput) {
+					const tail = decoder.decode();
+					if (tail !== '') onOutput(tail, context);
+				}
+				if (!accumulator) return undefined;
+				accumulator.finish();
+				const snapshot = accumulator.snapshot();
+				// 先关 spill 文件再返回：调用方拿到 spillPath 后要能直接读全量
+				await accumulator.closeTempFile();
+				return snapshot.fullOutputPath;
+			},
+		};
+	};
 
 	const exec = async (command: string, execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
-		const capture = makeCapture(execOptions, context);
+		if (closed) return err(new ExecutionError('shell_unavailable', 'shell 已 cleanup：不能再 exec'));
+		const output = createOutputSink(execOptions, context);
 		const cwd = normalizePath(execOptions?.cwd ?? store.mounts[0]?.fs.cwd ?? '/');
 		return typeof Worker === 'undefined'
-			? await execInline(command, execOptions, context, capture, cwd)
-			: await execInWorker(command, execOptions, context, capture, cwd);
+			? await execInline(command, execOptions, context, output, cwd)
+			: await execInWorker(command, execOptions, context, output, cwd);
 	};
 
 	/** inline 路径：run 边界的两个端点都在这里——seed（宿主树 → guest 缓存）与 pullAndApply（guest 变更 → 宿主 fs） */
-	async function execInline(command: string, execOptions: ShellExecOptions | undefined, context: Context, capture: ShellCapture, cwd: string): Promise<Result<ShellExecResult, ExecutionError>> {
+	async function execInline(command: string, execOptions: ShellExecOptions | undefined, context: Context, output: OutputSink, cwd: string): Promise<Result<ShellExecResult, ExecutionError>> {
 		const session = createSyncSession(store);
 		try {
 			await session.seed();
@@ -92,7 +129,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		// inline 无中断通道（run() 同步占满线程、没有 input/interrupt 通道）：只做调用前 abort 检查；
 		// timeout 同理不生效（没有能触发的定时器）——语义豁免见 spec §4.5
 		if (context.abortSignal?.aborted) {
-			capture.finish();
+			await output.finalize();
 			return err(new ExecutionError('aborted', 'aborted'));
 		}
 		let result: RunResult;
@@ -104,22 +141,24 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 				wasm,
 				env: envFor(execOptions),
 				builtins: hostNames.length > 0 ? createInlineHostBuiltins(hostCommands) : undefined,
-				onOutput: (bytes) => capture.push(bytes),
+				onOutput: (bytes) => output.deliver(bytes),
 			});
 		} catch (e) {
+			await output.finalize();
 			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
 		}
-		capture.finish();
+		// 收尾放在落盘之前：即便 guest 的写没落盘，已产生的输出也交付出去
+		const spillPath = await output.finalize();
 		try {
 			await session.pullAndApply();
 		} catch (e) {
 			// guest 的写没落盘：宁可把这次运行报成失败，也不返回「看起来成功」的结果
 			return err(new ExecutionError('unknown', toError(e).message, toError(e)));
 		}
-		return ok({ exitCode: result.exitCode, ...capture.metadata() });
+		return ok({ exitCode: result.exitCode, ...(spillPath === undefined ? {} : { spillPath }) });
 	}
 
-	async function execInWorker(command: string, execOptions: ShellExecOptions | undefined, context: Context, capture: ShellCapture, cwd: string): Promise<Result<ShellExecResult, ExecutionError>> {
+	async function execInWorker(command: string, execOptions: ShellExecOptions | undefined, context: Context, output: OutputSink, cwd: string): Promise<Result<ShellExecResult, ExecutionError>> {
 		if (options.workerUrl === undefined) {
 			return err(new ExecutionError('shell_unavailable', '浏览器下的 busybox 需要 workerUrl：fs 不能跨 postMessage，必须由自建 worker 模块 serve({fs}) 注册'));
 		}
@@ -159,15 +198,15 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
 			// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
 			if (channel) session.end();
-			session.onOutput((bytes) => capture.push(bytes));
+			session.onOutput((bytes) => output.deliver(bytes));
 			const exitCode = await session.exited;
-			capture.finish();
+			const spillPath = await output.finalize();
 			if (killed === 'timeout') return err(new ExecutionError('timeout', `timeout:${execOptions?.timeout}`));
 			if (killed === 'aborted') return err(new ExecutionError('aborted', 'aborted'));
 			await applyChanges(store, await pulledChanges(worker, pushed));
-			return ok({ exitCode, ...capture.metadata() });
+			return ok({ exitCode, ...(spillPath === undefined ? {} : { spillPath }) });
 		} catch (e) {
-			capture.finish();
+			await output.finalize();
 			return err(new ExecutionError('spawn_error', toError(e).message, toError(e)));
 		} finally {
 			channel?.hostSide.stop();
@@ -182,6 +221,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	}
 
 	const cleanup = async (): Promise<void> => {
+		closed = true;
 		liveWorker?.terminate();
 		liveWorker = undefined;
 	};
