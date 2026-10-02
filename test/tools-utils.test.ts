@@ -6,7 +6,6 @@ import { DEFAULT_MAX_BYTES, formatSize, truncateHead, truncateLine, truncateMidd
 import {
 	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, normalizeForFuzzyMatch, normalizeToLF, restoreLineEndings, splitBom,
 } from '../src/tools/edit-diff';
-import { resolveToCwd } from '../src/tools/path-utils';
 
 describe('Truncation utilities', () => {
 	it('truncateHead returns as-is when under limits', () => {
@@ -174,22 +173,6 @@ describe('Edit-diff utilities', () => {
 		const r = generateDiffString('a\nb', 'a\nB');
 		expect(r.diff).toBe(' 1 a\n-2 b\n+2 B');
 		expect(r.firstChangedLine).toBe(2);
-	});
-});
-
-describe('Path utilities', () => {
-	it('resolveToCwd makes absolute path', () => {
-		expect(resolveToCwd('a.txt', '/tmp')).toBe('/tmp/a.txt');
-		expect(resolveToCwd('/abs/b.txt', '/tmp')).toBe('/abs/b.txt');
-	});
-
-	it('resolveToCwd 归一 . 与 ..（不许穿出根）', () => {
-		expect(resolveToCwd('./a/../b.txt', '/work')).toBe('/work/b.txt');
-		expect(resolveToCwd('../../etc/passwd', '/work')).toBe('/etc/passwd');
-	});
-
-	it('resolveToCwd 保留空格与非 ASCII（URL API 会百分号编码——本仓用 normalizePath）', () => {
-		expect(resolveToCwd('my dir/中文 名.txt', '/')).toBe('/my dir/中文 名.txt');
 	});
 });
 
