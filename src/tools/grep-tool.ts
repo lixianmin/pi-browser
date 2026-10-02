@@ -93,7 +93,7 @@ function createMatcher(pattern: string, ignoreCase: boolean | undefined, literal
 function formatGrepPath(filePath: string, searchPath: string, searchIsDirectory: boolean): string {
 	if (searchIsDirectory) {
 		const relative = displayPath(filePath, searchPath);
-		if (relative !== '.' && !relative.startsWith('..')) return relative;
+		if (relative !== '.' && relative !== '' && !relative.startsWith('..')) return relative;
 	}
 	return filePath.slice(filePath.lastIndexOf('/') + 1);
 }
@@ -145,14 +145,13 @@ function scanFile(
 ): void {
 	const { matcher, limit, contextLines } = options;
 	const rel = formatGrepPath(target, searchPath, searchIsDirectory);
-	const fileLines = text.replace(/\r\n/g, '\n').split('\n');
+	// 与上游 `getFileLines` 一致：CRLF 与单 CR 都当行分隔符
+	const fileLines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 	for (let i = 0; i < fileLines.length; i++) {
 		if (matcher.matchesLine(fileLines[i])) {
-			if (found.matchCount >= limit) {
-				found.matchLimitReached = limit;
-				return;
-			}
 			found.matchCount++;
+			// 上游在第 limit 条命中就置位（它 kill 掉 rg，不判断后面还有没有）
+			const limitReached = found.matchCount >= limit;
 			const lineNum = i + 1;
 			const start = contextLines > 0 ? Math.max(1, lineNum - contextLines) : lineNum;
 			const end = contextLines > 0 ? Math.min(fileLines.length, lineNum + contextLines) : lineNum;
@@ -160,6 +159,10 @@ function scanFile(
 				const truncated = truncateLine((fileLines[k - 1] ?? '').replace(/\r/g, ''));
 				if (truncated.wasTruncated) found.linesTruncated = true;
 				found.lines.push(`${k === lineNum ? `${rel}:${k}:` : `${rel}-${k}-`} ${truncated.text}`);
+			}
+			if (limitReached) {
+				found.matchLimitReached = limit;
+				return;
 			}
 		}
 		matcher.reset();

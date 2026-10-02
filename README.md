@@ -22,12 +22,12 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |
 | `createWasiFileSystem` | `(store: { mounts: MountEntry[] }) => FileSystem` | wasi-sh 的同步 `FileSystem` 适配器（busybox guest 侧视图） |
-| `createReadTool` | `(o: { fs: BrowserFileSystem; cwd?: string }) => AgentTool` | 读文本文件；offset/limit 分页；输出截 2000 行/50KB 并带 continuation 提示 |
-| `createWriteTool` | 同上 | 覆盖写（自动建父目录），成功文案 `Successfully wrote to <path> (N bytes).` |
-| `createEditTool` | 同上 | `edits: [{ oldText, newText }]` 精确替换（多命中报错并列位置；出 diff/patch） |
-| `createGrepTool` | 同上 | 正则/字面量搜索：递归全目录 + `include` glob + 上下文行 + `file:line: text` 格式 |
-| `createLsTool` | 同上 | 目录列表（`recursive?`），目录带尾斜杠、按名排序 |
-| `createFindTool` | 同上 | picomatch glob 找文件（`*`/`?` 不跨 `/`，`**` 匹配多层）；工具 wire-level `name` = `find`（对齐上游） |
+| `createReadTool` | `(cwd, o?: { operations?: ReadOperations; autoResizeImages?; resizeOptions? }) => AgentTool` | 读文本或图片（magic-byte 嗅探，不缩放）；`operations` 缺省即抛（浏览器无默认 fs）；上游签名 + `createReadToolDefinition` / `readToolSystemPromptContribution` |
+| `createWriteTool` | `(cwd, o?: { operations?: WriteOperations }) => AgentTool` | 覆盖写（`mkdir(dirname)` + writeFile）；成功文案 `Successfully wrote to <path>`（上游逐字）；`operations` 缺省即抛 |
+| `createEditTool` | `(cwd, o?: { operations?: EditOperations }) => AgentTool` | `edits: [{ oldText, newText }]` 精确替换（上游 edit-diff 语义）；details 出 diff/patch/`firstChangedLine?`；`operations` 缺省即抛 |
+| `createGrepTool` | `(cwd, o?: { operations?: GrepOperations; fs: BrowserFileSystem }) => AgentTool` | 正则/字面量搜索；`glob` 过滤 + 上下文行 + `file:line: text`；遍历走本仓 `fs`（**仅 grep**：上游把遍历外包给 rg，浏览器没有） |
+| `createLsTool` | `(cwd, o?: { operations?: LsOperations }) => AgentTool` | 目录列表（`limit?`，默认 500）：条目名、目录带尾斜杠、不区分大小写排序；`operations` 缺省即抛 |
+| `createFindTool` | `(cwd, o?: { operations?: FindOperations }) => AgentTool` | glob 找文件（`limit?`，默认 1000），结果相对**搜索根**；工具 `name` = `find`；`operations` 缺省即抛 |
 | `createBashTool` | `(o: { env: ExecutionEnv }) => AgentTool` | `{ command, timeout? }`（默认 30s）经 `env.exec` 跑 busybox；不支持项在 description 里如实声明；wire-level `name` = `bash`（对齐上游） |
 | `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状（异步是本仓偏差，见「平台偏差」）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |

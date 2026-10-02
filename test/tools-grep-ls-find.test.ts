@@ -9,12 +9,12 @@ import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import { createExtensionContext } from '../src/extensions/context';
 import type { BrowserFileSystem } from '../src/env/types';
-import { createGrepTool, createGrepToolDefinition } from '../src/tools/grep-tool';
+import { createGrepTool, createGrepToolDefinition, grepToolSystemPromptContribution } from '../src/tools/grep-tool';
 import * as upstreamGrep from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/grep.js';
 import { findOps, grepOps, lsOps } from './helpers/tool-operations';
-import { createLsTool, createLsToolDefinition } from '../src/tools/ls-tool';
+import { createLsTool, createLsToolDefinition, lsToolSystemPromptContribution } from '../src/tools/ls-tool';
 import * as upstreamLs from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/ls.js';
-import { createFindTool, createFindToolDefinition, relativizeFindResultPath } from '../src/tools/find-tool';
+import { createFindTool, createFindToolDefinition, findToolSystemPromptContribution, relativizeFindResultPath } from '../src/tools/find-tool';
 import * as upstreamFind from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/find.js';
 
 const CTX = BACKGROUND_CONTEXT;
@@ -152,11 +152,38 @@ describe('Grep tool', () => {
 		expect(mine.promptSnippet).toBe(up.promptSnippet);
 		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
 		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+		expect(grepToolSystemPromptContribution).toEqual(upstreamGrep.grepToolSystemPromptContribution);
 	});
 
 	it('fs 缺省 → 构造期响亮报错（D5）', () => {
 		expect(() => createGrepToolDefinition('/tmp')).toThrow(/fs/);
 		expect(() => createGrepTool('/tmp')).toThrow(/fs/);
+	});
+
+	it('命中数恰好等于 limit → 仍报 limit reached（上游第 N 条就置位）', async () => {
+		await seed(fs, { 'many.txt': `${Array.from({ length: 100 }, () => 'x').join('\n')}\n` });
+		const r = await createGrepTool('/', { fs }).execute('id', { pattern: '^x$', limit: 100 });
+		expect(textOf(r)).toContain('[100 matches limit reached. Use limit=200 for more, or refine pattern]');
+		expect(r.details?.matchLimitReached).toBe(100);
+	});
+
+	it('CR-only 行尾当行分隔符（不是当字符删掉）', async () => {
+		await seed(fs, { 'cr.txt': 'alpha\rbeta\r' });
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'alpha' }));
+		expect(out).toBe('cr.txt:1: alpha');
+	});
+
+	it('字节截断 → 50.0KB notice + details.truncation', async () => {
+		await seed(fs, { 'big.txt': Array.from({ length: 300 }, (_, i) => `needle ${i} ${'y'.repeat(400)}`).join('\n') });
+		const r = await createGrepTool('/', { fs }).execute('id', { pattern: 'needle', limit: 1000 });
+		expect(textOf(r)).toContain('50.0KB limit reached');
+		expect(r.details?.truncation?.truncated).toBe(true);
+	});
+
+	it('注入 operations 与默认 operations 输出一致（双路）', async () => {
+		const withDefault = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'const' }));
+		const withInjected = textOf(await createGrepTool('/', { fs, operations: grepOps(fs) }).execute('id', { pattern: 'const' }));
+		expect(withInjected).toBe(withDefault);
 	});
 
 	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
@@ -211,6 +238,20 @@ describe('Ls tool', () => {
 		expect(r.details?.entryLimitReached).toBe(2);
 	});
 
+	it('stat 失败的条目被跳过（不占 limit）', async () => {
+		const ops = {
+			exists: async (): Promise<boolean> => true,
+			stat: async (p: string): Promise<{ isDirectory(): boolean }> => {
+				if (p === '/') return { isDirectory: () => true };
+				if (p.endsWith('readme.md')) throw new Error('boom');
+				return { isDirectory: () => p === '/src' };
+			},
+			readdir: async (): Promise<string[]> => ['readme.md', 'src'],
+		};
+		const out = textOf(await createLsTool('/', { operations: ops }).execute('id', {}));
+		expect(out).toBe('src/');
+	});
+
 	it('静态字段与上游产物逐字相等（P2c 契约）', () => {
 		const up = upstreamLs.createLsToolDefinition('/tmp');
 		const mine = createLsToolDefinition('/tmp', { operations: lsOps(fs) });
@@ -220,6 +261,7 @@ describe('Ls tool', () => {
 		expect(mine.promptSnippet).toBe(up.promptSnippet);
 		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
 		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+		expect(lsToolSystemPromptContribution).toEqual(upstreamLs.lsToolSystemPromptContribution);
 	});
 
 	it('operations 缺省 → 构造期响亮报错（D5）', () => {
@@ -292,11 +334,22 @@ describe('find tool', () => {
 		expect(r.details?.resultLimitReached).toBe(2);
 	});
 
-	it('relativizeFindResultPath：搜索根之下相对化、保留尾斜杠、非绝对原样', () => {
+	it('把 ignore/limit 传给注入的 glob（上游 custom-ops 契约）', async () => {
+		let captured: { ignore: string[]; limit: number } | undefined;
+		const spy = {
+			exists: async (): Promise<boolean> => true,
+			glob: async (_pattern: string, _cwd: string, options: { ignore: string[]; limit: number }): Promise<string[]> => { captured = options; return []; },
+		};
+		await createFindTool('/', { operations: spy }).execute('id', { pattern: '*.ts', limit: 7 });
+		expect(captured).toEqual({ ignore: ['**/node_modules/**', '**/.git/**'], limit: 7 });
+	});
+
+	it('relativizeFindResultPath：搜索根之下相对化、保留尾斜杠、非绝对原样、根外补 ../', () => {
 		expect(relativizeFindResultPath('/w/src/a.ts', '/w/src')).toBe('a.ts');
 		expect(relativizeFindResultPath('/w/src/nested/', '/w/src')).toBe('nested/');
 		expect(relativizeFindResultPath('rel/a.ts', '/w')).toBe('rel/a.ts');
 		expect(relativizeFindResultPath('/w/a.ts', '/')).toBe('w/a.ts');   // 与 node path.relative('/', '/w/a.ts') 一致
+		expect(relativizeFindResultPath('/other/a.ts', '/w/src')).toBe('../../other/a.ts');
 	});
 
 	it('静态字段与上游产物逐字相等（P2c 契约）', () => {
@@ -308,6 +361,7 @@ describe('find tool', () => {
 		expect(mine.promptSnippet).toBe(up.promptSnippet);
 		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
 		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+		expect(findToolSystemPromptContribution).toEqual(upstreamFind.findToolSystemPromptContribution);
 	});
 
 	it('operations 缺省 → 构造期响亮报错（D5）', () => {

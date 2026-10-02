@@ -42,7 +42,10 @@ export interface FindToolDetails {
 export interface FindOperations {
 	/** 路径是否存在 */
 	exists(absolutePath: string): Promise<boolean> | boolean;
-	/** 按 glob 找文件；返回相对或绝对路径 */
+	/**
+	 * 按 glob 找文件；返回相对或绝对路径。
+	 * 浏览器端 glob 引擎需接受 picomatch 语法：工具会先用 picomatch 校验 pattern（非法即 `FileError('invalid')`）。
+	 */
 	glob(pattern: string, cwd: string, options: { ignore: string[]; limit: number }): Promise<string[]> | string[];
 }
 
@@ -67,13 +70,14 @@ export function relativizeFindResultPath(resultPath: string, searchPath: string)
 	return hadTrailingSeparator && !posixPath.endsWith('/') ? `${posixPath}/` : posixPath;
 }
 
-/** 搜索根之下的相对路径；根外或根自身按归一后的绝对路径返回（浏览器路径层已是 '/' 分隔）。 */
+/** 搜索根到目标的相对路径（与 node `path.relative` 同语义：根外的目标得到 `../…`）。 */
 function relativeTo(target: string, base: string): string {
-	const from = normalizePath(base);
-	const to = normalizePath(target);
-	if (to === from) return '';
-	if (from === '/') return to.slice(1);
-	return to.startsWith(`${from}/`) ? to.slice(from.length + 1) : to;
+	const from = normalizePath(base).split('/').filter((segment) => segment !== '');
+	const to = normalizePath(target).split('/').filter((segment) => segment !== '');
+	let common = 0;
+	while (common < from.length && common < to.length && from[common] === to[common]) common++;
+	const up = Array.from({ length: from.length - common }, () => '..');
+	return [...up, ...to.slice(common)].join('/');
 }
 
 async function executeFind(
