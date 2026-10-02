@@ -1,46 +1,49 @@
-// test/helpers/tool-operations.ts —— BrowserFileSystem → 工具 operations 的测试适配层（P2b Task 11–13）。
+// test/helpers/tool-operations.ts —— BrowserFileSystem → 工具 operations 的测试适配层（P2b/P2c）。
 // 只存在于测试：生产代码里 operations 由调用方按 D5 注入，本仓不造「默认 operations」这种自造名。
 import { BACKGROUND_CONTEXT } from '../../src/env/context';
 import type { BrowserFileSystem } from '../../src/env/types';
+import type { FileError, Result } from '@earendil-works/pi-durable/env';
 import type { ReadOperations } from '../../src/tools/read-tool';
 import type { WriteOperations } from '../../src/tools/write-tool';
 import type { EditOperations } from '../../src/tools/edit-tool';
+import type { GrepOperations } from '../../src/tools/grep-tool';
 import { detectSupportedImageMimeType } from '../../src/tools/image-mime';
 
-const readBytes = async (fs: BrowserFileSystem, path: string): Promise<Uint8Array> => {
-	const r = await fs.readBinaryFile(path, BACKGROUND_CONTEXT);
-	if (!r.ok) throw r.error;
-	return r.value;
+const unwrap = <T>(result: Result<T, FileError>): T => {
+	if (!result.ok) throw result.error;
+	return result.value;
 };
 
-/** 可读性检查：用 fileInfo（stat 级）而不是读整文件，贴近上游 `access` 的语义。 */
-const assertReadable = async (fs: BrowserFileSystem, path: string): Promise<void> => {
-	const r = await fs.fileInfo(path, BACKGROUND_CONTEXT);
-	if (!r.ok) throw r.error;
-};
+const readBytes = async (fs: BrowserFileSystem, path: string): Promise<Uint8Array> => unwrap(await fs.readBinaryFile(path, BACKGROUND_CONTEXT));
 
 export const readOps = (fs: BrowserFileSystem): ReadOperations => ({
 	readFile: (absolutePath) => readBytes(fs, absolutePath),
-	access: (absolutePath) => assertReadable(fs, absolutePath),
+	access: async (absolutePath) => {
+		unwrap(await fs.fileInfo(absolutePath, BACKGROUND_CONTEXT));
+	},
 	detectImageMimeType: async (absolutePath) => detectSupportedImageMimeType(await readBytes(fs, absolutePath)),
 });
 
 export const writeOps = (fs: BrowserFileSystem): WriteOperations => ({
 	writeFile: async (absolutePath, content) => {
-		const r = await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT);
-		if (!r.ok) throw r.error;
+		unwrap(await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT));
 	},
 	mkdir: async (dir) => {
-		const r = await fs.createDir(dir, { recursive: true }, BACKGROUND_CONTEXT);
-		if (!r.ok) throw r.error;
+		unwrap(await fs.createDir(dir, { recursive: true }, BACKGROUND_CONTEXT));
 	},
 });
 
 export const editOps = (fs: BrowserFileSystem): EditOperations => ({
 	readFile: (absolutePath) => readBytes(fs, absolutePath),
 	writeFile: async (absolutePath, content) => {
-		const r = await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT);
-		if (!r.ok) throw r.error;
+		unwrap(await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT));
 	},
-	access: (absolutePath) => assertReadable(fs, absolutePath),
+	access: async (absolutePath) => {
+		unwrap(await fs.fileInfo(absolutePath, BACKGROUND_CONTEXT));
+	},
+});
+
+export const grepOps = (fs: BrowserFileSystem): GrepOperations => ({
+	isDirectory: async (absolutePath) => unwrap(await fs.fileInfo(absolutePath, BACKGROUND_CONTEXT)).kind === 'directory',
+	readFile: async (absolutePath) => unwrap(await fs.readTextFile(absolutePath, BACKGROUND_CONTEXT)),
 });

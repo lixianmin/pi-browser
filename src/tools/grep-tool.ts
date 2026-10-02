@@ -1,73 +1,82 @@
-// src/tools/grep-tool.ts —— Grep 工具（Task 6；spec §3.3 表第四行）。
-// 基线 = spice `packages/harness/src/agent/tools/GrepTool.ts` 的 schema 与输出格式，逐字保留的部分：
-//   `file:line: text` 命中行、`file-line- text` 上下文行、单行 500 字符截断、匹配数 limit 与 50KB 截断
-//   的 notice 文案（`N matches limit reached. Use limit=2N ...`）。
-// 故意偏离 spice（spec §3.3 明示）：spice 只扫 DEFAULT_GREP_PATHS 白名单且非递归（spice 域特化）；
-//   本工具递归全目录 + 新增 `include` glob 过滤（相对被搜目录匹配）。
-// 实现：listDir 栈式遍历（fs-ops.listTree）+ readTextFile；读不动的文件（二进制）跳过——同 spice 跳过未注册资源的语义。
+// src/tools/grep-tool.ts —— Grep 工具（P2c Task 14）。
+// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/grep.{js,d.ts}：schema 字段描述 / description /
+// promptSnippet / GrepOperations / GrepToolDetails / 两导出形状；输出与 notices 文案逐字上游。
+// 实现体自持：上游把目录遍历外包给 ripgrep，`GrepOperations` 只有 {isDirectory, readFile}、没有遍历接缝，
+// 所以本仓在 `GrepToolOptions` 上额外收一个 `fs`（仅 grep；人类裁决 2026-10-02），遍历用本仓 listTree。
+// 平台偏差：上游文案声明 `respects .gitignore`，本仓遍历不读 .gitignore（P6 README 记）。
+// 错误仍是带 FileErrorCode 的 FileError（spec §3.3）：非法正则/glob → invalid，路径不存在 → not_found。
+
 import picomatch from './picomatch-typed';
 import { type Static, Type } from 'typebox';
 import type { Context } from '../env/context';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types';
+import type { ToolDefinition } from '../extensions/tool';
 import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine, type TruncationResult } from './truncate';
 import { resolveToCwd } from './path-utils';
-import { contextFor, displayPath, listTree, readText, statPath, textResult, throwIfAborted } from './fs-ops';
-
-const grepSchema = Type.Object({
-	pattern: Type.String({ description: 'Search pattern (regex by default; set literal=true for plain string).' }),
-	path: Type.Optional(Type.String({ description: 'File or directory to search (relative to cwd or absolute). Default: cwd (whole workspace).' })),
-	include: Type.Optional(Type.String({ description: 'Glob filter applied to each file path relative to the searched directory, e.g. "**/*.ts" (only for directory searches). Default: all files.' })),
-	ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search (default: false).' })),
-	literal: Type.Optional(Type.Boolean({ description: 'Treat pattern as literal string (default: false → regex).' })),
-	context: Type.Optional(Type.Number({ description: 'Lines of context before/after each match (default: 0).' })),
-	limit: Type.Optional(Type.Number({ description: 'Maximum number of matches (default: 100).' })),
-});
-
-export type GrepToolInput = Static<typeof grepSchema>;
+import { contextFor, displayPath, listTree, readText, statPath, throwIfAborted } from './fs-ops';
 
 const DEFAULT_LIMIT = 100;
 
-/** 工具结果 details：content 只放给模型的文本，结构化信息进 details */
+const grepSchema = Type.Object({
+	pattern: Type.String({ description: 'Search pattern (regex or literal string)' }),
+	path: Type.Optional(Type.String({ description: 'Directory or file to search (default: current directory)' })),
+	glob: Type.Optional(Type.String({ description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'" })),
+	ignoreCase: Type.Optional(Type.Boolean({ description: 'Case-insensitive search (default: false)' })),
+	literal: Type.Optional(Type.Boolean({ description: 'Treat pattern as literal string instead of regex (default: false)' })),
+	context: Type.Optional(Type.Number({ description: 'Number of lines to show before and after each match (default: 0)' })),
+	limit: Type.Optional(Type.Number({ description: 'Maximum number of matches to return (default: 100)' })),
+});
+
+export const grepToolSystemPromptContribution = {
+	snippet: 'Search file contents for patterns (respects .gitignore)',
+	guidelines: [],
+} as const;
+
+const grepToolDescription = `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE_LENGTH} chars.`;
+
+export type GrepToolInput = Static<typeof grepSchema>;
+
 export interface GrepToolDetails {
-	matchLimitReached: number | undefined;
-	truncation: TruncationResult | undefined;
-	linesTruncated: boolean;
+	truncation?: TruncationResult;
+	matchLimitReached?: number;
+	linesTruncated?: boolean;
+}
+
+/** 可插拔的搜索操作（对齐上游 `GrepOperations`）。 */
+export interface GrepOperations {
+	/** 路径是否是目录；路径不存在时 throw */
+	isDirectory(absolutePath: string): Promise<boolean> | boolean;
+	/** 读文件内容（上下文行用） */
+	readFile(absolutePath: string): Promise<string> | string;
 }
 
 export interface GrepToolOptions {
+	/** 覆盖上游两条缝；缺省由本仓基于 `fs` 实现 */
+	operations?: GrepOperations;
+	/** 遍历源（本仓扩展：上游 grep 把遍历外包给 rg，浏览器没有） */
 	fs: BrowserFileSystem;
-	/** 相对路径基准（默认 fs.cwd） */
-	cwd?: string;
 }
 
-export function createGrepTool(opts: GrepToolOptions): AgentTool<typeof grepSchema, GrepToolDetails> {
-	const { fs } = opts;
-	const cwd = opts.cwd ?? fs.cwd;
+function requireFs(options: GrepToolOptions | undefined): BrowserFileSystem {
+	const fs = options?.fs;
+	if (fs === undefined) {
+		throw new Error('grep tool: 浏览器没有默认文件系统，请在 options.fs 注入 BrowserFileSystem（D5；上游 grep 把遍历外包给 ripgrep）');
+	}
+	return fs;
+}
+
+function defaultOperations(fs: BrowserFileSystem, context: Context): GrepOperations {
 	return {
-		name: 'grep',
-		label: 'grep',
-		description: `Search files for a pattern. Recursively searches the given path (default: the whole workspace) and returns matching lines with file paths and line numbers. Output is truncated to ${DEFAULT_LIMIT} matches or ${DEFAULT_MAX_BYTES / 1024}KB whichever is hit first. Long lines truncated to ${GREP_MAX_LINE_LENGTH} chars.`,
-		parameters: grepSchema,
-		async execute(_toolCallId, input, signal) {
-			throwIfAborted(signal);
-			const context = contextFor(signal);
-			// 正则/glob 先编译：语法错的输入不该等扫完目录才报（也保证扫描循环里只剩纯匹配）
-			const matcher = createMatcher(input.pattern, input.ignoreCase, input.literal);
-			const includeMatch = input.include === undefined ? undefined : compileGlob(input.include);
-			const limit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
-			const targets = await resolveTargets(fs, input, cwd, context, includeMatch);
-			const found = await scanTargets(fs, targets, { matcher, limit, contextLines: Math.max(0, input.context ?? 0) }, cwd, context, signal);
-			throwIfAborted(signal);
-			return formatScanResult(found, limit);
-		},
+		isDirectory: async (absolutePath) => (await statPath(fs, absolutePath, context)).kind === 'directory',
+		readFile: (absolutePath) => readText(fs, absolutePath, context),
 	};
 }
 
 interface GrepMatcher {
 	matchesLine(line: string): boolean;
-	/** 全局正则的 `lastIndex` 在 test() 后前进：逐行复位（spice 同款），否则会漏行 */
+	/** 全局正则的 `lastIndex` 在 test() 后前进：逐行复位（上游同款），否则会漏行 */
 	reset(): void;
 }
 
@@ -80,21 +89,13 @@ function createMatcher(pattern: string, ignoreCase: boolean | undefined, literal
 	return { matchesLine: (line) => re.test(line), reset: () => { re.lastIndex = 0; } };
 }
 
-/** 搜索目标（绝对路径，按目录树顺序）：文件路径 → 自身；目录 → 递归全树，`include` 相对被搜目录过滤 */
-async function resolveTargets(
-	fs: BrowserFileSystem,
-	input: GrepToolInput,
-	cwd: string,
-	context: Context,
-	includeMatch: ((input: string) => boolean) | undefined,
-): Promise<string[]> {
-	const root = resolveToCwd(input.path ?? '.', cwd);
-	const rootInfo = await statPath(fs, root, context);
-	if (rootInfo.kind !== 'directory') return [root];
-	return (await listTree(fs, root, context))
-		.filter((e) => e.kind !== 'directory')
-		.filter((e) => includeMatch === undefined || includeMatch(displayPath(e.path, root)))
-		.map((e) => e.path);
+/** 上游 `formatPath`：目录搜索给相对搜索根的 posix 路径，单文件搜索给 basename。 */
+function formatGrepPath(filePath: string, searchPath: string, searchIsDirectory: boolean): string {
+	if (searchIsDirectory) {
+		const relative = displayPath(filePath, searchPath);
+		if (relative !== '.' && !relative.startsWith('..')) return relative;
+	}
+	return filePath.slice(filePath.lastIndexOf('/') + 1);
 }
 
 interface ScanOptions {
@@ -110,13 +111,12 @@ interface ScanResult {
 	linesTruncated: boolean;
 }
 
-/** 逐文件扫描：批次结果累积到 `found`（读不动的文件跳过，不打断整次搜索） */
 async function scanTargets(
-	fs: BrowserFileSystem,
+	operations: GrepOperations,
 	targets: string[],
 	options: ScanOptions,
-	cwd: string,
-	context: Context,
+	searchPath: string,
+	searchIsDirectory: boolean,
 	signal: AbortSignal | undefined,
 ): Promise<ScanResult> {
 	const found: ScanResult = { lines: [], matchCount: 0, matchLimitReached: undefined, linesTruncated: false };
@@ -124,20 +124,27 @@ async function scanTargets(
 		throwIfAborted(signal);
 		let text: string;
 		try {
-			text = await readText(fs, target, context);
+			text = await operations.readFile(target);
 		} catch {
 			continue;   // 读不动（二进制等）的文件跳过，不打断整次搜索
 		}
-		scanFile(found, target, text, options, cwd);
+		scanFile(found, target, text, options, searchPath, searchIsDirectory);
 		if (found.matchLimitReached !== undefined) break;
 	}
 	return found;
 }
 
-/** 单文件扫描：命中行/上下文行按 spice 格式累积（`file:line: text` 与 `file-line- text`） */
-function scanFile(found: ScanResult, target: string, text: string, options: ScanOptions, cwd: string): void {
+/** 单文件扫描：命中行 `path:line: text`、上下文行 `path-line- text`（上游同款） */
+function scanFile(
+	found: ScanResult,
+	target: string,
+	text: string,
+	options: ScanOptions,
+	searchPath: string,
+	searchIsDirectory: boolean,
+): void {
 	const { matcher, limit, contextLines } = options;
-	const rel = displayPath(target, cwd);
+	const rel = formatGrepPath(target, searchPath, searchIsDirectory);
 	const fileLines = text.replace(/\r\n/g, '\n').split('\n');
 	for (let i = 0; i < fileLines.length; i++) {
 		if (matcher.matchesLine(fileLines[i])) {
@@ -150,7 +157,7 @@ function scanFile(found: ScanResult, target: string, text: string, options: Scan
 			const start = contextLines > 0 ? Math.max(1, lineNum - contextLines) : lineNum;
 			const end = contextLines > 0 ? Math.min(fileLines.length, lineNum + contextLines) : lineNum;
 			for (let k = start; k <= end; k++) {
-				const truncated = truncateLine(fileLines[k - 1] ?? '');
+				const truncated = truncateLine((fileLines[k - 1] ?? '').replace(/\r/g, ''));
 				if (truncated.wasTruncated) found.linesTruncated = true;
 				found.lines.push(`${k === lineNum ? `${rel}:${k}:` : `${rel}-${k}-`} ${truncated.text}`);
 			}
@@ -159,19 +166,85 @@ function scanFile(found: ScanResult, target: string, text: string, options: Scan
 	}
 }
 
-function formatScanResult(found: ScanResult, limit: number): AgentToolResult<GrepToolDetails> {
-	const truncation = truncateHead(found.lines.join('\n'));
+/** 输出与 notices 逐字上游：`. ` 连接、无尾句号、`Use read tool …`（read 小写）。 */
+function formatScanResult(found: ScanResult, limit: number): AgentToolResult<GrepToolDetails | undefined> {
+	if (found.matchCount === 0) {
+		return { content: [{ type: 'text', text: 'No matches found' }], details: undefined };
+	}
+	// 没有行数上限：匹配数已经由 limit 封顶（上游同款）
+	const truncation = truncateHead(found.lines.join('\n'), { maxLines: Number.MAX_SAFE_INTEGER });
 	let content = truncation.content;
+	const details: GrepToolDetails = {};
 	const notices: string[] = [];
-	if (found.matchLimitReached !== undefined) notices.push(`${limit} matches limit reached. Use limit=${limit * 2} for more, or refine pattern.`);
-	if (truncation.truncated) notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached.`);
-	if (found.linesTruncated) notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use Read to see full lines.`);
-	if (notices.length) content += `\n\n[${notices.join(' ')}]`;
-	return textResult(found.matchCount === 0 ? 'No matches found.' : content, {
-		matchLimitReached: found.matchLimitReached,
-		truncation: truncation.truncated ? truncation : undefined,
-		linesTruncated: found.linesTruncated,
-	});
+	if (found.matchLimitReached !== undefined) {
+		notices.push(`${limit} matches limit reached. Use limit=${limit * 2} for more, or refine pattern`);
+		details.matchLimitReached = limit;
+	}
+	if (truncation.truncated) {
+		notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+		details.truncation = truncation;
+	}
+	if (found.linesTruncated) {
+		notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
+		details.linesTruncated = true;
+	}
+	if (notices.length > 0) content += `\n\n[${notices.join('. ')}]`;
+	return { content: [{ type: 'text', text: content }], details: Object.keys(details).length > 0 ? details : undefined };
+}
+
+async function executeGrep(
+	fs: BrowserFileSystem,
+	customOperations: GrepOperations | undefined,
+	cwd: string,
+	input: GrepToolInput,
+	signal: AbortSignal | undefined,
+): Promise<AgentToolResult<GrepToolDetails | undefined>> {
+	throwIfAborted(signal);
+	const context = contextFor(signal);
+	const operations = customOperations ?? defaultOperations(fs, context);
+	// 正则/glob 先编译：语法错的输入不该等扫完目录才报
+	const matcher = createMatcher(input.pattern, input.ignoreCase, input.literal);
+	const globMatch = input.glob === undefined ? undefined : compileGlob(input.glob);
+	const limit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
+	const searchPath = resolveToCwd(input.path ?? '.', cwd);
+	const isDirectory = await operations.isDirectory(searchPath);
+	const targets = isDirectory
+		? (await listTree(fs, searchPath, context))
+			.filter((entry) => entry.kind !== 'directory')
+			.filter((entry) => globMatch === undefined || globMatch(displayPath(entry.path, searchPath)))
+			.map((entry) => entry.path)
+		: [searchPath];
+	const found = await scanTargets(operations, targets, { matcher, limit, contextLines: Math.max(0, input.context ?? 0) }, searchPath, isDirectory, signal);
+	throwIfAborted(signal);
+	return formatScanResult(found, limit);
+}
+
+export function createGrepToolDefinition(
+	cwd: string,
+	options?: GrepToolOptions,
+): ToolDefinition<typeof grepSchema, GrepToolDetails | undefined> {
+	const fs = requireFs(options);
+	const customOperations = options?.operations;
+	return {
+		name: 'grep',
+		label: 'grep',
+		description: grepToolDescription,
+		promptSnippet: grepToolSystemPromptContribution.snippet,
+		parameters: grepSchema,
+		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeGrep(fs, customOperations, ctx?.cwd || cwd, input, signal),
+	};
+}
+
+export function createGrepTool(cwd: string, options?: GrepToolOptions): AgentTool<typeof grepSchema> {
+	const fs = requireFs(options);
+	const customOperations = options?.operations;
+	return {
+		name: 'grep',
+		label: 'grep',
+		description: grepToolDescription,
+		parameters: grepSchema,
+		execute: (toolCallId, input, signal, _onUpdate) => executeGrep(fs, customOperations, cwd, input, signal),
+	};
 }
 
 function compilePattern(pattern: string, ignoreCase: boolean | undefined): RegExp {
@@ -186,6 +259,6 @@ function compileGlob(pattern: string): (input: string) => boolean {
 	try {
 		return picomatch(pattern);
 	} catch (e) {
-		throw new FileError('invalid', `Invalid include glob: ${(e as Error).message}`);
+		throw new FileError('invalid', `Invalid glob pattern: ${(e as Error).message}`);
 	}
 }

@@ -63,7 +63,7 @@ describe('公开面（src/index.ts）', () => {
 			api.createReadTool('/', { operations: readOps(fs) }).name,
 			api.createWriteTool('/', { operations: writeOps(fs) }).name,
 			api.createEditTool('/', { operations: editOps(fs) }).name,
-			api.createGrepTool({ fs }).name,
+			api.createGrepTool('/', { fs }).name,
 			api.createLsTool({ fs }).name,
 			api.createFindTool({ fs }).name,
 			api.createBashTool({ env }).name,

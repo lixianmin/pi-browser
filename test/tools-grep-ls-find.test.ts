@@ -1,14 +1,17 @@
-// Task 6：Grep（递归 + include）/ Ls / Glob 契约测试。
+// Task 6：Grep（递归 + glob 过滤）/ Ls / Glob 契约测试。
 // Grep 基线 = spice `packages/harness/test/agent-tools.test.ts` 的「Grep tool」块（regex/literal/ignoreCase/
 // limit/no-match 断言语义保留；`file:line: text` 与 context 行 `file-line- text` 格式逐字保留），
-// 偏离点（spec §3.3）：递归全目录 + `include` glob 过滤（spice 是白名单非递归）。Ls/Glob 无 spice 基线，新写。
+// 偏离点（spec §3.3）：递归全目录 + `glob` 过滤（spice 是白名单非递归）。Ls/Glob 无 spice 基线，新写。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
+import { createExtensionContext } from '../src/extensions/context';
 import type { BrowserFileSystem } from '../src/env/types';
-import { createGrepTool } from '../src/tools/grep-tool';
+import { createGrepTool, createGrepToolDefinition } from '../src/tools/grep-tool';
+import * as upstreamGrep from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/grep.js';
+import { grepOps } from './helpers/tool-operations';
 import { createLsTool } from '../src/tools/ls-tool';
 import { createFindTool } from '../src/tools/find-tool';
 
@@ -50,49 +53,49 @@ describe('Grep tool', () => {
 	});
 
 	it('递归全目录，输出 file:line: text（spice 格式）', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'digitalWrite' }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'digitalWrite' }));
 		expect(out).toContain('sketch.ino:2: digitalWrite(2, HIGH);');
 		expect(out).toContain('sketch.ino:3: digitalWrite(2, LOW);');
 	});
 
 	it('递归进子目录（偏离 spice：spice 只扫白名单且非递归）', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'deep' }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'deep' }));
 		expect(out).toContain('src/nested/deep.ts:1: const deep = true;');
 	});
 
-	it('include glob 过滤（相对被搜目录匹配）', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'const', include: 'src/*.ts' }));
+	it('glob 过滤（相对被搜目录匹配）', async () => {
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'const', glob: 'src/*.ts' }));
 		expect(out).toBe('src/app.ts:1: const a = 1;\nsrc/app.ts:2: const b = 2;');
-		expect(out).not.toContain('nested/deep.ts');   // src/nested/deep.ts 也含 const：证明 include 确实在过滤
+		expect(out).not.toContain('nested/deep.ts');   // src/nested/deep.ts 也含 const：证明 glob 确实在过滤
 	});
 
-	it('include 相对 `path` 指定的目录匹配', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'const', path: 'src', include: 'nested/*.ts' }));
-		expect(out).toBe('src/nested/deep.ts:1: const deep = true;');
+	it('glob 相对 `path` 指定的目录匹配（输出相对搜索根，上游 formatPath）', async () => {
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'const', path: 'src', glob: 'nested/*.ts' }));
+		expect(out).toBe('nested/deep.ts:1: const deep = true;');
 	});
 
-	it('无 include 时所有文件都搜（.md / .ino 同样命中）', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'Polarity' }));
+	it('无 glob 时所有文件都搜（.md / .ino 同样命中）', async () => {
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'Polarity' }));
 		expect(out).toContain('docs/parts.md:2: ## Polarity');
 	});
 
-	it('path 指向单文件 → 只搜该文件', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'const', path: 'src/app.ts' }));
-		expect(out).toBe('src/app.ts:1: const a = 1;\nsrc/app.ts:2: const b = 2;');
+	it('path 指向单文件 → 只搜该文件（输出 basename，上游 formatPath）', async () => {
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'const', path: 'src/app.ts' }));
+		expect(out).toBe('app.ts:1: const a = 1;\napp.ts:2: const b = 2;');
 	});
 
 	it('literal mode (literal: true) treats pattern as string', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'pinMode(2', literal: true }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'pinMode(2', literal: true }));
 		expect(out).toContain('sketch.ino:1:');
 	});
 
 	it('ignoreCase', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'polarity', ignoreCase: true }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'polarity', ignoreCase: true }));
 		expect(out).toContain('parts.md');
 	});
 
 	it('context 行格式：命中行 `path:line:`，上下文行 `path-line-`（spice 格式）', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'digitalWrite\\(2, HIGH\\)', context: 1 }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'digitalWrite\\(2, HIGH\\)', context: 1 }));
 		expect(out).toBe([
 			'sketch.ino-1- pinMode(2, OUTPUT);',
 			'sketch.ino:2: digitalWrite(2, HIGH);',
@@ -100,42 +103,65 @@ describe('Grep tool', () => {
 		].join('\n'));
 	});
 
-	it('reports match limit（spice 文案：limit reached + limit=2x 提示）', async () => {
-		const r = await createGrepTool({ fs, cwd: '/src' }).execute('id', { pattern: 'const', limit: 1 });
-		expect(textOf(r)).toMatch(/1 matches limit reached\. Use limit=2 for more, or refine pattern\./);
-		expect(r.details.matchLimitReached).toBe(1);
+	it('reports match limit（上游文案：limit reached + limit=2x 提示，无尾句号）', async () => {
+		const r = await createGrepTool('/src', { fs }).execute('id', { pattern: 'const', limit: 1 });
+		expect(textOf(r)).toMatch(/1 matches limit reached\. Use limit=2 for more, or refine pattern/);
+		expect(r.details?.matchLimitReached).toBe(1);
 	});
 
 	it('returns no matches cleanly', async () => {
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'nonexistent_pattern_xyz' }));
-		expect(out).toBe('No matches found.');
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'nonexistent_pattern_xyz' }));
+		expect(out).toBe('No matches found');
 	});
 
 	it('超长行截断 → 行尾标记 + notice', async () => {
 		await seed(fs, { 'long.txt': `head ${'x'.repeat(600)}\n` });
-		const out = textOf(await createGrepTool({ fs }).execute('id', { pattern: 'head' }));
+		const out = textOf(await createGrepTool('/', { fs }).execute('id', { pattern: 'head' }));
 		expect(out).toContain('... [truncated]');
-		expect(out).toContain('[Some lines truncated to 500 chars. Use Read to see full lines.]');
+		expect(out).toContain('[Some lines truncated to 500 chars. Use read tool to see full lines]');
 	});
 
 	it('非法正则 → invalid', async () => {
-		const t = createGrepTool({ fs });
+		const t = createGrepTool('/', { fs });
 		expect(await rejectionCode(t.execute('id', { pattern: 'a(' }))).toBe('invalid');
 	});
 
-	it('非法 include glob → invalid', async () => {
-		const t = createGrepTool({ fs });
-		expect(await rejectionCode(t.execute('id', { pattern: 'const', include: '' }))).toBe('invalid');
+	it('非法 glob → invalid', async () => {
+		const t = createGrepTool('/', { fs });
+		expect(await rejectionCode(t.execute('id', { pattern: 'const', glob: '' }))).toBe('invalid');
 	});
 
 	it('path 不存在 → not_found', async () => {
-		const t = createGrepTool({ fs });
+		const t = createGrepTool('/', { fs });
 		expect(await rejectionCode(t.execute('id', { pattern: 'x', path: 'nope' }))).toBe('not_found');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createGrepTool({ fs });
+		const t = createGrepTool('/', { fs });
 		expect(await rejectionCode(t.execute('id', { pattern: 'const' }, AbortSignal.abort()))).toBe('aborted');
+	});
+
+	it('静态字段与上游产物逐字相等（P2c 契约）', () => {
+		const up = upstreamGrep.createGrepToolDefinition('/tmp');
+		const mine = createGrepToolDefinition('/tmp', { fs, operations: grepOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('fs 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createGrepToolDefinition('/tmp')).toThrow(/fs/);
+		expect(() => createGrepTool('/tmp')).toThrow(/fs/);
+	});
+
+	it('ctx.cwd 覆盖构造期 cwd（定义件）', async () => {
+		await seed(fs, { 'd/x.txt': 'needle' });
+		const def = createGrepToolDefinition('/e', { fs });
+		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		expect(textOf(await def.execute('id', { pattern: 'needle' }, undefined, undefined, ctx))).toContain('x.txt:1: needle');
 	});
 });
 
