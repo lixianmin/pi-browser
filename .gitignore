@@ -3,3 +3,4 @@ dist/
 coverage/
 .old_modules-*/
 .worktrees/
+.superpowers/
