@@ -5,6 +5,8 @@
 //
 // 批 2 B-3 变化：新增 `asDurableTool`（`AgentTool` → pi-durable `ToolRegistration` 的适配）。
 //
+// 批 2 B-4 变化：新增 `DEFAULT_BROWSER_COMPACTION_POLICY`（durable `CompactionPolicy` 四字段的浏览器侧缺省值）。
+//
 // 批 2 B-2 变化：新增 `openBrowserHarness`（会话/Harness 装配）与 `asDurableTools`（批量接线 + replay 策略）。
 //
 // S6 变化：删 `defineExtension` / `composeToolset` / `toHarnessTool`（S5 自造名，`harness-tool.ts` 降为内部件），
@@ -62,6 +64,7 @@ const RUNTIME_EXPORTS = [
  * （snippet / guidelines：宿主把它们拼进自己的 prompt —— 定义件不自带 prompt 文本）。
  */
 const RUNTIME_CONSTANTS = [
+	'DEFAULT_BROWSER_COMPACTION_POLICY',
 	'DEFAULT_COMPACTION_SETTINGS',
 	'DEFAULT_MAX_BYTES',
 	'DEFAULT_MAX_LINES',
@@ -93,7 +96,11 @@ describe('公开面（src/index.ts）', () => {
 		}
 	});
 
-	it('常量导出形状与上游一致（compaction 默认设置三字段）', () => {
+	it('常量导出形状与上游一致（compaction 有两份契约：durable 四字段 / CLI 侧三字段）', () => {
+		// durable 侧（`CompactionPolicy`）：公开面另有 `DEFAULT_BROWSER_COMPACTION_POLICY`
+		expect(Object.keys(api.DEFAULT_BROWSER_COMPACTION_POLICY).sort())
+			.toEqual(['backgroundTokens', 'enabled', 'keepRecentTokens', 'reserveTokens']);
+		// CLI 侧（`CompactionSettings`，喂 `shouldCompact`）：三字段，无 `backgroundTokens`
 		expect(Object.keys(api.DEFAULT_COMPACTION_SETTINGS).sort()).toEqual(['enabled', 'keepRecentTokens', 'reserveTokens']);
 		expect(typeof api.DEFAULT_COMPACTION_SETTINGS.enabled).toBe('boolean');
 	});

@@ -42,7 +42,8 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
 | `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
 | `createCompactionSummaryMessage` | `(summary: string, tokensBefore: number, timestamp: string) => CompactionSummaryMessage` | `compaction` 条目的消息投影（role `compactionSummary`）。**本包自持**（1.0.0 把 compaction 搬进 CLI 仓、不再从 agent-core 导出），实现体逐字对齐上游 1.0.0 并由 `test/compaction-selfhosted.test.ts` 对着上游 `dist/core/messages.js` 比对。⚠️ **破坏性**：`timestamp` 从 0.99.1 的 `string \| number` 收窄为 `string`（运行期等价，`new Date(n).getTime() === n`） |
-| `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | 上游默认值（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下） |
+| `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | **CLI 侧**（`@earendil-works/pi-coding-agent`）compaction 默认值，喂上游 `shouldCompact(tokens, contextWindow, settings)`（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下）。与下面 durable 侧的 `DEFAULT_BROWSER_COMPACTION_POLICY` **不是同一个契约**：前三字段同名同值，durable 那份多一个 `backgroundTokens` |
+| `DEFAULT_BROWSER_COMPACTION_POLICY` | `{ enabled; reserveTokens; keepRecentTokens; backgroundTokens }` | **durable 侧** compaction 默认策略（批 2 B-4）：`openBrowserHarness` 在调用方没给 `settings.compaction` 时用它，四字段逐字等于 durable 的 `DEFAULT_COMPACTION_POLICY`（`reserveTokens: 16384` / `keepRecentTokens: 20000` / `backgroundTokens: 32768`）。压缩的**执行体**是 durable 内建的 `CompactionTask`（本仓不实现压缩），它写的 `pi.compaction` 条目的 `model` 是一条**带摘要的 `[UserMessage]`**（`<summary>` 包裹），不走本包的 `compactionSummary` 角色——两者属于不同数据通路（durable 的 `CompactionEntry` vs CLI 侧 transcript） |
 | `createBrowserExecutionEnv`（续） | `hostCommands?: Record<string, HostCommandHandler>` | 宿主命令注册表（见「宿主命令」节） |
 | `createHostCommandChannel` | `(sab: SharedArrayBuffer, o?: { timeoutMs? }) => { hostSide; guestSide }` | SAB/futex 双端协议（可脱离 exec 自建宿主/单测） |
 | `createHostCommandSharedBuffer` | `(o?: { capacity? }) => SharedArrayBuffer` | 按容量分配通道内存（默认 8MB/方向） |
@@ -270,6 +271,14 @@ compaction 搬进 CLI 仓、不再从 agent-core 导出。实现体逐字转写�
 对着上游 `dist/core/messages.js` 逐条比对（`DEFAULT_COMPACTION_SETTINGS` 的三字段也一致）——
 **代价是升级上游时要人工复核这份副本**。同类的还有 `src/extensions/events.ts`（25 条事件的载荷类型，
 由 `test/extensions-events-types.test.ts` 对着上游 `.d.ts` 做双向 assignability 对照）。
+
+**批 2 B-4 之后：这份副本的适用范围是 CLI 侧 transcript，不是本包的压缩执行体。** 编排路线走 durable 的
+`Harness` 后，压缩全部在 durable 内建的 `CompactionTask` 里（选切点 → `completeSimple` 摘要 → 写
+`CompactionEntry`），本仓那份副本**不参与**——它写的是 `role: 'compactionSummary'` 的消息与三字段
+`CompactionSettings`，对应 `pi-coding-agent` 的会话文件格式（`buildSessionContext` 那一半），与 durable 的
+`CompactionEntry`（`model` 是一条带 `<summary>` 的 `[UserMessage]`）**不是同一个 entry kind、也不是同一条数据
+通路**。两边都留在公开面上（`DEFAULT_COMPACTION_SETTINGS` / `DEFAULT_BROWSER_COMPACTION_POLICY`，名字刻意
+不同以免混淆），各自仍有测试锁着。是否收窄副本见批 2 B-4 报告的「去留判断」一节（**未裁决**）。
 
 **D7 浏览器没有的 shell 能力照旧声明不实现。** `spawnHook` / `shellPath` /
 `exposeSessionEnvironment`（`PI_*`）在浏览器侧无对应物，不声明不生效的字段。相关平台事实：
