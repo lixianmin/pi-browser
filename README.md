@@ -29,7 +29,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createLsTool` | `(cwd, o?: { operations?: LsOperations }) => AgentTool` | 目录列表（`limit?`，默认 500）：条目名、目录带尾斜杠、不区分大小写排序；`operations` 缺省即抛 |
 | `createFindTool` | `(cwd, o?: { operations?: FindOperations }) => AgentTool` | glob 找文件（`limit?`，默认 1000），结果相对**搜索根**；工具 `name` = `find`；`operations` 缺省即抛 |
 | `createBashTool` | `(cwd, o?: { operations?: BashOperations; spill?; commandPrefix? }) => AgentTool` | `{ command, timeout? }`（无默认超时）经注入的 `BashOperations.exec` 跑 busybox；输出截断 + `spill` seam；wire-level `name` = `bash`（对齐上游） |
-| `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状（异步是本仓偏差，见「平台偏差」）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
+| `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状；首参的 `env` 是 fs 缝（同 grep 遍历 / find glob / bash operations：上游 1.0.0 的 loader 直接吃 node:fs，浏览器侧必须注入）——异步也是本仓偏差（上游同步）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
 | `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
 | `createCompactionSummaryMessage` | `(summary, tokensBefore, timestamp) => CompactionSummaryMessage` | 上游 re-export：`compaction` 条目的消息投影（role `compactionSummary`） |

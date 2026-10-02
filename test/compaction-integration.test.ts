@@ -76,7 +76,10 @@ describe('compaction：harness 自动压缩在浏览器 fs 会话上的集成验
 
 		expect(compaction.tokensBefore).toBeGreaterThan(CONTEXT_WINDOW - SETTINGS.reserveTokens);
 		expect(compaction.retainedTail.length).toBeGreaterThan(0);
-		expect(createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, compaction.timestamp).role).toBe('compactionSummary');
+		// 1.0.0 的签名是 `timestamp: string`（0.99.1 收 string | number，number 直接透传）——
+		// 运行期等价（new Date(n).getTime() === n），公开面按 1.0.0 收窄。P5 会把这条测试改挂到
+		// 1.0.0 的 SessionManager 容器上，那边 compaction 条目的 timestamp 本来就是 string。
+		expect(createCompactionSummaryMessage(compaction.summary, compaction.tokensBefore, String(compaction.timestamp)).role).toBe('compactionSummary');
 
 		await reopenedRepo.close(CTX);
 		await fs.cleanup(CTX);
