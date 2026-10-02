@@ -13,8 +13,9 @@ import { createReadTool, createReadToolDefinition } from '../src/tools/read-tool
 import * as upstreamRead from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/read.js';
 import { createExtensionContext } from '../src/extensions/context';
 import { detectSupportedImageMimeType } from '../src/tools/image-mime';
-import { readOps } from './helpers/tool-operations';
-import { createWriteTool } from '../src/tools/write-tool';
+import { readOps, writeOps } from './helpers/tool-operations';
+import { createWriteTool, createWriteToolDefinition } from '../src/tools/write-tool';
+import * as upstreamWrite from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/write.js';
 import { createEditTool } from '../src/tools/edit-tool';
 import { DEFAULT_MAX_BYTES } from '../src/tools/truncate';
 
@@ -161,19 +162,19 @@ describe('Write tool', () => {
 	beforeEach(() => { fs = createMemoryFileSystem(); });
 
 	it('成功文案逐字保留（spice e2e 依赖）', async () => {
-		const out = textOf(await createWriteTool({ fs }).execute('id', { path: 'a.txt', content: 'hello' }));
-		expect(out).toBe('Successfully wrote to a.txt (5 bytes).');
+		const out = textOf(await createWriteTool('/', { operations: writeOps(fs) }).execute('id', { path: 'a.txt', content: 'hello' }));
+		expect(out).toBe('Successfully wrote to a.txt');
 		expect(await readBack(fs, '/a.txt')).toBe('hello');
 	});
 
 	it('覆盖已存在文件', async () => {
 		await seed(fs, { 'a.txt': 'old' });
-		await createWriteTool({ fs }).execute('id', { path: 'a.txt', content: 'new' });
+		await createWriteTool('/', { operations: writeOps(fs) }).execute('id', { path: 'a.txt', content: 'new' });
 		expect(await readBack(fs, '/a.txt')).toBe('new');
 	});
 
 	it('偏离 spice：自动建父目录（BrowserFileSystem.writeFile 语义）', async () => {
-		const t = createWriteTool({ fs });
+		const t = createWriteTool('/', { operations: writeOps(fs) });
 		await t.execute('id', { path: 'deep/nested/a.txt', content: 'x' });
 		expect(await readBack(fs, '/deep/nested/a.txt')).toBe('x');
 	});
@@ -184,15 +185,40 @@ describe('Write tool', () => {
 			...base,
 			writeFile: async () => err(new FileError('permission_denied', `permission denied: /a.txt`, '/a.txt')),
 		};
-		await expect(createWriteTool({ fs: failing }).execute('id', { path: 'a.txt', content: 'x' }))
+		await expect(createWriteTool('/', { operations: writeOps(failing) }).execute('id', { path: 'a.txt', content: 'x' }))
 			.rejects.toMatchObject({ code: 'permission_denied', path: '/a.txt' });
 	});
 
 	it('调用前已 abort → aborted（且不落盘）', async () => {
-		const t = createWriteTool({ fs });
+		const t = createWriteTool('/', { operations: writeOps(fs) });
 		expect(await rejectionCode(t.execute('id', { path: 'a.txt', content: 'x' }, AbortSignal.abort()))).toBe('aborted');
 		const exists = await fs.exists('/a.txt', CTX);
 		expect(exists.ok && exists.value).toBe(false);
+	});
+
+	it('静态字段与上游产物逐字相等（P2b 契约）', () => {
+		const up = upstreamWrite.createWriteToolDefinition('/tmp');
+		const mine = createWriteToolDefinition('/tmp', { operations: writeOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('operations 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createWriteToolDefinition('/tmp')).toThrow(/operations/);
+		expect(() => createWriteTool('/tmp')).toThrow(/operations/);
+	});
+
+	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
+		const def = createWriteToolDefinition('/e', { operations: writeOps(fs) });
+		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		await def.execute('id', { path: 'x.txt', content: 'def' }, undefined, undefined, ctx);
+		await createWriteTool('/e', { operations: writeOps(fs) }).execute('id', { path: 'x.txt', content: 'factory' });
+		expect(await readBack(fs, '/d/x.txt')).toBe('def');
+		expect(await readBack(fs, '/e/x.txt')).toBe('factory');
 	});
 });
 

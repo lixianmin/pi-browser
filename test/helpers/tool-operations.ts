@@ -3,6 +3,7 @@
 import { BACKGROUND_CONTEXT } from '../../src/env/context';
 import type { BrowserFileSystem } from '../../src/env/types';
 import type { ReadOperations } from '../../src/tools/read-tool';
+import type { WriteOperations } from '../../src/tools/write-tool';
 import { detectSupportedImageMimeType } from '../../src/tools/image-mime';
 
 const readBytes = async (fs: BrowserFileSystem, path: string): Promise<Uint8Array> => {
@@ -17,4 +18,15 @@ export const readOps = (fs: BrowserFileSystem): ReadOperations => ({
 		await readBytes(fs, absolutePath);
 	},
 	detectImageMimeType: async (absolutePath) => detectSupportedImageMimeType(await readBytes(fs, absolutePath)),
+});
+
+export const writeOps = (fs: BrowserFileSystem): WriteOperations => ({
+	writeFile: async (absolutePath, content) => {
+		const r = await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT);
+		if (!r.ok) throw r.error;
+	},
+	mkdir: async (dir) => {
+		const r = await fs.createDir(dir, { recursive: true }, BACKGROUND_CONTEXT);
+		if (!r.ok) throw r.error;
+	},
 });

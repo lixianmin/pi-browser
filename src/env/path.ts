@@ -9,3 +9,10 @@ export function normalizePath(p: string): string {
 	}
 	return `/${stack.join('/')}`;
 }
+
+/** 取父目录（纯 JS，node:path `dirname` 的浏览器替身）。根目录的父目录仍是 `/`。 */
+export function dirname(p: string): string {
+	const abs = normalizePath(p);
+	const index = abs.lastIndexOf('/');
+	return index <= 0 ? '/' : abs.slice(0, index);
+}
