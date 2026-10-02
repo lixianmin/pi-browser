@@ -11,7 +11,7 @@
 1. **不奉承、不说废话。** 不要用"好问题""你说得对""好主意""很乐意"开场。直接给答案或直接行动。
 2. **不同意就直说。** 用户前提有误时，先指出再动手。为了客气而附和错误前提，是 coding agent 最严重的失败模式。
 3. **绝不编造。** 不编文件路径、commit hash、API 名、测试结果、库函数。不知道就去读文件、跑命令，或说"我不知道，让我查一下"。
-4. **困惑时停下。** 任务有两种合理解释且选择实质影响产出时，先问，不要默默选一个继续（判据见 §8）。
+4. **困惑时停下。** 任务有两种合理解释且选择实质影响产出时，先问，不要默默选一个继续（判据见 §8；§1、§13 另有特定问询情形）。
 5. **只动该动的。** 每个改动都必须能追溯到用户请求。不做顺手重构、顺手格式化、顺手清理。
 
 ---
@@ -25,7 +25,7 @@
 - 匹配代码库现有模式。如果项目用模式 X，就用模式 X，即使你在新项目里会换一种做法。
 - 假设大声说出来："我假设你要 X、Y、Z。不对就说。"不要埋葬在实现里。
 - 两种做法并存时，给出两者权衡，不要默默选一个。例外：trivial 任务（错别字、改名、加日志行），一句话能说清 diff 的。
-- 现有模式明显违反 §10 的工程最佳实践时，先与人类讨论，不要默默沿用。
+- 现有模式明显违反 §12 的工程最佳实践时，先与人类讨论，不要默默沿用。
 
 ---
 
@@ -123,19 +123,45 @@
 
 ---
 
-## 9. TDD：先红后绿
+## 9. 核心文件清单
 
-先写失败测试（跑出红），再写实现（跑出绿）。没跑过红的测试不算 TDD。
+项目结构、目录说明等结构化信息**不写入本文件**，统一维护在 `docs/01.memory.md`（文件索引区）。本文件只保留行为规则。
 
-- 核心包覆盖率 ≥ 80%（`bunx vitest run --coverage`，阈值写在 `vitest.config.ts`，禁止为达标而调低阈值）。
-- 集成测试覆盖典型 Use Case 的完整流程，替代人工端到端验证。
-- 每一条用户反馈的 bug 都先整理成失败测试用例，然后通过跑通测试证明修复成功。
-- bugfix 修改的代码加注释，解释修正了什么问题、为什么这么改。
-- 例外：纯机械改动（错别字、局部变量改名、加日志行）可以先改后测，但必须跑通相关测试。
+- `AGENTS.md` — 由人类维护，修改需人类逐次明确授权。Agent 发现缺失规则时，以 `[AGENTS.md 建议] <具体建议>` 前缀写入 `docs/01.memory.md`，人类审阅后决定是否采纳；采纳后从 memory.md 删除该建议条目。
+- `docs/01.memory.md` — Agent 维护、人类审阅。单条简短清晰（≤300 字，写入时自查、超限先精简；一条一个主题），含 4 类数据：**关键决策**（如"生成应用采用零构建纯静态 HTML/JS/CSS，不经 npm 构建"）、**文件索引**（指示 agent 在何时去何地查找哪个文件）、**经验教训**（人类纠正做法后，session 结束前追加一条；已有条目覆盖该纠正时收紧旧条目而非新增；底层问题消失时删除对应条目）、**AGENTS.md 建议**（格式同上）。各类型形态定死防膨胀：决策/索引 = 结论 + 日期 + 指向（spec/plan/ledger），不抄 spec 已收录的选型理由；教训 = 结论 + 修法 + 关键数字，不写排查叙事。该文件只增不减会膨胀：旧条目归档到 `docs/archive/01.memory.archive.md`，主文件保持短小。
+- `docs/02.todo.md` — 待定任务清单，由人类撰写。AI 发现该文件有变动时，通过 brainstorm 逐条跟人类讨论处理策略。
+- `docs/archive/02.todo.archive.md` — todo 的归档文件。
+- 各 app 专项文档（如存在）按 `docs/0x.<app>.md` 命名；修改某个 app 的代码时，若有对应文档先读它，没有则以 `docs/01.memory.md`（文件索引区）与相应 specs 为准。
 
 ---
 
-## 10. 架构原则（通用）
+## 10. specs 是真理之源
+
+一切架构和代码都服务于 specs（规范），而不是反过来。
+
+1. specs 位于 `docs/superpowers/specs/` 下，plans 位于 `docs/superpowers/plans/` 下。
+2. 任何需求——包括人类口头指示——都必须先讨论清楚、落盘成文档，再按落盘后的文档推进。没有"直接做"：复杂功能走 brainstorm 讨论；简单功能或多条功能先列入 `docs/02.todo.md` 再依次处理；修 bug 先整理成失败测试用例（§11）。
+3. 推进任何功能前，先与 specs、架构文档、plans 对标，确认不冲突。发现冲突必须明确提出，经讨论（brainstorm）得出唯一修法后更新对应文档再推进——结局只有两个：修改 specs（人类认可后落盘），或人类撤销指示。不允许带冲突推进。
+4. 人类指示优先于本文件的默认规则（§0），但优先不等于豁免讨论与落盘：指示落地同样要讨论清楚、落盘、与既有文档对齐。
+5. specs 是底线不是天花板：实现不得与 specs 冲突；specs 未覆盖的功能经讨论落盘（如 todo）后可以实现。
+6. 所有 specs 文档使用中文编写。
+
+探索性 spike 不受第 2 条约束：spike 先行验证，结论回填 specs。
+
+---
+
+## 11. TDD 测试优先
+
+在完成测试之前，禁止编写任何实现代码。例外：纯机械改动（错别字、局部变量改名、加日志行）可以先改后测，但必须跑通相关测试。
+
+1. 单元测试：核心包覆盖率 ≥ 80%。
+2. 集成测试：覆盖典型 Use Case 的完整流程（命令行/API），替代人工端到端验证。UI 视觉验收仍按 §5 做截图对比。
+3. 每一条用户反馈的 bug 都先整理成失败测试用例，然后通过跑通测试证明修复成功。
+4. bugfix 修改的代码加注释，解释修正了什么问题、为什么这么改。
+
+---
+
+## 12. 架构原则（通用）
 
 - 单一职责：每个 file、class、method、function 只做好一件事。
 - 关键路径上打足够日志，方便排查 bug。特别是事件路径：打开/关闭某个 UI、点击按钮、执行 IO 等。
@@ -145,9 +171,128 @@
 - 参考《The Zen of Python》的简洁哲学（语言无关）。
 - 有对标项目源码时优先参考，可跟人类讨论；禁止闭门造车。
 - 产品设计和架构设计，默认优先参考业内最佳实践。
+- 时区：存储/统计用东8区；客户端 UI/解析/查询跟随设备时区；大模型上下文按登录上报时区格式化。
 
 ---
 
-## 11. 代码变更流程
+## 13. 代码变更流程
 
-本仓库直接在 main 开发（无 worktree、无合并脚本）。只 commit，**不 push、不打 tag**——push 与打 tag 由人类/发起会话执行。
+涉及代码变更的调整（修 bug、新功能），必须在主仓库之外创建 git worktree 开发（仓外兄弟路径，命名惯例 `<仓库名>-<branch>`）。编码期间禁止修改主目录任何文件。
+
+本节是**与项目无关的合并协议**：正文不含任何仓库特有的东西，仓库特定的只有 §13.3 顶部那两行参数。合并只在 worktree 内发起，主目录永不作为集成检出。
+
+**派发的子代理禁止执行 merge / push / rebase / 删除 worktree**——子代理只能在 worktree 内
+`git add` + `git commit`；合并与推送由发起会话的 agent 或人类执行。（2026-09-15 实证：
+曾有实施者子代理擅自把分支合入 main、推送到 origin、并删掉 worktree。）
+
+### 13.1 流程
+
+1. **worktree 内开发并提交**，提交前跑通本项目的验收命令（§13.3 的 `VERIFY`）。
+2. **前置检查（无锁）**：必须在具名分支的 worktree 内、工作树干净（含未跟踪文件）、相对
+   `origin/<主分支>` 有提交；不满足即停，不取锁。
+3. **临界区（持文件锁）**：取锁 → 循环【`fetch` → `rebase origin/<主分支>`（其它 session 已合并进
+   主分支的改动先并进来）→ 跑验收命令 → `push HEAD:refs/heads/<主分支>`】。锁让同一台机器上的
+   并发合并串行：后到者等待，而不是白跑一遍门禁后才发现被抢先。push 是原子 CAS，被抢推就
+   重取最新主分支重跑一遍，最多 3 轮（见 §13.4 的退出码 6）。
+4. **主目录跟随**：主目录签出主分支且干净时 `merge --ff-only origin/<主分支>`。此步非致命——
+   第 3 步已经推送成功，此处不满足或失败只告警。
+5. 合并成功后删除 worktree。
+
+主目录永不作为集成检出：不 rebase、不非 ff 合并。主目录出现 `origin/<主分支>` 之外的本地提交
+视为异常，只告警，由人类处理。
+
+### 13.2 锁语义
+
+- 锁文件 `<git-common-dir>/merge.lock`，内核 flock 持有。**永不删除锁文件**——删掉就是另一个
+  inode，等于凭空多出一把锁。
+- 持锁进程被 `kill -9` 时内核立即释放，**无陈旧锁**，不需要 PID 文件 / 心跳 / TTL。
+- `lockf(1)` 为 macOS/BSD 自带；Linux 上用 util-linux 的 `flock(1)` 等价替换
+  （`flock -w 1800 "$LOCK" bash`）。二者同属内核 flock 语义。`-k` 保留锁文件，`-t` 是等待
+  上限，`-s` 静默；等待超时的退出码是 **75**。
+
+### 13.3 执行块
+
+整段一次跑完，**不要拆成多次执行**（拆开就丢锁）。验收命令由 `bash -c` 执行，可以写成
+`CMD1 && CMD2`；依赖需在 worktree 内先就绪。
+
+执行块由 `scripts/merge-protocol.test.ts` 直接从本文档抽出，在沙盒仓库里真跑：正常 / 三条前置 /
+门禁红 / rebase 冲突 / 锁超时 / 抢推重试 / 重试耗尽 / 并发串行。**改执行块必跑该测试**，
+不接受人肉复验。
+
+```bash
+# ── 项目参数：换仓库只改这两行 ──────────────────────────────
+MAIN=main
+VERIFY='bunx vitest run && (cd apps/web && bunx tsc --noEmit)'
+
+# ── 前置检查（无锁，不合格立即退出）────────────────────────
+cd "$(git rev-parse --show-toplevel)" || exit 7
+COMMON=$(git rev-parse --path-format=absolute --git-common-dir) || exit 7
+export GIT_EDITOR=true GIT_TERMINAL_PROMPT=0
+[ "$(git rev-parse --abbrev-ref HEAD)" != "$MAIN" ] || { echo "禁止在主分支上执行合并"; exit 2; }
+[ -z "$(git status --porcelain)" ] || { echo "工作树不干净，先提交或清理"; exit 2; }
+git rev-parse --verify -q "refs/remotes/origin/$MAIN" >/dev/null || { echo "origin/$MAIN 不可解析，先 git fetch origin"; exit 2; }
+[ "$(git rev-list --count "origin/$MAIN..HEAD")" -gt 0 ] || { echo "相对 origin/$MAIN 无提交，无需合并"; exit 2; }
+
+# ── 临界区：持锁跑完整流程，整段一次执行，不要拆开 ──────────
+export MAIN VERIFY
+echo "[merge] 申请锁（最多等 1800s）"
+lockf -k -s -t 1800 "$COMMON/merge.lock" bash <<'CRIT'
+cd "$(git rev-parse --show-toplevel)" || exit 7
+echo "[merge] 持锁 branch=$(git rev-parse --abbrev-ref HEAD)"
+# 门禁要跑十几分钟，期间主分支被别的进程推进是常态；3 次内基本必成，又不至于变成重试风暴
+ATTEMPTS=3
+attempt=0
+while :; do
+  attempt=$((attempt + 1))
+  git fetch origin || exit 7
+  if ! git rebase "origin/$MAIN"; then
+    echo "[merge] rebase 冲突："
+    git diff --name-only --diff-filter=U | sed 's/^/  /'
+    git rebase --abort
+    exit 4
+  fi
+  bash -c "$VERIFY" || exit 5
+  PUSH_OUT="$(git push origin "HEAD:refs/heads/$MAIN" 2>&1)" && break
+  case "$PUSH_OUT" in
+    *rejected*|*non-fast-forward*)
+      echo "[merge] push 被拒（第 $attempt/$ATTEMPTS 次）：门禁期间主分支被别的进程推进，重来"
+      if [ "$attempt" -ge "$ATTEMPTS" ]; then echo "$PUSH_OUT"; exit 6; fi ;;
+    *) echo "[merge] push 失败（网络/凭据/远端不可达）"; echo "$PUSH_OUT"; exit 7 ;;
+  esac
+done
+echo "[merge] MERGED $(git rev-parse HEAD)"
+CRIT
+RC=$?
+if [ "$RC" -eq 75 ]; then echo "等待锁超时（1800s），有其它 session 正在合并"; exit 3; fi
+if [ "$RC" -ne 0 ]; then
+  case "$RC" in 4|5|6|7) exit "$RC" ;; *) echo "[merge] 锁或临界区异常 rc=$RC"; exit 7 ;; esac
+fi
+
+# ── 主目录跟随（非致命，失败只告警）────────────────────────
+PRIMARY=$(dirname "$COMMON")
+[ "$(git -C "$PRIMARY" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$MAIN" ] || { echo "[merge] WARN 主目录不在 $MAIN，跳过快进"; exit 0; }
+[ -z "$(git -C "$PRIMARY" status --porcelain 2>/dev/null)" ] || { echo "[merge] WARN 主目录不干净，跳过快进"; exit 0; }
+[ "$(git -C "$PRIMARY" rev-list --count "origin/$MAIN..HEAD" 2>/dev/null || echo 1)" -eq 0 ] || { echo "[merge] WARN 主目录有 origin/$MAIN 之外的本地提交，跳过快进"; exit 0; }
+git -C "$PRIMARY" merge --ff-only "origin/$MAIN" >/dev/null 2>&1 \
+  && echo "[merge] 主目录已快进" || echo "[merge] WARN 主目录快进失败"
+exit 0
+```
+
+### 13.4 退出码
+
+| 码 | 含义 | 处置 |
+|---|---|---|
+| 0 | 合并成功（主目录快进失败时同样返回 0，另有 WARN 行） | 删除 worktree |
+| 2 | 前置不满足 | 修好条件后重跑 |
+| 3 | 等待锁超时（1800s） | 确认无其它 session 在合并后重跑 |
+| 4 | rebase 冲突（worktree 已回到干净态） | 在 worktree 内解决后重跑 |
+| 5 | 验收命令红 | 修代码后重跑 |
+| 6 | 连续 3 次 push 被拒：门禁期间主分支**每次**都被别的进程推进（有进程在绕过本流程，常见于对方跑旧版协议、锁文件不同名） | 查那个进程；不 force |
+| 7 | 环境失败（网络 / 凭据 / 远端不可达 / 锁文件不可创建） | 直接重试 |
+| 130 / 143 | 被中断 | 重跑 |
+
+e2e 验收禁止用 `lsof -ti:<端口> | xargs kill -9` 无条件杀掉端口占用者——它跨 session 有效，
+会杀掉他人正在运行的 dev server。改为先探测端口，被占用则报错退出并提示。
+
+文档类修改（docs/、注释、错别字）、纯机械代码改动（错别字、局部变量改名、加日志行，同 §11
+例外，须跑通相关测试）及记忆维护（docs/01.memory.md、docs/02.todo.md）不走此流程。
