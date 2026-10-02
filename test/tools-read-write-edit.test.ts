@@ -13,10 +13,11 @@ import { createReadTool, createReadToolDefinition } from '../src/tools/read-tool
 import * as upstreamRead from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/read.js';
 import { createExtensionContext } from '../src/extensions/context';
 import { detectSupportedImageMimeType } from '../src/tools/image-mime';
-import { readOps, writeOps } from './helpers/tool-operations';
+import { editOps, readOps, writeOps } from './helpers/tool-operations';
 import { createWriteTool, createWriteToolDefinition } from '../src/tools/write-tool';
 import * as upstreamWrite from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/write.js';
-import { createEditTool } from '../src/tools/edit-tool';
+import { createEditTool, createEditToolDefinition } from '../src/tools/edit-tool';
+import * as upstreamEdit from '../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit.js';
 import { DEFAULT_MAX_BYTES } from '../src/tools/truncate';
 
 const CTX = BACKGROUND_CONTEXT;
@@ -233,14 +234,14 @@ describe('Edit tool', () => {
 	});
 
 	it('single edit replaces text', async () => {
-		const r = await createEditTool({ fs }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(5, OUTPUT);' }] });
+		const r = await createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(5, OUTPUT);' }] });
 		expect(textOf(r)).toMatch(/replaced 1 block/);
 		expect(await readBack(fs, '/sketch.ino')).toContain('pinMode(5, OUTPUT);');
 		expect(await readBack(fs, '/sketch.ino')).not.toContain('pinMode(2, OUTPUT);');
 	});
 
 	it('multi-edits in one call（按原文件匹配，不增量）', async () => {
-		await createEditTool({ fs }).execute('id', { path: 'sketch.ino', edits: [
+		await createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'sketch.ino', edits: [
 			{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(2, INPUT);' },
 			{ oldText: 'digitalWrite(2, HIGH);', newText: 'digitalWrite(2, LOW);' },
 		] });
@@ -251,12 +252,12 @@ describe('Edit tool', () => {
 
 	it('fuzzy match for smart quotes', async () => {
 		await seed(fs, { 'q.ino': 'const x = \u201csmart\u201d;' });
-		await createEditTool({ fs }).execute('id', { path: 'q.ino', edits: [{ oldText: '\u201csmart\u201d', newText: 'curly' }] });
+		await createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'q.ino', edits: [{ oldText: '\u201csmart\u201d', newText: 'curly' }] });
 		expect(await readBack(fs, '/q.ino')).toContain('curly');
 	});
 
 	it('成功出 diff + patch（details）', async () => {
-		const r = await createEditTool({ fs }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(5, OUTPUT);' }] });
+		const r = await createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(5, OUTPUT);' }] });
 		expect(r.details.diff).toContain('-2   pinMode(2, OUTPUT);');
 		expect(r.details.diff).toContain('+2   pinMode(5, OUTPUT);');
 		expect(r.details.firstChangedLine).toBe(2);
@@ -266,19 +267,19 @@ describe('Edit tool', () => {
 
 	it('多命中 → 报错（上游 1.0.0 文案，plain Error）', async () => {
 		await seed(fs, { 'dup.txt': 'x = 1;\ny = 2;\nx = 1;\nz = 3;\nx = 1;\n' });
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		await expect(t.execute('id', { path: 'dup.txt', edits: [{ oldText: 'x = 1;', newText: 'x = 9;' }] }))
 			.rejects.toThrow(/Found 3 occurrences of the text in dup\.txt\. The text must be unique/);
 	});
 
 	it('无命中 → 报错（上游文案，plain Error）', async () => {
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		await expect(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: 'nope', newText: 'x' }] }))
 			.rejects.toThrow(/Could not find the exact text in sketch\.ino/);
 	});
 
 	it('rejects overlapping edits', async () => {
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		await expect(t.execute('id', { path: 'sketch.ino', edits: [
 			{ oldText: 'pinMode(2, OUTPUT);', newText: 'x' },
 			{ oldText: 'OUTPUT);\n}', newText: 'y' },
@@ -286,34 +287,60 @@ describe('Edit tool', () => {
 	});
 
 	it('rejects empty oldText', async () => {
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		await expect(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: '', newText: 'x' }] })).rejects.toThrow(/empty/);
 	});
 
-	it('edits 为空数组 → invalid', async () => {
-		const t = createEditTool({ fs });
-		await expect(t.execute('id', { path: 'sketch.ino', edits: [] })).rejects.toThrow(/at least one entry/);
+	it('edits 为空数组 → invalid（上游文案）', async () => {
+		const t = createEditTool('/', { operations: editOps(fs) });
+		await expect(t.execute('id', { path: 'sketch.ino', edits: [] })).rejects.toThrow(/at least one replacement/);
 	});
 
 	it('无变化（newText === oldText）→ 报错，不写盘', async () => {
-		await expect(createEditTool({ fs }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(2, OUTPUT);' }] }))
+		await expect(createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'sketch.ino', edits: [{ oldText: 'pinMode(2, OUTPUT);', newText: 'pinMode(2, OUTPUT);' }] }))
 			.rejects.toThrow(/identical/);
 		expect(await readBack(fs, '/sketch.ino')).toBe(SKETCH);
 	});
 
 	it('CRLF 文件编辑后行尾保留 CRLF', async () => {
 		await seed(fs, { 'crlf.txt': 'a\r\nb\r\n' });
-		await createEditTool({ fs }).execute('id', { path: 'crlf.txt', edits: [{ oldText: 'b', newText: 'B' }] });
+		await createEditTool('/', { operations: editOps(fs) }).execute('id', { path: 'crlf.txt', edits: [{ oldText: 'b', newText: 'B' }] });
 		expect(await readBack(fs, '/crlf.txt')).toBe('a\r\nB\r\n');
 	});
 
 	it('文件不存在 → not_found', async () => {
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		expect(await rejectionCode(t.execute('id', { path: 'nope.txt', edits: [{ oldText: 'a', newText: 'b' }] }))).toBe('not_found');
 	});
 
 	it('调用前已 abort → aborted', async () => {
-		const t = createEditTool({ fs });
+		const t = createEditTool('/', { operations: editOps(fs) });
 		expect(await rejectionCode(t.execute('id', { path: 'sketch.ino', edits: [{ oldText: 'a', newText: 'b' }] }, AbortSignal.abort()))).toBe('aborted');
+	});
+
+	it('静态字段与上游产物逐字相等（P2b 契约）', () => {
+		const up = upstreamEdit.createEditToolDefinition('/tmp');
+		const mine = createEditToolDefinition('/tmp', { operations: editOps(fs) });
+		expect(mine.name).toBe(up.name);
+		expect(mine.label).toBe(up.label);
+		expect(mine.description).toBe(up.description);
+		expect(mine.promptSnippet).toBe(up.promptSnippet);
+		expect(mine.promptGuidelines).toEqual(up.promptGuidelines);
+		expect(JSON.parse(JSON.stringify(mine.parameters))).toEqual(JSON.parse(JSON.stringify(up.parameters)));
+	});
+
+	it('operations 缺省 → 构造期响亮报错（D5）', () => {
+		expect(() => createEditToolDefinition('/tmp')).toThrow(/operations/);
+		expect(() => createEditTool('/tmp')).toThrow(/operations/);
+	});
+
+	it('定义件读 ctx.cwd，工厂件只认构造期 cwd', async () => {
+		await seed(fs, { '/d/x.txt': 'a\nb', '/e/x.txt': 'a\nb' });
+		const def = createEditToolDefinition('/e', { operations: editOps(fs) });
+		const ctx = createExtensionContext({ cwd: '/d', lane: { abort: async () => ({}) } as never, context: {} as never });
+		await def.execute('id', { path: 'x.txt', edits: [{ oldText: 'a', newText: 'A' }] }, undefined, undefined, ctx);
+		await createEditTool('/e', { operations: editOps(fs) }).execute('id', { path: 'x.txt', edits: [{ oldText: 'a', newText: 'A' }] });
+		expect(await readBack(fs, '/d/x.txt')).toBe('A\nb');
+		expect(await readBack(fs, '/e/x.txt')).toBe('A\nb');
 	});
 });
