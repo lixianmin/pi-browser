@@ -10,16 +10,15 @@
 //   ③ **相位门**：注册期（扩展工厂执行中）调用运行期成员 → 响亮抛错；`close()` / `invalidate()` 之后同理。
 //      闸门在 `hooks.assertActive`（runner 的 phase）与 runtime 的桩 / `assertActive` 两侧各有一道。
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Model } from '@earendil-works/pi-ai';
+import type { ImageContent, Model, TextContent } from '@earendil-works/pi-ai';
 import { validateToolDefinition, type ToolDefinition } from './tool';
 import type { ExtensionContext } from './context';
 import type { ExtensionRuntime } from './runtime';
 import type {
 	AfterProviderResponseEvent, AgentEndEvent, AgentStartEvent, BeforeAgentStartEvent,
 	BeforeAgentStartEventResult, BeforeProviderHeadersEvent, BeforeProviderRequestEvent,
-	BeforeProviderRequestEventResult, BoundaryContextPreview, BoundaryResult, BuildSystemPromptOptions,
-	ContextEvent, ContextEventResult, MessageEndEvent, MessageEndEventResult, MessageStartEvent,
-	MessageUpdateEvent, ModelSelectEvent, NormalizedBuildSystemPromptOptions, SessionBeforeCompactEvent,
+	BeforeProviderRequestEventResult, ContextEvent, ContextEventResult, MessageEndEvent, MessageEndEventResult, MessageStartEvent,
+	MessageUpdateEvent, ModelSelectEvent, SessionBeforeCompactEvent,
 	SessionBeforeCompactResult, SessionBeforeTreeEvent, SessionBeforeTreeResult, SessionCompactEvent,
 	SessionShutdownEvent, SessionStartEvent, SessionTreeEvent, ThinkingLevelSelectEvent, ToolCallEvent,
 	ToolCallEventResult, ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent,
@@ -129,7 +128,8 @@ export interface ExtensionAPI {
 	getAllTools(): ToolInfo[];
 	setActiveTools(toolNames: string[]): void;
 	appendEntry(customType: string, data?: unknown): void;
-	sendUserMessage(content: string | unknown[], options?: { deliverAs?: 'steer' | 'followUp' }): void;
+	/** 扩展自造工具走 `CustomToolCallEvent` 分支时最常见的 content 形状（`Record<string, unknown>` 可直接赋给 `unknown[]`） */
+	sendUserMessage(content: string | (TextContent | ImageContent)[], options?: { deliverAs?: 'steer' | 'followUp' }): void;
 	setSessionName(name: string): void;
 	getSessionName(): string | undefined;
 	setLabel(entryId: string, label: string | undefined): void;
@@ -162,7 +162,7 @@ export function createExtensionAPI(runtime: ExtensionRuntime, hooks: ExtensionHo
 		getAllTools: () => call(() => runtime.getAllTools()),
 		setActiveTools: (toolNames) => call(() => runtime.setActiveTools([...toolNames])),
 		appendEntry: (customType, data) => call(() => runtime.appendEntry(customType, data)),
-		sendUserMessage: (content, options) => call(() => runtime.sendUserMessage(content as never, options)),
+		sendUserMessage: (content, options) => call(() => runtime.sendUserMessage(content as string | (TextContent | ImageContent)[], options)),
 
 		setSessionName: (name) => call(() => runtime.setSessionName(name)),
 		getSessionName: () => call(() => runtime.getSessionName()),

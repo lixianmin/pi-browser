@@ -39,9 +39,10 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createHostCommandSharedBuffer` | `(o?: { capacity? }) => SharedArrayBuffer` | 按容量分配通道内存（默认 8MB/方向） |
 | `createHostCommandResponder` | `(store: { mounts }, handlers) => HostCommandResponder` | 宿主侧 glue：§3.3 对账 + 派发处理器 |
 | `createGuestHostBuiltins` | `(guestFs, guestSide, names) => HostBuiltins` | guest 侧 glue：把宿主命令装成 wasi-sh builtins（worker 内） |
+| `createExtensionRuntime` | `fn`（宿主用它造一份动作全是抛错 stub 的 runtime，再传给 `ExtensionRunner` 的构造器） | S6/P3 扩展面（见「扩展」节） |
 | `ExtensionRunner` | `class`（`new ExtensionRunner(extensions, runtime, cwd)` / `bindCore(actions, contextActions)` / `load()` / `emit(...)` 与具名 `emitXxx` / `onError` / `hasHandlers` / `getAllRegisteredTools()` / `getToolDefinition(name)` / `createContext()` / `close()`） | S6/P3 宿主：持有 runtime 与注册表，装载扩展并由宿主在对应时机调 emit 入口（见「扩展」节） |
 | `defineTool` | `<TParams, TDetails>(def: ToolDefinition<TParams, TDetails>) => ToolDefinition<TParams, TDetails>` | S6：上游同名辅助——顶住参数推断（赋给变量/进数组时 `params` 不被拓宽成 `unknown`） |
-| `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionRuntime` / `ExtensionRuntimeState` / `ExtensionActions` / `ExtensionContextActions` / `ExtensionError` / `ExtensionErrorListener` / `RegisteredTool` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6/P3 扩展面（见「扩展」节；`tool-definition-wrapper.ts` 适配器是内部件，不经入口导出） |
+| `ExtensionAPI` / `ExtensionContext` / `ToolDefinition` / `Extension` / `ExtensionFactory` / `InlineExtension` / `ExtensionRuntime` / `ExtensionRuntimeState` / `ExtensionActions` / `ExtensionContextActions` / `ExtensionError` / `ExtensionErrorListener` / `RegisteredTool` / `SourceInfo` / `ToolInfo` / `EventBus` / `CompactOptions` / `ContextUsage` | 类型 | S6/P3 扩展面（见「扩展」节；`tool-definition-wrapper.ts` 的适配**函数**是内部件，只导出 `ToolContextFactory` 类型） |
 
 七工具形状同上游：typebox `parameters` + `label` + `description` + `execute(toolCallId, input, signal?, onUpdate?)`，**失败 throw**（fs 类错误带 `FileErrorCode`，shell 带 `ExecutionErrorCode`）。
 
@@ -173,6 +174,7 @@ await runner.emit({ type: 'agent_start' });                     // 事件由宿�
 事件不再挂 core 的 `hooks` / `events`：runner 提供 `emit(event)` 与具名 `emitToolCall` / `emitToolResult` /
 `emitContext` / `emitMessageEnd` / `emitBeforeProviderRequest` / `emitBeforeProviderHeaders` /
 `emitBeforeAgentStart` / `emitBoundary`，宿主在对的时机调用（控制流照抄上游）。
+`pi.events` 那条总线**不走** `on(...)`：订阅面是 `pi.events.on`，生产面是 `runner.emitEventBus(type, event)`。
 
 ### 支持的 API 成员（14）
 
@@ -203,7 +205,7 @@ pi.on('tool_call', (event) => {            // 联合按工具名分派：event.i
 pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件名
 ```
 
-支持项按 pi 事件名逐条对应到 runner 的 emit 入口（`tool_call`→`emitToolCall`、`tool_result`→`emitToolResult`、`context`→`emitContext`、`message_end`→`emitMessageEnd`、`turn_end`→`emitBoundary`、`before_agent_start`→`emitBeforeAgentStart`、`before_provider_request`/`before_provider_headers`→各自的 `emitBeforeProvider*`，其余走通用 `emit({ type, … })`；`session_start`/`session_shutdown` 也由宿主发——`reason` 只有宿主知道）。分派控制流照抄上游：`tool_call` 的 `block` 短路、`session_before_*` 的 `cancel` 短路、`tool_result` 合并改写（换了 content 却没同时换 structuredContent 时丢弃后者）、`message_end` 拒绝换角色、`before_provider_headers` 原地改。handler 抛错不外泄，统一走 `runner.onError(listener)` 上报。**每条支持事件都有「触发一次 → handler 被调用」的测试**（`test/extensions-events.test.ts`），不只测注册。
+支持项按 pi 事件名逐条对应到 runner 的 emit 入口（`tool_call`→`emitToolCall`、`tool_result`→`emitToolResult`、`context`→`emitContext`、`message_end`→`emitMessageEnd`、`turn_end`→`emitBoundary`、`before_agent_start`→`emitBeforeAgentStart`、`before_provider_request`/`before_provider_headers`→各自的 `emitBeforeProvider*`，其余走通用 `emit({ type, … })`；`session_start`/`session_shutdown` 也由宿主发——`reason` 只有宿主知道）。分派控制流照抄上游：`tool_call` 的 `block` 短路、`session_before_*` 的 `cancel` 短路、`tool_result` 合并改写（换了 content 却没同时换 structuredContent 时丢弃后者）、`message_end` 拒绝换角色、`before_provider_headers` 原地改。handler 抛错不外泄，统一走 `runner.onError(listener)` 上报——**`tool_call` 除外**（`emitToolCall` 照抄上游：handler 抛错直接冒泡给宿主，因为阻止/放行是同一条同步决策链）。**每条支持事件都有「触发一次 → handler 被调用」的测试**（`test/extensions-events.test.ts`），不只测注册。
 
 不支持（**编译期**拒，且注册期运行期也会抛、错误消息列支持清单）：`project_trust` / `resources_discover` / `session_info_changed` / `session_before_switch` / `session_before_fork` / `session_compact_failed` / `ui_prompt_start` / `ui_prompt_end` / `user_bash` / `input` / `agent_settled` / `mcp_servers_change` / `context_with_system` / `cache_warming_decision` / `provider_stream_event` / `agent_before_settle`。
 

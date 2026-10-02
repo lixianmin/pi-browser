@@ -41,6 +41,7 @@ export {
 // P3 起宿主的接法是「造 runtime → new ExtensionRunner(extensions, runtime, cwd) → runner.bindCore(actions, contextActions)」，
 // 事件由宿主在对应时机调 runner 的 `emit` / 具名 `emitXxx`（不再挂 core 的 hooks/events）。
 export { ExtensionRunner } from './extensions/runner';
+export { createExtensionRuntime } from './extensions/runtime';
 export { defineTool } from './extensions/tool';
 export type { ExtensionActions, ExtensionContextActions, ExtensionRuntime, ExtensionRuntimeState } from './extensions/runtime';
 export type { BoundaryDispatchResult, ExtensionError, ExtensionErrorListener, RegisteredTool } from './extensions/runner';

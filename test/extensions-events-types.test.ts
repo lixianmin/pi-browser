@@ -13,7 +13,6 @@
 //
 // 纪律：本文件只做形状对照，不做行为断言（行为在 `extensions-events.test.ts` 逐路由触发）。
 import { describe, it, expect } from 'vitest';
-import * as events from '../src/extensions/events';
 import type * as Upstream from '../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types';
 import type * as UpstreamSession from '../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager';
 import type * as UpstreamCompaction from '../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/compaction';
@@ -21,11 +20,21 @@ import type * as UpstreamCompactionUtils from '../node_modules/@earendil-works/p
 import type * as UpstreamPrompt from '../node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt';
 import type * as UpstreamMessages from '../node_modules/@earendil-works/pi-coding-agent/dist/core/messages';
 import type * as Ours from '../src/extensions/events';
+import { loadSkills } from '../src/index';
 
-/** 严格相等（双向可赋值）；`any` 泄漏会让两侧同时退化成 `any` 而恒真，故加 `0 extends 1` 兜一道。 */
+/**
+ * 严格相等：双向可赋值 **且** 键集合相等。
+ * 光靠双向可赋值会漏掉一类漂移：「上游有 `foo?: T`、本仓整个字段没了」在两个方向都可赋值
+ * （可选属性缺失不构成错误）。终审 p3-B3 抓到这条，补上键集合这一维。
+ * `0 extends 1 & A` 兼掉 `any` 泄漏（两侧同时退化成 `any` 会恒真）。
+ */
 type Eq<A, B> = 0 extends 1 & A ? never
 	: 0 extends 1 & B ? never
-	: [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+	: [A] extends [B]
+		? ([B] extends [A]
+			? ([keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false)
+			: false)
+	: false;
 
 function same<A, B>(_: Eq<A, B> extends true ? true : never): void {}
 
@@ -36,7 +45,8 @@ describe('支持事件的载荷与上游逐字同形', () => {
 		same<Ours.SessionShutdownEvent, Upstream.SessionShutdownEvent>(true);
 		same<Ours.SessionBeforeCompactEvent, Upstream.SessionBeforeCompactEvent>(true);
 		same<Ours.SessionCompactEvent, Upstream.SessionCompactEvent>(true);
-		expect(events).toBeTypeOf('object');
+		// 唯一一条运行期断言：类型被 esbuild 剥掉后，模块本身仍必须能被加载（文件缺失/语法错会红）
+		expect(typeof loadSkills).toBe('function');
 	});
 
 	it('树导航与回合边界', () => {

@@ -26,6 +26,7 @@ const RUNTIME_EXPORTS = [
 	'createHostCommandSharedBuffer',
 	'createLsTool',
 	'createReadTool',
+	'createExtensionRuntime',
 	'createWasiFileSystem',
 	'createWriteTool',
 	'defineTool',

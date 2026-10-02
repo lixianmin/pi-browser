@@ -644,6 +644,12 @@ export interface SessionBeforeCompactResult {
 export interface SessionBeforeTreeResult {
 	cancel?: boolean;
 	summary?: { summary: string; details?: unknown; usage?: Usage };
+	/** Override custom instructions for summarization */
+	customInstructions?: string;
+	/** Override whether customInstructions replaces the default prompt */
+	replaceInstructions?: boolean;
+	/** Override label to attach to the branch summary entry */
+	label?: string;
 }
 
 /**

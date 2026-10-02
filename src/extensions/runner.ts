@@ -181,7 +181,15 @@ export class ExtensionRunner {
 	}
 
 	emitError(error: ExtensionError): void {
-		for (const listener of this.errorListeners) listener(error);
+		// `emitError` 总是在 `catch` 块里被调用：listener 自己再抛，就会把「已捕获的扩展错误」变成
+		// 打断 agent 轮次的抛出，并让后续 listener 收不到（上游这里不设防，我们补一道）。
+		for (const listener of this.errorListeners) {
+			try {
+				listener(error);
+			} catch (err) {
+				console.warn(`[extensions] onError listener 自身抛错：${errText(err)}`);
+			}
+		}
 	}
 
 	/** 给某个扩展用的 `ExtensionAPI` 实例（来源标签不同 ⇒ 报错与工具来源能定位到扩展）。 */
