@@ -156,7 +156,7 @@ export function createReadToolDefinition(
 		promptSnippet: readToolSystemPromptContribution.snippet,
 		promptGuidelines: [...readToolSystemPromptContribution.guidelines],
 		parameters: readSchema,
-		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeRead(ctx?.cwd ?? cwd, input, signal, operations),
+		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeRead(ctx?.cwd || cwd, input, signal, operations),
 	};
 }
 

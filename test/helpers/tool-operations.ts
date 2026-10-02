@@ -13,11 +13,15 @@ const readBytes = async (fs: BrowserFileSystem, path: string): Promise<Uint8Arra
 	return r.value;
 };
 
+/** 可读性检查：用 fileInfo（stat 级）而不是读整文件，贴近上游 `access` 的语义。 */
+const assertReadable = async (fs: BrowserFileSystem, path: string): Promise<void> => {
+	const r = await fs.fileInfo(path, BACKGROUND_CONTEXT);
+	if (!r.ok) throw r.error;
+};
+
 export const readOps = (fs: BrowserFileSystem): ReadOperations => ({
 	readFile: (absolutePath) => readBytes(fs, absolutePath),
-	access: async (absolutePath) => {
-		await readBytes(fs, absolutePath);
-	},
+	access: (absolutePath) => assertReadable(fs, absolutePath),
 	detectImageMimeType: async (absolutePath) => detectSupportedImageMimeType(await readBytes(fs, absolutePath)),
 });
 
@@ -38,7 +42,5 @@ export const editOps = (fs: BrowserFileSystem): EditOperations => ({
 		const r = await fs.writeFile(absolutePath, content, BACKGROUND_CONTEXT);
 		if (!r.ok) throw r.error;
 	},
-	access: async (absolutePath) => {
-		await readBytes(fs, absolutePath);
-	},
+	access: (absolutePath) => assertReadable(fs, absolutePath),
 });

@@ -104,6 +104,12 @@ describe('Read tool', () => {
 		expect(await rejectionCode(t.execute('id', { path: 'sketch.ino' }, AbortSignal.abort()))).toBe('aborted');
 	});
 
+	it('字节截断的 continuation 文案带尺寸后缀（与行截断分支区分）', async () => {
+		await seed(fs, { 'wide.txt': Array.from({ length: 3000 }, () => 'x'.repeat(50)).join('\n') });
+		const out = textOf(await createReadTool('/', { operations: readOps(fs) }).execute('id', { path: 'wide.txt' }));
+		expect(out).toMatch(/\[Showing lines 1-\d+ of 3000 \(50\.0KB limit\)\. Use offset=\d+ to continue\.\]$/);
+	});
+
 	it('静态字段与上游产物逐字相等（P2b 契约）', () => {
 		const up = upstreamRead.createReadToolDefinition('/tmp');
 		const mine = createReadToolDefinition('/tmp', { operations: readOps(fs) });
@@ -128,6 +134,13 @@ describe('Read tool', () => {
 		expect(textOf(await createReadTool('/e', { operations: readOps(fs) }).execute('id', { path: 'inner.txt' }))).toBe('other');
 	});
 
+	it('ctx.cwd 为空串时回退构造期 cwd（与上游 `||` 同语义，不是 `??`）', async () => {
+		await seed(fs, { '/e/x.txt': 'e' });
+		const def = createReadToolDefinition('/e', { operations: readOps(fs) });
+		const ctx = createExtensionContext({ cwd: '', lane: { abort: async () => ({}) } as never, context: {} as never });
+		expect(textOf(await def.execute('id', { path: 'x.txt' }, undefined, undefined, ctx))).toBe('e');
+	});
+
 	it('图片魔数嗅探：PNG/JPEG/GIF/WEBP/BMP 认，文本与动画 PNG 不认', () => {
 		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 0]);
 		expect(detectSupportedImageMimeType(png)).toBe('image/png');
@@ -135,6 +148,17 @@ describe('Read tool', () => {
 		expect(detectSupportedImageMimeType(new TextEncoder().encode('GIF89a'))).toBe('image/gif');
 		expect(detectSupportedImageMimeType(new TextEncoder().encode('RIFFxxxxWEBP'))).toBe('image/webp');
 		expect(detectSupportedImageMimeType(new TextEncoder().encode('hello'))).toBeNull();
+		// JPEG-LS（0xf7）不是上游支持的 JPEG 变体
+		expect(detectSupportedImageMimeType(new Uint8Array([0xff, 0xd8, 0xff, 0xf7]))).toBeNull();
+		// BMP：DIB 头 40 字节、1 个色平面、24 bpp
+		const bmp = new Uint8Array(30);
+		bmp[0] = 0x42;   // 'B'
+		bmp[1] = 0x4d;   // 'M'
+		bmp.set([54, 0, 0, 0], 10);   // pixelDataOffset（>= 14 + 40）
+		bmp.set([40, 0, 0, 0], 14);   // dibHeaderSize
+		bmp.set([1, 0], 26);          // colorPlanes
+		bmp.set([24, 0], 28);         // bitsPerPixel
+		expect(detectSupportedImageMimeType(bmp)).toBe('image/bmp');
 		// 动画 PNG：合法 IHDR 后跟 acTL 块 → 不当静态图片
 		const animated = new Uint8Array(45);
 		animated.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 0);

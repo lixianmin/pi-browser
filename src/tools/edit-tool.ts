@@ -122,10 +122,11 @@ export function createEditToolDefinition(
 		promptSnippet: editToolSystemPromptContribution.snippet,
 		promptGuidelines: [...editToolSystemPromptContribution.guidelines],
 		parameters: editSchema,
-		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeEdit(ctx?.cwd ?? cwd, input, signal, operations),
+		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeEdit(ctx?.cwd || cwd, input, signal, operations),
 	};
 }
 
+/** AgentTool 工厂：`AgentTool.execute` 只有 4 参（F6），cwd 恒为构造期值；需要 `ctx.cwd` 覆盖请用定义件。 */
 export function createEditTool(cwd: string, options?: EditToolOptions): AgentTool<typeof editSchema> {
 	const operations = requireOperations(options);
 	return {

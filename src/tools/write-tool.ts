@@ -3,6 +3,8 @@
 // promptSnippet / promptGuidelines / WriteOperations / 两导出形状（details 恒为 undefined）。
 // 实现体自持：fs 由调用方注入（D5）；不移植上游的 `withFileMutationQueue`（实现体、非契约面）。
 // 成功文案与上游逐字：`Successfully wrote to <path>`（本仓旧版的 `(N bytes)` 后缀已删）。
+// 注意：即使写到挂载根，`operations.mkdir(dirname(abs))` 也会被调一次（参数可能是 `/`）——
+// 注入的 `mkdir` 必须幂等且递归（接口注释已声明递归）。
 
 import { type Static, Type } from 'typebox';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
@@ -74,10 +76,11 @@ export function createWriteToolDefinition(
 		promptSnippet: writeToolSystemPromptContribution.snippet,
 		promptGuidelines: [...writeToolSystemPromptContribution.guidelines],
 		parameters: writeSchema,
-		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeWrite(ctx?.cwd ?? cwd, input, signal, operations),
+		execute: (toolCallId, input, signal, _onUpdate, ctx) => executeWrite(ctx?.cwd || cwd, input, signal, operations),
 	};
 }
 
+/** AgentTool 工厂：`AgentTool.execute` 只有 4 参（F6），cwd 恒为构造期值；需要 `ctx.cwd` 覆盖请用定义件。 */
 export function createWriteTool(cwd: string, options?: WriteToolOptions): AgentTool<typeof writeSchema> {
 	const operations = requireOperations(options);
 	return {
