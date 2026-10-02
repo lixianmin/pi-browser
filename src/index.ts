@@ -20,6 +20,9 @@ export type { BrowserFileSystem, MountEntry } from './env/types';
 export { normalizePath } from './env/path';
 export { createBrowserExecutionEnv } from './env/execution-env';
 export { createWasiFileSystem } from './shell/wasi-fs';
+// pi-durable 会话存储的浏览器侧装配（批 2 B-1）：fs 注入式存储，`BrowserFileSystem` 直接喂进去，无需 adapter
+export { openBrowserSessionStorage } from './session/storage';
+export type { JsonlStorageOptions } from '@earendil-works/pi-durable/storage/jsonl';
 export { createReadTool, createReadToolDefinition, readToolSystemPromptContribution } from './tools/read-tool';
 export { createWriteTool, createWriteToolDefinition, writeToolSystemPromptContribution } from './tools/write-tool';
 export { createEditTool, createEditToolDefinition, editToolSystemPromptContribution } from './tools/edit-tool';

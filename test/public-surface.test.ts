@@ -1,5 +1,6 @@
 // Task 7：公开面定稿（spec §3.4）。运行时导出 = S1 五导出 + 七工具工厂 + `createWasiFileSystem` + S4（skills/compaction）
-// + S6（扩展宿主）；类型导出（BrowserFileSystem / MountEntry / Skill / ExtensionAPI …）在类型层，不进这两张运行时表。
+// + S6（扩展宿主）+ 批2 B1 `openBrowserSessionStorage`（pi-durable 存储的浏览器侧装配）
+// + 类型导出（BrowserFileSystem / MountEntry / Skill / ExtensionAPI …）在类型层，不进这两张运行时表。
 // 新增导出必须同步本表与 README 的公开面表格。
 //
 // S6 变化：删 `defineExtension` / `composeToolset` / `toHarnessTool`（S5 自造名，`harness-tool.ts` 降为内部件），
@@ -43,6 +44,7 @@ const RUNTIME_EXPORTS = [
 	'loadSkills',
 	'loadSkillsFromDir',
 	'normalizePath',
+	'openBrowserSessionStorage',
 	'OutputAccumulator',
 	'relativizeFindResultPath',
 	'resetFsKernelRegistry',
