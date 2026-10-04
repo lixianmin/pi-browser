@@ -1,5 +1,5 @@
 // @vitest-environment node
-// P5：会话 JSONL 格式与上游 1.0.0 对照 —— 本仓浏览器 fs 写出的文件能被 `parseSessionEntries` 读回、
+// P5：会话 JSONL 格式与上游 1.0.2 对照 —— 本仓浏览器 fs 写出的文件能被 `parseSessionEntries` 读回、
 // 且 `buildSessionContext` 产出与写入一致。
 //
 // 为什么对照落在这三个纯函数上（spec P5 / 裁决）：
@@ -10,7 +10,7 @@
 //     agent / agent-loop / proxy / stream-fn / types 五个模块）。P6 升版本时它必然断，所以这里
 //     **不依赖它**：写入端由测试自己按 v3 格式拼（会话写入是宿主的事，本包没有会话写手）。
 //   · 真正要守的不变量是**文件格式**：头部 + 条目行、`CURRENT_SESSION_VERSION = 3`、条目能被解析、
-//     且 `buildSessionContext` 还原出的消息与写入时一致。这三个函数都在 1.0.0 的
+//     且 `buildSessionContext` 还原出的消息与写入时一致。这三个函数都在 1.0.2 的
 //     `core/session-manager.js` 里，是纯函数（模块顶部的 node:fs 导入在 node 测试环境下可用，
 //     但这三个函数不碰 fs）。
 //   · `pi-durable/testing` 的 storage-conformance 仍然不引入（既有裁决：那是 durable 自己的模型，
@@ -25,7 +25,7 @@ import {
 
 const CTX = BACKGROUND_CONTEXT;
 
-/** 按 1.0.0 的 v3 格式拼一个会话文件：头部一行 + 每个条目一行。 */
+/** 按 1.0.2 的 v3 格式拼一个会话文件：头部一行 + 每个条目一行。 */
 const sessionFile = (): string => {
 	const header = { type: 'session', version: CURRENT_SESSION_VERSION, id: 's1', timestamp: '2026-10-02T08:00:00.000Z', cwd: '/projects/x' };
 	const entries = [
@@ -36,7 +36,7 @@ const sessionFile = (): string => {
 	return [header, ...entries].map((line) => JSON.stringify(line)).join('\n') + '\n';
 };
 
-describe('会话 JSONL：浏览器 fs 写出 → 上游 1.0.0 读回（P5）', () => {
+describe('会话 JSONL：浏览器 fs 写出 → 上游 1.0.2 读回（P5）', () => {
 	it('版本号 = 上游 CURRENT_SESSION_VERSION（本仓不另定版本号），且 v3 是终态：上游迁移器不改我们的条目', () => {
 		expect(CURRENT_SESSION_VERSION).toBe(3);
 		// 「用了 3 这个常量」只能证明我们没自己编一个号；真正的断言是**上游的迁移器认为它已是最新**：

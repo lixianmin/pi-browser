@@ -1,13 +1,15 @@
 // src/extensions/contract.ts —— S6 spec §2/§3.2/§3.4：上游名字的**唯一真源表**。
 //
-// 出处：@earendil-works/pi-coding-agent@0.99.1 `dist/core/extensions/types.d.ts`
-//   ExtensionAPI（`on` + 31 个非 on 成员，共 32）、`ExtensionAPI.on` 的 41 个事件名、
+// 出处：@earendil-works/pi-coding-agent@1.0.2 `dist/core/extensions/types.d.ts`
+//   ExtensionAPI（`on` + 32 个非 on 成员，共 33）、`ExtensionAPI.on` 的 41 个事件名、
 //   ExtensionContext 18 个成员、ToolDefinition 字段（见 tool.ts）。
 //   本次重抄的漂移（0.85.1 → 0.99.1）：API 成员 +6（`getSettings`、`registerMcpServer`/
 //   `unregisterMcpServer`/`getMcpServers`、`registerVirtualModel`/`unregisterVirtualModel`）、
 //   事件 +5（`mcp_servers_change`、`context_with_system`、`cache_warming_decision`、
 //   `provider_stream_event`、`agent_before_settle`）、Context 成员 +1（`thinkingLevel`——上游两版都有，
 //   0.85.1 那次抄写整条漏了，两份名单同时错所以双确认测试没报；本次逐字重对上游补回）。
+//   1.0.2 再抄（2026-10-04）：API 成员 +1（`registerToolRenderer`，1.0.1 新增）；事件名 / Context 成员 /
+//   ToolDefinition 字段三张表 1.0.0 → 1.0.2 逐字未变（上游 `types.d.ts` 该版只有 3 个 hunk，另两个是新增类型）。
 // 纪律（S6 spec §3.1/§3.2）：
 //   ① 对外面只允许出现下表中的名字，**不新增自造名**（S5 的 `defineExtension`/`composeToolset` 已删）；
 //   ② 标 UNSUPPORTED 的名字**不得**在本仓另有实现（测试断言公开面上没有同名替代物）；
@@ -17,7 +19,7 @@
 // 「支持」判定规则（spec §3.4）：有直接对应物且我们现在有用例 → 支持；
 // 有对应物但无用例 → 先声明不支持（YAGNI，保留原名不造替代名）；无对应物 → 不支持。
 
-/** 上游 ExtensionAPI 的成员名（含 `on`；共 32）。 */
+/** 上游 ExtensionAPI 的成员名（含 `on`；共 33）。 */
 export const EXTENSION_API_MEMBERS = [
 	'on',
 	'registerTool',
@@ -28,6 +30,7 @@ export const EXTENSION_API_MEMBERS = [
 	'registerMessageRenderer',
 	'registerMarkdownTransformer',
 	'registerEntryRenderer',
+	'registerToolRenderer',
 	'sendMessage',
 	'sendUserMessage',
 	'appendEntry',
@@ -142,14 +145,16 @@ export const SUPPORTED_API_MEMBERS = [
 ] as const;
 
 /**
- * 不支持的 API 成员（18）：
+ * 不支持的 API 成员（19）：
  *   · 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag`
- *     / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`；
+ *     / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer` / `registerToolRenderer`；
  *   · provider 与模型目录都由 app 配置，扩展只选择不注册：`registerProvider` / `unregisterProvider` /
  *     `registerVirtualModel` / `unregisterVirtualModel`；
  *   · 本仓无对应物，不发明形状：`exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`
  *     （pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）；
- *   · 0.99.1 新增（逐条裁决见下）：`getSettings` / `registerMcpServer` / `unregisterMcpServer` / `getMcpServers`。
+ *   · 0.99.1 新增（逐条裁决见下）：`getSettings` / `registerMcpServer` / `unregisterMcpServer` / `getMcpServers`；
+ *   · 1.0.1 新增：`registerToolRenderer` → 不支持：它的入参是 TUI 渲染器解析链（`ToolRenderers` 取
+ *     `renderShell`/`renderCall`/`renderResult`），而本仓无 TUI，连 `registerMessageRenderer` 一族都没有对应物。
  *
  * 四条 0.99.1 新成员的裁决（本批 T1 结论，不许悬空）：
  *   · `getSettings` → 不支持：pi 的 `Settings`（`dist/core/settings-manager.d.ts`）是 CLI 设置对象（主题、快捷键、
@@ -168,6 +173,7 @@ export const UNSUPPORTED_API_MEMBERS = [
 	'registerMessageRenderer',
 	'registerMarkdownTransformer',
 	'registerEntryRenderer',
+	'registerToolRenderer',
 	'registerProvider',
 	'unregisterProvider',
 	'sendMessage',

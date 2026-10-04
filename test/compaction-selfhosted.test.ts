@@ -1,4 +1,4 @@
-// test/compaction-selfhosted.test.ts —— 自持 compaction 与上游 1.0.0 的逐字对照（P4）。
+// test/compaction-selfhosted.test.ts —— 自持 compaction 与上游 1.0.2 的逐字对照（P4）。
 //
 // 手法同 P2 的「静态契约面 import 上游产物逐字比对」：直接 import 上游 `dist/core/messages.js`
 // （该文件零 node 内建，vitest 里能 import；用相对路径绕开 pi-coding-agent 的 `exports` 白名单），
@@ -10,7 +10,7 @@ import {
 import * as upstreamMessages from '../node_modules/@earendil-works/pi-coding-agent/dist/core/messages.js';
 import { DEFAULT_COMPACTION_SETTINGS as upstreamSettings } from '../node_modules/@earendil-works/pi-coding-agent/dist/core/compaction/compaction.js';
 
-describe('createCompactionSummaryMessage 与上游 1.0.0 逐字一致', () => {
+describe('createCompactionSummaryMessage 与上游 1.0.2 逐字一致', () => {
 	it('字段集合与取值逐字（role / summary / tokensBefore / timestamp）', () => {
 		const ours = createCompactionSummaryMessage('摘要', 1234, '2026-10-02T08:00:00.000Z');
 		const theirs = upstreamMessages.createCompactionSummaryMessage('摘要', 1234, '2026-10-02T08:00:00.000Z');

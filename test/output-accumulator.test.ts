@@ -1,4 +1,4 @@
-// T1.2：OutputAccumulator —— 上游 pi-coding-agent@1.0.0 `dist/core/tools/output-accumulator.js` 的转写。
+// T1.2：OutputAccumulator —— 上游 pi-coding-agent@1.0.2 `dist/core/tools/output-accumulator.js` 的转写。
 // 平台偏差（spec D1/D2）：`append` 收 Uint8Array（上游收 Buffer）；spill 走注入 seam（上游直接 node:os + node:fs）。
 import { describe, it, expect, vi } from 'vitest';
 import { OutputAccumulator, createMountSpill } from '../src/shell/output-accumulator';

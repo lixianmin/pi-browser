@@ -371,7 +371,7 @@ describe('Write tool', () => {
 });
 
 describe('Edit tool', () => {
-	// 注意（2026-10-02 裁决）：edit-diff 逐字转写上游 1.0.0 后，匹配/替换类失败抛 plain `Error`
+	// 注意（2026-10-02 裁决）：edit-diff 逐字转写上游 1.0.2 后，匹配/替换类失败抛 plain `Error`
 	//（上游文案）；只有 fs 类失败经 fs-ops 仍是带 FileErrorCode 的 `FileError`。
 	const SKETCH = 'void setup() {\n  pinMode(2, OUTPUT);\n}\nvoid loop() {\n  digitalWrite(2, HIGH);\n}\n';
 	let fs: BrowserFileSystem;
@@ -412,7 +412,7 @@ describe('Edit tool', () => {
 		expect(r.details.patch).toMatch(/^@@ -\d+(,\d+)? \+\d+(,\d+)? @@/m);   // 真 unified patch 的 hunk 头（jsdiff createTwoFilesPatch）
 	});
 
-	it('多命中 → 报错（上游 1.0.0 文案，plain Error）', async () => {
+	it('多命中 → 报错（上游 1.0.2 文案，plain Error）', async () => {
 		await seed(fs, { 'dup.txt': 'x = 1;\ny = 2;\nx = 1;\nz = 3;\nx = 1;\n' });
 		const t = createEditTool('/', { operations: editOps(fs) });
 		await expect(t.execute('id', { path: 'dup.txt', edits: [{ oldText: 'x = 1;', newText: 'x = 9;' }] }))

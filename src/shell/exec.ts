@@ -59,7 +59,7 @@ function quoteForShell(value: string): string {
 	return `'${value.split("'").join("'\\''")}'`;
 }
 
-/** 输出交付 sink：1.0.0 的契约是「env 只转发原始解码分片 + 超阈值把全量 spill 到文件」——截断与呈现归调用方 */
+/** 输出交付 sink：1.0.2 的契约是「env 只转发原始解码分片 + 超阈值把全量 spill 到文件」——截断与呈现归调用方 */
 interface OutputSink {
 	deliver(bytes: Uint8Array): void;
 	/** 收尾：刷解码器、落盘 spill；返回 spill 的虚拟路径（未越阈值或无 spill 时为 undefined） */
@@ -140,7 +140,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	 * 「全文没落成盘」——它不得把 shell 错误变成不透明 reject，也不得跳过 guest 的写落盘。
 	 */
 	/**
-	 * 带 spill 路径的错误（pi-durable 1.0.0 的 `ExecutionError.spillPath` 字段就是为此存在）：
+	 * 带 spill 路径的错误（pi-durable 1.0.2 的 `ExecutionError.spillPath` 字段就是为此存在）：
 	 * 命令被 timeout / abort / 回调失败杀掉时，输出**可能已经越阈值落盘**——那条路径不给调用方，
 	 * 落盘文件就成了不可达的孤儿（全量输出白丢）。所以每个错误分支都要把它带上。
 	 */

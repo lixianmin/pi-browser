@@ -1,6 +1,6 @@
 // src/extensions/runtime.ts —— 扩展运行时（P3 Task 18；上游 `ExtensionRuntime` 同名同形）。
 //
-// 出处：pi-coding-agent@1.0.0 `dist/core/extensions/types.d.ts:1551-1680`。
+// 出处：pi-coding-agent@1.0.2 `dist/core/extensions/types.d.ts:1559-1688`。
 // 上游 loader 建一份「动作全是抛错 stub」的 runtime，runner 在 `bindCore` 时把真动作拷进去。
 //
 // 浏览器子集（spec C11/F16；不造 stub 顶替不支持面）：

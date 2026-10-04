@@ -1,6 +1,6 @@
 // src/shell/output-accumulator.ts —— shell 输出的有界累积与展示视图。
 //
-// 出处：@earendil-works/pi-coding-agent@1.0.0 `dist/core/tools/output-accumulator.js` 的转写
+// 出处：@earendil-works/pi-coding-agent@1.0.2 `dist/core/tools/output-accumulator.js` 的转写
 // （它取代了 pi-agent-core@0.99.1 `harness/utils/output-capture.ts` 的增量 diff 模型：
 //  `ShellOutputView`/`applyShellOutputUpdate` 已从上游消失，改为「快照」）。
 // 上游类注释：流式累积、只为展示保留一段解码尾巴、超阈值时把完整输出落到临时文件。

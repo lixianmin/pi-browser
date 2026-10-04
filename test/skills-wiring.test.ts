@@ -1,5 +1,5 @@
 // @vitest-environment node
-// Task 5：skills 的渲染与消费点接线。渲染器现在是本包自持（文案逐字对齐 pi-coding-agent@1.0.0）。
+// Task 5：skills 的渲染与消费点接线。渲染器现在是本包自持（文案逐字对齐 pi-coding-agent@1.0.2）。
 // `formatSkillInvocation` 已删（1.0.0 无同名物）；`AgentHarnessResources` 的接线在 P3 随构造模型重建。
 import { describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT } from '../src/env/context';

@@ -76,7 +76,7 @@ export const lsOps = (fs: BrowserFileSystem): LsOperations => ({
 	readdir: async (absolutePath) => unwrap(await fs.listDir(absolutePath, BACKGROUND_CONTEXT)).map((entry) => entry.name),
 });
 
-/** 把本仓 `ExecutionEnv.exec`（`onOutput`/`spill` 的 1.0.0 契约）适配成上游 `BashOperations.exec`（`onData`）。 */
+/** 把本仓 `ExecutionEnv.exec`（`onOutput`/`spill` 的 1.0.2 契约）适配成上游 `BashOperations.exec`（`onData`）。 */
 export const bashOps = (env: ExecutionEnv): BashOperations => ({
 	exec: async (command, cwd, { onData, signal, timeout, env: execEnv }) => {
 		const result = await env.exec(command, {

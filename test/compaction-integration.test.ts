@@ -1,5 +1,5 @@
 // @vitest-environment node
-// P6/P5：compaction 集成验证 —— 阈值触发与切点，改挂到上游 1.0.0 的**纯函数**上。
+// P6/P5：compaction 集成验证 —— 阈值触发与切点，改挂到上游 1.0.2 的**纯函数**上。
 //
 // 为什么重写（0.99.1 → 1.0.0）：原先这个文件让 **pi-agent-core@0.99.1 的 harness 自动压缩**
 // （faux provider + `AgentHarness.create` + `JsonlSessionRepo`）在一个 pi-browser fs 支撑的会话上跑一遍。
@@ -26,7 +26,7 @@ import { buildSessionContext } from '../node_modules/@earendil-works/pi-coding-a
 const SETTINGS: CompactionSettings = { enabled: true, reserveTokens: 256, keepRecentTokens: 128 };
 const CONTEXT_WINDOW = 2048;
 
-// pi-ai@1.0.0 的 `Usage.totalTokens` 是**必填**（types.d.ts:302）；漏了它，上游的
+// pi-ai@1.0.2 的 `Usage.totalTokens` 是**必填**（types.d.ts:304）；漏了它，上游的
 // `calculateContextTokens` 会回退到 input+output+…，而测试仍然绿 —— 于是「usage 路径坏掉」这件事
 // 会被估算回退掩盖。补上，并让断言断在一个具体数字上（见下面 tokensBefore）。
 const usage = (input: number, output: number) => ({
@@ -62,7 +62,7 @@ const chain = (turns: number) => {
 	return entries;
 };
 
-describe('compaction：阈值触发与切点（上游 1.0.0 纯函数）', () => {
+describe('compaction：阈值触发与切点（上游 1.0.2 纯函数）', () => {
 	it('settings 必须写死：上游默认档配 2048 的 contextWindow 会让阈值恒真', () => {
 		// 上游 shouldCompact：contextTokens > contextWindow - reserveTokens
 		expect(CONTEXT_WINDOW - DEFAULT_COMPACTION_SETTINGS.reserveTokens).toBeLessThan(0);

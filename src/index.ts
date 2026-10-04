@@ -55,7 +55,7 @@ export { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from './tools/trunca
 export type { ImagePhoton, ImageResizeOptions, ProcessedImage, ResizedImage } from './tools/image-process';
 // shell 输出（spec §4 第 5 条：替代 `ShellOutputView` 的那半面）
 export { OutputAccumulator, type OutputAccumulatorOptions, type OutputAccumulatorSpill, type OutputSnapshot } from './shell/output-accumulator';
-// S4 skills（spec §3.4 / P4）：发现、校验、渲染全在本包（名字/形状/文案对齐 1.0.0，异步是本仓偏差 D3）。
+// S4 skills（spec §3.4 / P4）：发现、校验、渲染全在本包（名字/形状/文案对齐 1.0.2，异步是本仓偏差 D3）。
 // `loadBrowserSkills` / `loadSkillsFromEnv`（自造名，R3）与 `formatSkillInvocation`（依赖 1.0.0 已删的
 // `skill.content`）都已移除。
 export {

@@ -1,7 +1,7 @@
 // @vitest-environment node
 // spec §3.2/§4.2：exec 接线 wasi-sh busybox。vitest 是 node env（无 Worker 全局）→ 走 inline 路径；
 // worker/硬杀路径的自动化不在 M3 闸门内（spec §4.2：以 spike 真浏览器实测 + 代码评审为据）。
-// Task 6：契约换成 1.0.0 的 onOutput/spill（呈现归调用方），补 4 条 Review Focus 测试（#1 #2 #5 + onOutput 拼接）。
+// Task 6：契约换成 1.0.2 的 onOutput/spill（呈现归调用方），补 4 条 Review Focus 测试（#1 #2 #5 + onOutput 拼接）。
 import { afterEach, describe, it, expect } from 'vitest';
 import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
 import { err, FileError, type ExecutionError, type Result } from '@earendil-works/pi-durable/env';
@@ -99,7 +99,7 @@ describe('exec：busybox inline 路径', () => {
 	});
 });
 
-describe('exec：onOutput / spill（1.0.0 契约）', () => {
+describe('exec：onOutput / spill（1.0.2 契约）', () => {
 	// Review Focus：分片拼接等于完整 stdout
 	it('onOutput 收到原始解码分片，拼接等于完整 stdout', async () => {
 		const env = isolatedEnv();
@@ -176,7 +176,7 @@ describe('exec：onOutput / spill（1.0.0 契约）', () => {
 		expect(calls).toBeGreaterThan(0);
 	}, 40000);
 
-	// pi-durable 1.0.0 的 `ExecutionError.spillPath`（env/index.d.ts:26）就是为「命令被杀但输出已经
+	// pi-durable 1.0.2 的 `ExecutionError.spillPath`（env/index.d.ts:26）就是为「命令被杀但输出已经
 	// 越阈值落盘」准备的。回归：这类命令被 abort 后，错误对象必须带得上那条路径，否则落盘文件成了
 	// 不可达的孤儿、调用方永远拿不到已产生的全量输出。
 	it('命令被 abort 且输出已越阈值：错误对象带 spillPath（孤儿文件回归）', async () => {

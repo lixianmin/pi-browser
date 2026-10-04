@@ -1,5 +1,5 @@
 // src/tools/write-tool.ts —— Write 工具（P2b Task 12）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/write.{js,d.ts}：schema 字段描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/write.{js,d.ts}：schema 字段描述 / description /
 // promptSnippet / promptGuidelines / WriteOperations / 两导出形状（details 恒为 undefined）。
 // 实现体自持：fs 由调用方注入（D5）；不移植上游的 `withFileMutationQueue`（实现体、非契约面）。
 // 成功文案与上游逐字：`Successfully wrote to <path>`（本仓旧版的 `(N bytes)` 后缀已删）。

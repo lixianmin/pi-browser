@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-M9（v1.0.0）：**pi-coding-agent 1.0.0 对齐完成**——依赖从 0.99.1 升到 1.0.0（`pi-agent-core` 在 1.0.0 只剩 agent / agent-loop / proxy / stream-fn / types 五个模块，`harness/`、`JsonlSessionRepo`、`harness/compaction` 整块消失）；七工具换成上游的「两导出 + operations 缝」并逐字对齐静态契约面（schema / description / snippet / guidelines 由测试直接 import 上游 `createXToolDefinition` 比对）；共享件 `truncate` / `path-utils` / `edit-diff` 逐字转写；扩展宿主换注入模型（`createExtensionRuntime` + `runner.bindCore(actions, contextActions)`，事件由宿主在对应时机调 runner 的 `emit` / 具名 `emitXxx`，25 条事件各有逐路由触发测试）；skills 改名 `formatSkillsForPrompt` + compaction 自持（1.0.0 把它搬进 CLI 仓）；会话格式对照落到 v3 JSONL + 上游纯函数（1.0.0 的 `SessionManager` 是 node:fs 绑定 + 私有构造，喂不进浏览器 fs）。**破坏性变更清单**见「公开面 API」表与「平台偏差」节（D1–D8）——其中 `createCompactionSummaryMessage` 的 `timestamp` 从 `string | number` 收窄为 `string`，扩展 handler 的载荷类型从 core 的形状换成上游 pi 事件的形状（`tool_call` 的 `args` → `input`、`session_start` 多必填 `reason`）。M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`read`/`write`/`edit`/`grep`/`ls`/`find`/`bash`，fs 背书；名字 1:1 对齐上游 pi-coding-agent `core/tools/`，wire-level `name`/`label` 与公开 export 名全部一致）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
+M10（2026-10-04，包版本仍 v1.0.0）：**上游家族整体升到 1.0.2**——`chord` / `pi-agent-core` / `pi-ai` / `pi-durable`（运行时）与 `pi-coding-agent`（devDep，对照基线）从 1.0.0 升到 1.0.2。契约面逐文件比对上游产物后的漂移只有一条：`ExtensionAPI.registerToolRenderer`（1.0.1 新增，入参是 TUI 渲染器解析链）——本仓无 TUI，列入不支持（见「扩展」节）；事件名 41 / `ExtensionContext` 18 成员 / 七工具 / compaction / 会话 v3 JSONL 全部逐字未变，既有转写件无需改形状。M9（v1.0.0）：**pi-coding-agent 1.0.0 对齐完成**——依赖从 0.99.1 升到 1.0.0（`pi-agent-core` 在 1.0.0 只剩 agent / agent-loop / proxy / stream-fn / types 五个模块，`harness/`、`JsonlSessionRepo`、`harness/compaction` 整块消失）；七工具换成上游的「两导出 + operations 缝」并逐字对齐静态契约面（schema / description / snippet / guidelines 由测试直接 import 上游 `createXToolDefinition` 比对）；共享件 `truncate` / `path-utils` / `edit-diff` 逐字转写；扩展宿主换注入模型（`createExtensionRuntime` + `runner.bindCore(actions, contextActions)`，事件由宿主在对应时机调 runner 的 `emit` / 具名 `emitXxx`，25 条事件各有逐路由触发测试）；skills 改名 `formatSkillsForPrompt` + compaction 自持（1.0.0 把它搬进 CLI 仓）；会话格式对照落到 v3 JSONL + 上游纯函数（1.0.0 的 `SessionManager` 是 node:fs 绑定 + 私有构造，喂不进浏览器 fs）。**破坏性变更清单**见「公开面 API」表与「平台偏差」节（D1–D8）——其中 `createCompactionSummaryMessage` 的 `timestamp` 从 `string | number` 收窄为 `string`，扩展 handler 的载荷类型从 core 的形状换成上游 pi 事件的形状（`tool_call` 的 `args` → `input`、`session_start` 多必填 `reason`）。M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`read`/`write`/`edit`/`grep`/`ls`/`find`/`bash`，fs 背书；名字 1:1 对齐上游 pi-coding-agent `core/tools/`，wire-level `name`/`label` 与公开 export 名全部一致）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
 
 ## 公开面 API
 
@@ -38,10 +38,10 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `OutputAccumulator` | `class`（`new OutputAccumulator(options)` / `append(bytes)` / `finish()` / `snapshot({ persistIfTruncated })` / `close()`） | shell 输出的累积与截断（替代 0.99.1 的 `ShellOutputView` 增量 diff 模型：上游已删）。配 `OutputAccumulatorSpill` 落盘（挂载表的 `/tmp`，见平台偏差 D2） |
 | `relativizeFindResultPath` | `(resultPath: string, searchPath: string) => string` | 把 find 的结果路径相对化（find 内部也用它，导出供宿主拼自己的消息） |
 | `DEFAULT_MAX_LINES` / `DEFAULT_MAX_BYTES` / `formatSize` | `2000` / `50 * 1024` / `(bytes: number) => string` | 截断阈值与「已截断」提示里的尺寸文案（上游 `core/tools/truncate.js` 的同名导出，值一致）。配 `TruncationResult` / `MiddleTruncationResult` 读结果字段 |
-| `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.0 选项形状；首参的 `env` 是 fs 缝（同 grep 遍历 / find glob / bash operations：上游 1.0.0 的 loader 直接吃 node:fs，浏览器侧必须注入）——异步也是本仓偏差（上游同步）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
+| `loadSkills` | `(env: ExecutionEnv, o: { cwd; agentDir; skillPaths; includeDefaults }, ctx?) => Promise<{ skills; diagnostics }>` | 1.0.2 选项形状；首参的 `env` 是 fs 缝（同 grep 遍历 / find glob / bash operations：上游 1.0.2 的 loader 直接吃 node:fs，浏览器侧必须注入）——异步也是本仓偏差（上游同步）；`includeDefaults` 走 `<agentDir>/skills` + `<cwd>/.pi/skills` |
 | `loadSkillsFromDir` | `(env: ExecutionEnv, o: { dir; source }, ctx?) => Promise<{ skills; diagnostics }>` | 扫描单个目录（`SKILL.md` 当根不下探；否则收根级 `.md` 再递归） |
-| `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.0 |
-| `createCompactionSummaryMessage` | `(summary: string, tokensBefore: number, timestamp: string) => CompactionSummaryMessage` | `compaction` 条目的消息投影（role `compactionSummary`）。**本包自持**（1.0.0 把 compaction 搬进 CLI 仓、不再从 agent-core 导出），实现体逐字对齐上游 1.0.0 并由 `test/compaction-selfhosted.test.ts` 对着上游 `dist/core/messages.js` 比对。⚠️ **破坏性**：`timestamp` 从 0.99.1 的 `string \| number` 收窄为 `string`（运行期等价，`new Date(n).getTime() === n`） |
+| `formatSkillsForPrompt` | `(skills: Skill[], fileReadTool?: 'read' \| 'bash') => string` | 清单块（含 `<location>`，过滤 `disableModelInvocation`）；文案逐字对齐 1.0.2 |
+| `createCompactionSummaryMessage` | `(summary: string, tokensBefore: number, timestamp: string) => CompactionSummaryMessage` | `compaction` 条目的消息投影（role `compactionSummary`）。**本包自持**（1.0.0 把 compaction 搬进 CLI 仓、不再从 agent-core 导出），实现体逐字对齐上游 1.0.2 并由 `test/compaction-selfhosted.test.ts` 对着上游 `dist/core/messages.js` 比对。⚠️ **破坏性**：`timestamp` 从 0.99.1 的 `string \| number` 收窄为 `string`（运行期等价，`new Date(n).getTime() === n`） |
 | `DEFAULT_COMPACTION_SETTINGS` | `{ enabled; reserveTokens; keepRecentTokens }` | **CLI 侧**（`@earendil-works/pi-coding-agent`）compaction 默认值，喂上游 `shouldCompact(tokens, contextWindow, settings)`（`reserveTokens: 16384`——小 `contextWindow` 必须显式收窄，见下）。与 durable 侧的 `DEFAULT_COMPACTION_POLICY` **不是同一个契约**：前三字段同名同值，durable 那份多一个 `backgroundTokens` |
 | `DEFAULT_BROWSER_COMPACTION_POLICY` | `{ enabled; reserveTokens; keepRecentTokens; backgroundTokens }` | **durable 侧** compaction 默认策略（批 2 B-4）在公开面上的本仓名字：四字段**逐字镜像** durable 的 `DEFAULT_COMPACTION_POLICY`（`reserveTokens: 16384` / `keepRecentTokens: 20000` / `backgroundTokens: 32768`），`test/session-compaction.test.ts` 对着上游真常量断言它，上游改数值这里就红。**装配层不 merge 它**：`openBrowserHarness` 把 `settings` 原样转发，`Harness.open` 的 `resolveSettings` 自己拿 `DEFAULT_COMPACTION_POLICY` 补缺省（与这份镜像同值），调用方要改就经 `settings.compaction` 覆盖任意字段。压缩的**执行体**是 durable 内建的 `CompactionTask`（本仓不实现压缩），它写的 `pi.compaction` 条目的 `model` 是一条**带摘要的 `[UserMessage]`**（`<summary>` 包裹），不走本包的 `compactionSummary` 角色——两者属于不同数据通路（durable 的 `CompactionEntry` vs CLI 侧 transcript） |
 | `createBrowserExecutionEnv`（续） | `hostCommands?: Record<string, HostCommandHandler>` | 宿主命令注册表（见「宿主命令」节） |
@@ -85,7 +85,7 @@ const tools = [
 - 两者都由 `test/equivalence.node.test.ts` 的策展等价表与上游 `NodeExecutionEnv` 逐条比对（含末行截断、结尾换行、空文件、`maxLines: 0` 短路），`test/memory-backend.test.ts` / `test/idb-backend.test.ts` 另有一份同断言集。
 
 ## skills 与 compaction（S4）
-- **skills**：`loadSkills(env, { cwd, agentDir, skillPaths, includeDefaults })`（或 `loadSkillsFromDir(env, { dir, source })`）加载，产物是 `Skill[]`（`{ name, description, filePath, baseDir, sourceInfo, disableModelInvocation }`——**没有 `content`**，调用 skill 时去 `filePath` 读文件）。清单渲染用 `formatSkillsForPrompt(skills, fileReadTool?)`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）由本库自持，形状与文案对齐 `pi-coding-agent@1.0.0`。
+- **skills**：`loadSkills(env, { cwd, agentDir, skillPaths, includeDefaults })`（或 `loadSkillsFromDir(env, { dir, source })`）加载，产物是 `Skill[]`（`{ name, description, filePath, baseDir, sourceInfo, disableModelInvocation }`——**没有 `content`**，调用 skill 时去 `filePath` 读文件）。清单渲染用 `formatSkillsForPrompt(skills, fileReadTool?)`。发现/校验规则（`SKILL.md`、frontmatter、忽略文件）由本库自持，形状与文案对齐 `pi-coding-agent@1.0.2`。
   - **破坏性变更（v0.6）**：`loadBrowserSkills` / `loadSkillsFromEnv` / `formatSkillInvocation` 已删。前两个由 `loadSkills` 的选项形状覆盖（自建 env 的便利路径改成 `createBrowserExecutionEnv()` + `loadSkills()` 两步显式写）；`formatSkillInvocation` 依赖 1.0.0 已删的 `skill.content`，上游没有同名物。
   - **破坏性变更（v0.6）**：`/skills` 不再是隐式加载的默认 root（1.0.0 没有「默认 roots」概念，`includeDefaults` 只覆盖 `<agentDir>/skills` 与 `<cwd>/.pi/skills`）。要 `/skills` 就在 `skillPaths` 里显式给。
 - **compaction**：本库**不直接调** `compact`/`prepareCompaction`（那两条会引入 pi-ai 运行时依赖）。`AgentHarness` 自带自动压缩，由构造选项 `compaction: CompactionSettings` 驱动，产物是会话里的 `compaction` 条目（`summary` + `retainedTail`）；事件面 `compaction_start`/`compaction_end`（`reason: manual | threshold | overflow`），`before_compaction` 钩子可返回 `{ decline: true }` 拦截。
@@ -199,9 +199,9 @@ await runner.emit({ type: 'agent_start' });                     // 事件由宿�
 - **同步/异步错位已消解**：pi 的 `getSessionName` / `getThinkingLevel` / `getActiveTools` 是同步值，宿主在 `bindCore` 注入的就是同步动作（上游 `ExtensionActions` 同为同步），所以 API 直接读宿主动作，不再有缓存。
 - **注册期锁**：扩展工厂里调用运行期成员会**响亮抛错**（对齐 pi 的 `assertActive()` 与 loader 的抛错 stub）；`close()` 后再次锁死。
 
-### 不支持的 API 成员（18，保留原名）
+### 不支持的 API 成员（19，保留原名）
 
-- 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag` / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer`
+- 无 slash 命令面 / 无 TUI：`registerCommand` / `getCommands` / `registerShortcut` / `registerFlag` / `getFlag` / `registerMessageRenderer` / `registerEntryRenderer` / `registerMarkdownTransformer` / `registerToolRenderer`（1.0.1 新增；入参是 TUI 渲染器解析链，本仓无 TUI）
 - 配置面由 app 拥有，扩展只选择不注册：`registerProvider` / `unregisterProvider` / `registerVirtualModel` / `unregisterVirtualModel`（模型目录由 app 配置）
 - 本仓无对应物，不发明形状：`getSettings`（pi 的 `Settings` 是 CLI 设置对象，浏览器宿主没有设置面）/ `registerMcpServer` / `unregisterMcpServer` / `getMcpServers`（MCP 连接管理器需要进程/网络侧，pi-agent-core / pi-ai 都无对应物）/ `exec`（pi 的 `ExecResult` 与 pi-agent-core 的 `Result` 形状映射未核实）/ `sendMessage`（pi 的 `display` 是 TUI 渲染函数，进不了 `JsonValue`）
 
@@ -212,7 +212,7 @@ await runner.emit({ type: 'agent_start' });                     // 事件由宿�
 
 ### 事件：`on(event, handler)` 支持 25 / 不支持 16
 
-**事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷由宿主经 `emit` 交付，所以类型**逐字对齐 pi 1.0.0**（`src/extensions/events.ts`；`test/extensions-events-types.test.ts` 直接 import 上游 `.d.ts` 做双向 assignability 对照，转写漂了 tsc 当场红）。
+**事件名是封闭集合，编译期就拦住。** `ExtensionAPI.on` 的签名是 `on<E extends keyof ExtensionEventMap>(event, handler)`——支持的事件名有补全，不支持/写错的名字**编不过**，不用等到运行期。载荷由宿主经 `emit` 交付，所以类型**逐字对齐 pi 1.0.2**（`src/extensions/events.ts`；`test/extensions-events-types.test.ts` 直接 import 上游 `.d.ts` 做双向 assignability 对照，转写漂了 tsc 当场红）。
 
 ```ts
 pi.on('tool_call', (event) => {            // 联合按工具名分派：event.input 的类型跟着 toolName 变
@@ -233,7 +233,7 @@ pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件�
 
 ### 平台偏差
 
-对着 pi-coding-agent@1.0.0 逐字对齐之后，仍然存在的差异都在这里列清（spec §3.4 的 D1–D7 逐条 +
+对着 pi-coding-agent@1.0.2 逐字对齐之后，仍然存在的差异都在这里列清（spec §3.4 的 D1–D7 逐条 +
 迁移各批累积的）。**判断口径**：凡是上游依赖 Node 运行时（fs / Buffer / 临时目录 / wasm / 进程）
 的地方，浏览器侧走同款「注入缝」或如实降级，不造「差不多」的替代物；凡是能对齐的，已经对齐。
 
@@ -246,7 +246,7 @@ pi.on('ui_prompt_start', () => {});        // 编译错误：不支持的事件�
 `OutputSnapshot.fullOutputPath` 因此是**浏览器虚拟路径**（如 `/tmp/pi-bash-xxx`），不是宿主真实路径。
 没有 `/tmp` 挂载时它会落到 `/`（默认装配下即持久 IDB 会话库）——用 `OutputAccumulatorSpill` 可自定义。
 
-**D3 `loadSkills` 异步。** 上游 1.0.0 是同步函数（Node fs）；浏览器后端（IDB / lightning-fs）的读
+**D3 `loadSkills` 异步。** 上游 1.0.2 是同步函数（Node fs）；浏览器后端（IDB / lightning-fs）的读
 是 Promise，无法同步。名字与选项形状照抄，返回值是 `Promise<LoadSkillsResult>`。首参的 `env` 是 fs 缝。
 
 **D4 `ExtensionRunner` 构造收窄为 `(extensions, runtime, cwd)`。** 上游多两个参数：`sessionManager`
@@ -305,7 +305,7 @@ busybox 只有一个进程，**无 fork**（后台任务 `&`、需 fork 的子 s
   prompt 与 tool 声明」，本仓做不到）；`session_start` / `session_shutdown` 由**宿主**经 emit 发
   （`reason` 只有宿主知道）；`before_agent_start` 的 system prompt 渲染函数、`turn_end` 的
   `buildContext` 由宿主注入（浏览器侧没有 system prompt 构造器，宿主才是它的所有者）。
-- **会话**：上游 1.0.0 的 `SessionManager` 是 `private constructor` + 直接 node:fs，喂不进本仓的
+- **会话**：上游 1.0.2 的 `SessionManager` 是 `private constructor` + 直接 node:fs，喂不进本仓的
   `BrowserFileSystem`；本包也没有会话写手（会话写入是宿主的事）。所以格式对照落在 v3 JSONL + 上游的
   纯函数 `parseSessionEntries` / `buildSessionContext` / `prepareCompaction` / `shouldCompact` 上，
   本仓 fs 的落盘与追加另有往返测试。

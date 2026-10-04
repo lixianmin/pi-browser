@@ -1,7 +1,7 @@
-// Task 10（P2a-3）：edit-diff 逐字转写 pi-coding-agent@1.0.0 后的契约测试。
+// Task 10（P2a-3）：edit-diff 逐字转写 pi-coding-agent@1.0.2 后的契约测试。
 //
 // 核心手段：直接 import 上游产物 `edit-diff.js` 做等价表，不手抄期望值
-// （上游产物由 devDep `@earendil-works/pi-coding-agent` 提供，devDep 精确钉 1.0.0）。
+// （上游产物由 devDep `@earendil-works/pi-coding-agent` 提供，devDep 精确钉 1.0.2）。
 // 本仓独有的偏离（fs 绑定的 computeEditsDiff 收注入式 operations）单独测。
 import { describe, it, expect } from 'vitest';
 import { constants } from 'node:fs';
@@ -26,7 +26,7 @@ const outcome = (
 	}
 };
 
-describe('edit-diff 与上游 1.0.0 同形', () => {
+describe('edit-diff 与上游 1.0.2 同形', () => {
 	it('运行时导出集合与上游 d.ts 的 11 个函数逐字相等', async () => {
 		const dts = await readFile(
 			new URL('../node_modules/@earendil-works/pi-coding-agent/dist/core/tools/edit-diff.d.ts', import.meta.url),

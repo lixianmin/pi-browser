@@ -1,8 +1,8 @@
 // src/skills/loader.ts —— skills 的发现 / 校验 / 渲染（浏览器自持）。
 //
-// 名字、形状、校验规则与 prompt 文案逐字对齐 `pi-coding-agent@1.0.0 dist/core/skills.d.ts` /
+// 名字、形状、校验规则与 prompt 文案逐字对齐 `pi-coding-agent@1.0.2 dist/core/skills.d.ts` /
 // `dist/core/skills.js`；结构（async + 经 `ExecutionEnv` 读盘）照 `pi-agent-core@0.99.1
-// dist/harness/skills.js`——上游 1.0.0 的实现在 Node 侧同步读 fs，浏览器后端的读是 Promise（spec D3）。
+// dist/harness/skills.js`——上游 1.0.2 的实现在 Node 侧同步读 fs，浏览器后端的读是 Promise（spec D3）。
 import ignore from 'ignore';
 import { parse } from 'yaml';
 import { BACKGROUND_CONTEXT, type Context } from '../env/context';
@@ -81,7 +81,7 @@ interface LoadSkillResult {
 /**
  * 从一个目录加载 skills。
  *
- * 发现规则（上游 1.0.0）：
+ * 发现规则（上游 1.0.2）：
  * - 目录里有 `SKILL.md` ⇒ 当 skill 根，不再下探
  * - 否则收根目录直属的 `.md`
  * - 再递归子目录找 `SKILL.md`
@@ -191,7 +191,7 @@ export async function loadSkills(
 	return { skills: [...skillMap.values()], diagnostics: [...allDiagnostics, ...collisionDiagnostics] };
 }
 
-/** 把 skills 渲染成 system prompt 的 XML 清单块（文案逐字取自上游 1.0.0） */
+/** 把 skills 渲染成 system prompt 的 XML 清单块（文案逐字取自上游 1.0.2） */
 export function formatSkillsForPrompt(skills: Skill[], fileReadTool: 'read' | 'bash' = 'read'): string {
 	const visibleSkills = skills.filter((s) => !s.disableModelInvocation);
 	if (visibleSkills.length === 0) return '';

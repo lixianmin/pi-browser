@@ -1,5 +1,5 @@
 // src/tools/image-mime.ts —— 图片魔数嗅探（P2b Task 11；spec D6 / R1）。
-// 转写源：pi-coding-agent@1.0.0 `dist/utils/mime.js` 的 `detectSupportedImageMimeType` 一族。
+// 转写源：pi-coding-agent@1.0.2 `dist/utils/mime.js` 的 `detectSupportedImageMimeType` 一族。
 // 唯一偏离：`Buffer` → `Uint8Array`（spec D1）。
 // `detectSupportedImageMimeTypeFromFile` **不移植**：上游用 node:fs open/read 只取前 4100 字节；
 // 浏览器没有全局 fs，嗅探由 `ReadOperations.detectImageMimeType` 注入（调用方取到字节后调本函数）。

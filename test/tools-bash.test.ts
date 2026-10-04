@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Task 17（P2d）：Bash 工具契约测试。
-// 1.0.0 形状：`createBashTool(cwd, { operations })` + `BashOperations.exec(command, cwd, { onData, … })`；
+// 1.0.2 形状：`createBashTool(cwd, { operations })` + `BashOperations.exec(command, cwd, { onData, … })`；
 // 输出经 onData 累积进工具自己的 OutputAccumulator（spill 由本仓扩展 seam 注入）；
 // exitCode ≠ 0 → `Command exited with code N` + isError；净化/去 \r 是 P1 保留行为。
 // 硬杀/超时路径不在本测试范围（spec §4.5：node 环境走 inline，以 spike 真浏览器实测 + 评审为据）。

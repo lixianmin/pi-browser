@@ -1,6 +1,6 @@
 // src/extensions/events.ts —— P3 Task 19：25 条「支持」事件的**载荷类型**（pi 同名同形，逐字转写）。
 //
-// 出处：pi-coding-agent@1.0.0 `dist/core/extensions/types.d.ts`。为什么需要这个文件：
+// 出处：pi-coding-agent@1.0.2 `dist/core/extensions/types.d.ts`。为什么需要这个文件：
 // 换注入模型后事件载荷**不再由 pi-agent-core 投递**，而是由浏览器宿主构造后交给 `runner.emit()`
 // （spec R6 / D4）。载荷形状因此成为「宿主 ↔ 扩展」之间的契约面，本文件就是那份契约。
 //

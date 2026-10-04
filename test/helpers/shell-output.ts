@@ -1,4 +1,4 @@
-// Task 6 的测试助手。1.0.0 的 exec 只交付**原始解码分片**（`ShellExecResult` 只有 exitCode + spillPath），
+// Task 6 的测试助手。1.0.2 的 exec 只交付**原始解码分片**（`ShellExecResult` 只有 exitCode + spillPath），
 // 展示文本由调用方用 `OutputAccumulator` 自己累积——所有 shell 测试共用这一条路径（与 `createBashTool` 同法）。
 import type { ExecutionError, Result } from '@earendil-works/pi-durable/env';
 import { BACKGROUND_CONTEXT, type Context } from '../../src/env/context';

@@ -36,7 +36,7 @@ function splitLinesForCounting(content: string): string[] {
 
 const _encoder = new TextEncoder();   // 浏览器/Node 均有 TextEncoder（Buffer 仅 Node，Web 无 —— 浏览器兼容必须走 TextEncoder）
 
-/** 字符串 UTF-8 字节长度（跨端：浏览器无 Buffer）。名字对齐上游 `utf8ByteLength`（pi-durable@1.0.0 `dist/truncate.d.ts`、pi-agent-core@0.99.1 `harness/utils/truncate.js:15`）。 */
+/** 字符串 UTF-8 字节长度（跨端：浏览器无 Buffer）。名字对齐上游 `utf8ByteLength`（pi-durable@1.0.2 `dist/truncate.d.ts`、pi-agent-core@0.99.1 `harness/utils/truncate.js:15`）。 */
 export function utf8ByteLength(content: string): number {
 	return _encoder.encode(content).length;
 }
@@ -158,7 +158,7 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
  *
  * **本仓自写**（plan Task 1 Step 3 指定手写，不是上游转写）：从 UTF-16 尾部按码点回扫，输出恒为合法 UTF-8
  * （未配对的代理项换成 U+FFFD），所以 `outputBytes === utf8ByteLength(content)` 恒成立。
- * 与上游 1.0.0 的 Buffer 切片版（`truncate.js` 里按 `buf.length - maxBytes` 切再跳过续接字节）在切点
+ * 与上游 1.0.2 的 Buffer 切片版（`truncate.js` 里按 `buf.length - maxBytes` 切再跳过续接字节）在切点
  * 恰好落在多字节字符边界时最多差 3 字节，且上游那版会在头部留一个替换字符。
  */
 function truncateStringToBytesFromEnd(str: string, maxBytes: number): string {
@@ -241,7 +241,7 @@ const _decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 /**
  * 保留 `content` 的头与尾（各占 `maxBytes` 的一半），中间换成 `…N chars truncated…` 标记。
- * 只在字符边界切。转写源：pi-coding-agent@1.0.0 dist/core/tools/truncate.js:219-243
+ * 只在字符边界切。转写源：pi-coding-agent@1.0.2 dist/core/tools/truncate.js:219-243
  * （唯一偏离：`Buffer` → `TextEncoder` / `TextDecoder`，见 spec D1）。
  */
 export function truncateMiddle(content: string, maxBytes: number): MiddleTruncationResult {

@@ -1,6 +1,6 @@
 // src/extensions/context.ts —— S6 spec §3.2/§3.3：交给 handler 的上下文（pi 同名，浏览器只给能兑现的子集）。
 //
-// 出处：@earendil-works/pi-coding-agent@1.0.0 `dist/core/extensions/types.d.ts:213`（`ExtensionContext`）
+// 出处：@earendil-works/pi-coding-agent@1.0.2 `dist/core/extensions/types.d.ts:213`（`ExtensionContext`）
 // 与 `runner.js:607`（`createContext()` 的实现体）。本文件只保留本仓兑现的 5 个成员：
 //   `cwd` / `model` / `signal` / `abort()` / `compact(options?)`。
 // 其余 13 个（`ui`/`mode`/`hasUI`/`sessionManager`/`modelRegistry`/`scopedModels`/`thinkingLevel`/`isIdle`/

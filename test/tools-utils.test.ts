@@ -93,7 +93,7 @@ describe('truncateTail（T1.1；对齐上游 harness/utils/truncate.js:178）', 
 	});
 });
 
-describe('truncateMiddle（P2a-1；对齐上游 pi-coding-agent@1.0.0 core/tools/truncate.js:219）', () => {
+describe('truncateMiddle（P2a-1；对齐上游 pi-coding-agent@1.0.2 core/tools/truncate.js:219）', () => {
 	it('不超限时原样返回', () => {
 		const r = truncateMiddle('hello\nworld\n', 1000);
 		expect(r).toEqual({ content: 'hello\nworld\n', truncated: false, removedChars: 0, totalBytes: 12, totalLines: 2 });

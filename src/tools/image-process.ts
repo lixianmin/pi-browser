@@ -1,4 +1,4 @@
-// src/tools/image-process.ts —— 图片处理（pi-coding-agent@1.0.0 的 `core/utils/image-*` 一族，浏览器版）。
+// src/tools/image-process.ts —— 图片处理（pi-coding-agent@1.0.2 的 `core/utils/image-*` 一族，浏览器版）。
 //
 // 出处与转写范围：
 //   · `processImage`            ← `dist/utils/image-process.js`（82 行，逐字）

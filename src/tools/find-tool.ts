@@ -1,5 +1,5 @@
 // src/tools/find-tool.ts —— Find 工具（P2c Task 15）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/find.{js,d.ts}：schema 字段描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/find.{js,d.ts}：schema 字段描述 / description /
 // promptSnippet / FindOperations / FindToolDetails / 导出 `relativizeFindResultPath` / 两导出形状。
 // 实现体自持：上游把文件查找外包给 fd，本仓由调用方注入 `FindOperations.glob`（D5），工具只做
 // 结果相对化、limit 与截断。平台偏差：文案声明 `respects .gitignore`，本仓不读 .gitignore（P6 README）。

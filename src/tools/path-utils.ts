@@ -1,5 +1,5 @@
 // src/tools/path-utils.ts —— 工具侧路径解析（Task 9 / P2a-2）。
-// 转写源：pi-coding-agent@1.0.0 dist/core/tools/path-utils.js（5 导出）。
+// 转写源：pi-coding-agent@1.0.2 dist/core/tools/path-utils.js（5 导出）。
 //
 // 三处浏览器偏离（spec §3.4 D5 同款；P6 落 README「平台偏差」）：
 //   ① 上游 pathExists 直接吃 node:fs/promises 的 `access`、resolveReadPath 用 `accessSync`。

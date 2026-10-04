@@ -1,5 +1,5 @@
 // src/tools/ls-tool.ts —— Ls 工具（P2c Task 16）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/ls.{js,d.ts}：schema 字段描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/ls.{js,d.ts}：schema 字段描述 / description /
 // promptSnippet / LsOperations / LsToolDetails / 两导出形状；输出与 notices 文案逐字上游。
 // 实现体自持：fs 访问由调用方注入 `LsOperations`（D5，上游走 node:fs）。
 // 行为变化（对齐上游）：`recursive` 字段删除（上游没有），输出是**条目名**（不是相对 cwd 的路径）。

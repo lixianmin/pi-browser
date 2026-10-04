@@ -1,5 +1,5 @@
 // src/tools/edit-tool.ts —— Edit 工具（P2b Task 13）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/edit.{js,d.ts}：schema 字段描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/edit.{js,d.ts}：schema 字段描述 / description /
 // promptSnippet / promptGuidelines / EditOperations / EditToolDetails / 两导出形状。
 // 实现体自持：匹配/替换走 P2a 转写的 edit-diff（上游语义）；fs 由调用方注入（D5）。
 // 不声明 `prepareArguments` / `withFileMutationQueue`（S6 §3.3：只留浏览器能兑现的字段；后者是实现体）。

@@ -1,5 +1,5 @@
 // src/tools/edit-diff.ts —— Edit 工具的匹配/替换与 diff 计算（Task 10 / P2a-3）。
-// 转写源：pi-coding-agent@1.0.0 dist/core/tools/edit-diff.js（420 行，逐字）。
+// 转写源：pi-coding-agent@1.0.2 dist/core/tools/edit-diff.js（420 行，逐字）。
 //
 // 只有三处偏离（其余逐字，含 plain `Error` 的文案）：
 //   ① `import * as Diff from 'diff'`：新增运行时依赖 diff@8.0.4（精确钉；上游同款、纯 ESM、浏览器安全）。

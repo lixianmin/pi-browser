@@ -1,5 +1,5 @@
 // @vitest-environment node
-// Task 5（skills 本地化）：名字/形状/文案对齐 pi-coding-agent@1.0.0 `dist/core/skills.d.ts`，
+// Task 5（skills 本地化）：名字/形状/文案对齐 pi-coding-agent@1.0.2 `dist/core/skills.d.ts`，
 // 结构（async + env）照 pi-agent-core@0.99.1 `dist/harness/skills.js`（浏览器形状）。
 // 双后端：内存（MemoryFileSystem）与 lightning-fs/IDB（`memory:false` + fake-indexeddb）。
 import './helpers/idb';
@@ -33,7 +33,7 @@ const SKILL = (frontmatter: string, body = '# 正文\n步骤\n'): string => `---
 
 for (const backend of ['memory', 'indexeddb'] as const) {
 	describe(`loadSkillsFromDir（${backend}）`, () => {
-		it('合法 SKILL.md：1.0.0 字段集（无 content，有 baseDir/sourceInfo）', async () => {
+		it('合法 SKILL.md：1.0.2 字段集（无 content，有 baseDir/sourceInfo）', async () => {
 			const env = makeEnv(backend, 'valid');
 			await write(env, '/skills/pdf/SKILL.md', SKILL('name: pdf\ndescription: 处理 PDF'));
 
@@ -117,7 +117,7 @@ for (const backend of ['memory', 'indexeddb'] as const) {
 	});
 }
 
-describe('loadSkills：选项形状（1.0.0）', () => {
+describe('loadSkills：选项形状（1.0.2）', () => {
 	it('includeDefaults：<agentDir>/skills（user）+ <cwd>/.pi/skills（project），sourceInfo.scope 分开', async () => {
 		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createMemoryFileSystem() }] });
 		await write(env, '/.pi/agent/skills/a/SKILL.md', SKILL('name: a\ndescription: 全局'));
@@ -209,7 +209,7 @@ describe('IDB 持久面：flush + 重开新实例后 skills 仍在', () => {
 	});
 });
 
-describe('formatSkillsForPrompt（1.0.0 逐字文案）', () => {
+describe('formatSkillsForPrompt（1.0.2 逐字文案）', () => {
 	const skill = (over: Partial<Skill> = {}): Skill => ({
 		name: 'pdf',
 		description: '处理 PDF',

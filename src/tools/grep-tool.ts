@@ -1,5 +1,5 @@
 // src/tools/grep-tool.ts —— Grep 工具（P2c Task 14）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/grep.{js,d.ts}：schema 字段描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/grep.{js,d.ts}：schema 字段描述 / description /
 // promptSnippet / GrepOperations / GrepToolDetails / 两导出形状；输出与 notices 文案逐字上游。
 // 实现体自持：上游把目录遍历外包给 ripgrep，`GrepOperations` 只有 {isDirectory, readFile}、没有遍历接缝，
 // 所以本仓在 `GrepToolOptions` 上额外收一个 `fs`（仅 grep；人类裁决 2026-10-02），遍历用本仓 listTree。

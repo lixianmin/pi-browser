@@ -1,5 +1,5 @@
 // src/tools/bash-tool.ts —— Bash 工具（P2d Task 17）。
-// 契约面 1:1 于 pi-coding-agent@1.0.0 dist/core/tools/bash.{js,d.ts}：schema 描述 / description /
+// 契约面 1:1 于 pi-coding-agent@1.0.2 dist/core/tools/bash.{js,d.ts}：schema 描述 / description /
 // promptSnippet / BashOperations / BashToolDetails / 两导出形状。
 // 偏离（写进 ledger）：
 //   ① `BashOperations.exec` 的 `onData` 用 `Uint8Array`（D1：上游 Buffer）、`env` 用 `Record<string,string>`。
@@ -32,7 +32,7 @@ const bashToolDescription = `Execute a bash command in the current working direc
 
 export type BashToolInput = Static<typeof bashSchema>;
 
-/** 上游 1.0.0 `BashToolDetails`：exit code 只进 content 文本，不在 details 里 */
+/** 上游 1.0.2 `BashToolDetails`：exit code 只进 content 文本，不在 details 里 */
 export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
@@ -131,7 +131,7 @@ async function executeBash(
 	}
 }
 
-/** 截断提示（形状取自上游 1.0.0 `formatOutput`）：模型靠它知道输出不完整、去哪读全文 */
+/** 截断提示（形状取自上游 1.0.2 `formatOutput`）：模型靠它知道输出不完整、去哪读全文 */
 function truncationNotice(truncation: TruncationResult, lastLineBytes: number, fullOutputPath: string | undefined): string {
 	const where = fullOutputPath === undefined ? '' : ` Full output: ${fullOutputPath}`;
 	const startLine = truncation.totalLines - truncation.outputLines + 1;

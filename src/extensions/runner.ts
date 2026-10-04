@@ -16,7 +16,7 @@
 //     宿主知道）；旧实现在 `load()` / `close()` 里自己发，那是在假装知道会话为何启动/关闭。
 //   · `context` 只跑上游的**第一相**（第二相 `context_with_system` 在本仓是 UNSUPPORTED，理由见
 //     contract.ts）。第一相的「handler 只看不含 system 的会话、每轮后还原 prompt 与工具状态」照抄，
-//     其依赖的 pi-ai `getCurrentSystemMessage` / `getCurrentTools` 在 pi-ai@1.0.0 里从根入口导出，
+//     其依赖的 pi-ai `getCurrentSystemMessage` / `getCurrentTools` 在 pi-ai@1.0.2 里从根入口导出，
 //     直接 import（P6 升版本时把本文件末尾那份 0.99.1 时期的转写删掉了）。
 //   · `before_agent_start` 的 system prompt 渲染函数由**宿主注入**（上游直接 import CLI 仓的
 //     `buildSystemPrompt`；浏览器侧没有 system prompt 构造器，宿主才是它的所有者）——与本仓 D5 的
