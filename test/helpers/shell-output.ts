@@ -24,8 +24,8 @@ export async function execWithOutput(
 	const accumulator = new OutputAccumulator();
 	const result = await env.exec(command, {
 		...options,
-		onOutput: (text) => {
-			options?.onOutput?.(text, context);
+		onOutput: (text, ctx, info) => {
+			options?.onOutput?.(text, ctx, info);
 			accumulator.append(ENCODER.encode(text));
 		},
 	}, context);

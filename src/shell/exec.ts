@@ -59,7 +59,7 @@ function quoteForShell(value: string): string {
 	return `'${value.split("'").join("'\\''")}'`;
 }
 
-/** 输出交付 sink：1.0.2 的契约是「env 只转发原始解码分片 + 超阈值把全量 spill 到文件」——截断与呈现归调用方 */
+/** 输出交付 sink：契约是「env 只转发原始解码分片 + 超阈值把全量 spill 到文件」——截断与呈现归调用方 */
 interface OutputSink {
 	deliver(bytes: Uint8Array): void;
 	/** 收尾：刷解码器、落盘 spill；返回 spill 的虚拟路径（未越阈值或无 spill 时为 undefined） */
@@ -108,7 +108,11 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 					// 空串不交付（上游显式跳过）：分片边界落在多字节字符中间时解码器会吐出空串
 					if (text !== '') {
 						try {
-							onOutput(text, context);
+							// pi-durable 1.0.3 起 onOutput 第三个参数是 `ShellOutputInfo`（上游 Node 侧按流分流）。
+							// 本仓两条路（inline `run()` 与 worker `Session`）都只给一路合流后的字节，
+							// wasi-sh 不透出流名，所以恒报 'stdout'——调用方不能靠 `stream` 分流两路
+							//（合并投递是本仓既有的有意分叉，见 shell-exec 测试「stderr 与 stdout 合入同一路」）。
+							onOutput(text, context, { stream: 'stdout' });
 						} catch (e) {
 							// 消费者的错不能让异常逃出 exec（契约是永远返回 Result），也不能被误标成 spawn_error。
 							// 上游的处置是记下 callback_error 并杀掉子进程。
@@ -123,7 +127,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			async finalize() {
 				if (decoder && onOutput) {
 					const tail = decoder.decode();
-					if (tail !== '') onOutput(tail, context);
+					if (tail !== '') onOutput(tail, context, { stream: 'stdout' });
 				}
 				if (!accumulator) return undefined;
 				accumulator.finish();

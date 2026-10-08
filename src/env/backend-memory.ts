@@ -5,6 +5,7 @@
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
+import { createBinaryReader, createDirReader } from './pull-readers';
 import type { BrowserFileSystem } from './types';
 
 const basename = (p: string): string => normalizePath(p).split('/').filter(Boolean).pop() ?? '';
@@ -48,6 +49,20 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		return { name: basename(abs), path: abs, kind: n.kind, size: n.bytes?.length ?? n.data?.length ?? 0, mtimeMs: n.mtimeMs };
 	};
 	const okv = <T>(v: T): Result<T, FileError> => ok(v);
+	/** `listDir` 与 `openDirReader` 共用：直属条目按名排序 */
+	const listEntries = (abs: string): Result<FileInfo[], FileError> => {
+		if (!isDir(abs)) return err(files.has(abs) ? new FileError('not_directory', `Not a directory: ${abs}`, abs) : notFound(abs));
+		const prefix = abs === '/' ? '/' : `${abs}/`;
+		const names = new Set<string>();
+		for (const key of files.keys()) {
+			if (!key.startsWith(prefix) || key === abs) continue;
+			const rest = key.slice(prefix.length);
+			if (rest.length > 0) names.add(rest.split('/')[0]);
+		}
+		return okv([...names].sort().map((n) => info(prefix + n)));
+	};
+	/** 节点上的字节（文本节点按 UTF-8 现算），供 `readBinaryFile` 与 `openBinaryReader` 共用 */
+	const bytesOf = (n: Node): Uint8Array => n.bytes ?? new TextEncoder().encode(n.data ?? '');
 
 	return {
 		cwd,
@@ -66,7 +81,16 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
-			return okv(n.bytes ?? new TextEncoder().encode(n.data ?? ''));
+			return okv(bytesOf(n));
+		},
+		// pi-durable 1.0.3 新增的必填契约：打开后的定位式读。`noFollow` 无从谈起（内存后端无符号链接），
+		// 目录按上游口径落 is_directory。抓的是打开瞬间那个节点对象，故此后改名不影响已开的读取器。
+		openBinaryReader: async (path) => {
+			const abs = normalizePath(path);
+			const n = files.get(abs);
+			if (!n || !parentOk(abs)) return err(notFound(abs));
+			if (n.kind === 'directory') return err(new FileError('is_directory', `Is a directory: ${abs}`, abs));
+			return okv(createBinaryReader(bytesOf(n), info(abs), abs));
 		},
 		// 与上游 `NodeExecutionEnv` 同语义（0.99.1 起上游内部就是走行读取器）：结尾换行**不**产生幽灵空行、
 		// 空文件返 []。旧版按 `split('\n')` 切，`"l1\nl2\n"` 会多出一行 `""`（已对齐上游）。
@@ -116,17 +140,12 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			if (!files.has(abs) || !parentOk(abs)) return err(notFound(abs));
 			return okv(info(abs));
 		},
-		listDir: async (path) => {
+		listDir: async (path) => listEntries(normalizePath(path)),
+		// pi-durable 1.0.3 新增的必填契约：目录分页。条目在 open 时列一次（见 pull-readers.ts 的快照取舍）
+		openDirReader: async (path) => {
 			const abs = normalizePath(path);
-			if (!isDir(abs)) return err(files.has(abs) ? new FileError('not_directory', `Not a directory: ${abs}`, abs) : notFound(abs));
-			const prefix = abs === '/' ? '/' : `${abs}/`;
-			const names = new Set<string>();
-			for (const key of files.keys()) {
-				if (!key.startsWith(prefix) || key === abs) continue;
-				const rest = key.slice(prefix.length);
-				if (rest.length > 0) names.add(rest.split('/')[0]);
-			}
-			return okv([...names].sort().map((n) => info(prefix + n)));
+			const listed = listEntries(abs);
+			return listed.ok ? okv(createDirReader(listed.value, abs)) : listed;
 		},
 		exists: async (path) => {
 			const abs = normalizePath(path);
@@ -195,6 +214,10 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			return okv(undefined);
 		},
 		cleanup: async () => { /* 无资源需释放 */ },
+		// pi-durable 1.0.3 新增的必填契约：浏览器没有 fs 事件源，**如实答不支持**，
+		// 不假装返回「永不变化的 watcher」（那会让调用方一直等不到覆盖建立）。
+		watch: async (targets) =>
+			err(new FileError('not_supported', `内存 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
 		// 内存 FS 无 debounce，写入即时完成；同形接口让上层统一调用（见 BrowserFileSystem.flush）
 		flush: async () => { /* no-op */ },
 	};

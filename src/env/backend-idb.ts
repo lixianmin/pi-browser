@@ -6,6 +6,7 @@ import LightningFS from '@isomorphic-git/lightning-fs';
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
+import { createBinaryReader, createDirReader } from './pull-readers';
 import { createMemoryFileSystem } from './backend-memory';
 import type { BrowserFileSystem } from './types';
 
@@ -175,6 +176,12 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		await onFs((f) => f.promises.rmdir(abs, undefined));
 	}
 
+	/** `listDir` 与 `openDirReader` 共用：readdir 原序 + 逐条 stat */
+	async function listEntries(abs: string): Promise<FileInfo[]> {
+		const names = await onFs((f) => f.promises.readdir(abs));
+		return await Promise.all(names.map((n) => statInfo(`${abs}/${n}`)));
+	}
+
 	const wrap = async <T>(path: string, fn: () => Promise<T>): Promise<Result<T, FileError>> => {
 		try { return ok<T, FileError>(await fn()); }
 		catch (e) { return err<T, FileError>(mapError(e, normalizePath(path))); }
@@ -190,6 +197,17 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 
 		readTextFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path), 'utf8'), path))),
 		readBinaryFile: (path) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path)), path))),
+		// pi-durable 1.0.3 新增的必填契约：打开后的定位式读。`noFollow` 无从谈起（lightning-fs 无符号链接），
+		// 目录按上游口径落 is_directory。整份字节在 open 时读进内存（lightning-fs 无真正的定位读原语）。
+		openBinaryReader: (path) => wrap(path, async () => {
+			const abs = normalizePath(path);
+			// 先 stat 再读：lightning-fs 的 readFile 读目录报 ENOENT（会被归一成 not_found），
+			// 而上游契约要目录落 is_directory
+			const opened = await statInfo(abs);
+			if (opened.kind === 'directory') throw new FileError('is_directory', `Is a directory: ${abs}`, abs);
+			const bytes = ensureFileContent(await onFs((f) => f.promises.readFile(abs)), abs) as Uint8Array;
+			return createBinaryReader(bytes, opened, abs);
+		}),
 		// 与上游 `NodeExecutionEnv` 同语义（0.99.1 起上游内部就是走行读取器）：结尾换行**不**产生幽灵空行、
 		// 空文件返 []。旧版按 `split('\n')` 切，`"l1\nl2\n"` 会多出一行 `""`（已对齐上游）。
 		// 这里不用 `wrap`：`readAllTextLines` 自己返 `Result`，套进去会变成 `Result<Result<…>>`。
@@ -229,10 +247,11 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			await onFs((f) => f.promises.rename(normalizePath(src), to));
 		}),
 		fileInfo: (path) => wrap(path, () => statInfo(path)),
-		listDir: (path) => wrap(path, async () => {
+		listDir: (path) => wrap(path, () => listEntries(normalizePath(path))),
+		// pi-durable 1.0.3 新增的必填契约：目录分页。条目在 open 时列一次（见 pull-readers.ts 的快照取舍）
+		openDirReader: (path) => wrap(path, async () => {
 			const abs = normalizePath(path);
-			const names = await onFs((f) => f.promises.readdir(abs));
-			return Promise.all(names.map((n) => statInfo(`${abs}/${n}`)));
+			return createDirReader(await listEntries(abs), abs);
 		}),
 		// lightning-fs 无符号链接：归一化即规范路径
 		canonicalPath: async (path: string) => ok(normalizePath(path)),
@@ -295,6 +314,10 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			await onFs((f) => f.promises.flush());
 		}),
 		cleanup: async () => { /* 无资源需释放 */ },
+		// pi-durable 1.0.3 新增的必填契约：浏览器没有 fs 事件源（lightning-fs 也不提供），
+		// **如实答不支持**，不假装返回「永不变化的 watcher」（那会让调用方一直等不到覆盖建立）。
+		watch: async (targets) =>
+			err(new FileError('not_supported', `浏览器 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
 		// 强制把超级块（目录树）写入 IDB，绕开 lightning-fs 的 500ms debounce（见 BrowserFileSystem.flush）
 		flush: async () => { await onFs((f) => f.promises.flush()); },
 	};

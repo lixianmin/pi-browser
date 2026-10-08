@@ -638,6 +638,8 @@ function normalizeBuildSystemPromptOptions(input: BuildSystemPromptOptions): Nor
 		customPrompt: input.customPrompt,
 		forceSystemPrompt: input.forceSystemPrompt,
 		selectedTools: [...(input.selectedTools ?? ['read', 'bash', 'edit', 'write'])],
+		// 上游 1.0.3 新增：`prepareLoadout` 把声明藏起来的工具（只能经别的工具到达），缺省空集
+		hiddenTools: [...(input.hiddenTools ?? [])],
 		toolSnippets: { ...(input.toolSnippets ?? {}) },
 		toolGuidelines: Object.fromEntries(
 			Object.entries(input.toolGuidelines ?? {}).map(([name, guidelines]) => [name, [...guidelines]]),

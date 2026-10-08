@@ -25,8 +25,23 @@ import { DEFAULT_COMPACTION_SETTINGS } from '../src/compaction/compaction';
 const CTX = BACKGROUND_CONTEXT;
 const SUMMARY_TEXT = '## Goal\n把浏览器那端的 pi-durable 接缝接通。';
 
+/**
+ * 一轮长文估算出的 token 数（`estimateMessageTokens` = 字符数 / CHARS_PER_TOKEN）。
+ * 写死这个常量而不是拿 `LONG_TURN.length` 现算：CHARS_PER_TOKEN 不是导出符号，而**窗口就是按它摆的**。
+ * 上游 1.1.0 把它从 4 改成 3.5（估算变保守、值变大），这个常量跟着变，窗口公式不变。
+ */
+const TURN_TOKENS = Math.ceil(90_000 / 3.5);
+
 /** 只有 `contextWindow` 不同：durable 的 `thresholdCompaction`（`dist/harness/generation.js:216-218`）算
- *  `blocking = contextWindow - reserveTokens`、`background = blocking - backgroundTokens`。 */
+ *  `blocking = contextWindow - reserveTokens`、`background = blocking - backgroundTokens`。
+ *
+ *  窗口要同时卡在两条阈值**之间**，否则两条断言都验不到自己说的那一档：缺省 `backgroundTokens = 32768`
+ *  时 `background = 60000 - 16384 - 32768 = 10848`、`blocking = 43616`，一轮长文约 25715 token 落在
+ *  (10848, 43616) 里——只有「后台阈值」这一条路能触发。把 `backgroundTokens` 压到 0 后
+ *  `background == blocking == 43616`，同一个窗口不再压。两端余量都近 1.5 万 token：上游再动
+ *  CHARS_PER_TOKEN（4 → 3.5 就是这么撞过一次）不至于翻边。 */
+const BACKGROUND_CONTEXT_WINDOW = 60_000;
+
 const model = (contextWindow: number): Model<'pi-messages'> => ({
 	id: `faux-${contextWindow}`,
 	name: 'faux',
@@ -75,8 +90,8 @@ const fauxModels = (target: Model<'pi-messages'>): Models => {
 };
 
 /**
- * `keepRecentTokens: 20000` 是默认策略的值，`selectCut` 按 `estimateMessageTokens`（字符数 / 4）从尾部
- * 往前累计，所以历史里必须真有 ~8 万字符才够「有东西可切」。
+ * `keepRecentTokens: 20000` 是默认策略的值，`selectCut` 按 `estimateMessageTokens`（字符数 / CHARS_PER_TOKEN）
+ * 从尾部往前累计，所以历史里必须真有 ~8 万字符才够「有东西可切」。
  */
 const LONG_TURN = 'x'.repeat(90_000);
 
@@ -164,15 +179,18 @@ describe('compaction 接缝：durable 的 CompactionTask（批 2 B-4）', () => 
 	});
 
 	it('backgroundTokens: 32768 真被读到：只越过后台阈值（没越阻塞阈值）也压', async () => {
-		// contextWindow 40000 → blocking = 23616、background = 10848；两轮长文的上下文约 2.3 万 token，
-		// 落在两者之间：只有「后台阈值 + backgroundTokens > 0」这一条路能触发。
-		expect(await runTwoTurns('/sessions/b4-background', 40_000, { pollFirst: true })).toBeDefined();
+		// 窗口卡在两条阈值之间（见 BACKGROUND_CONTEXT_WINDOW）：只有「后台阈值 + backgroundTokens > 0」这一条路能触发
+		expect(await runTwoTurns('/sessions/b4-background', BACKGROUND_CONTEXT_WINDOW, { pollFirst: true })).toBeDefined();
+		// 窗口余量自检：这轮长文的估算必须真的落在两条阈值之间，否则上面那条（和下面 `backgroundTokens: 0` 那条）
+		// 都可能是因为另一档压缩在触发而假绿
+		expect(TURN_TOKENS).toBeGreaterThan(BACKGROUND_CONTEXT_WINDOW - 16_384 - 32_768);
+		expect(TURN_TOKENS).toBeLessThan(BACKGROUND_CONTEXT_WINDOW - 16_384);
 	});
 
 	it('调用方覆盖优先：enabled: false 后阻塞链路不再压；backgroundTokens 压到 0 后台也不压', async () => {
 		// 阻塞档：压缩若发生必在 `wait()` 返回前落盘，所以此刻没有就是没有（不是时序问题）
 		expect(await runTwoTurns('/sessions/b4-off', 8_192, { settings: { compaction: { enabled: false } } })).toBeUndefined();
 		// 后台档：把 `backgroundTokens` 压到 0（durable 语义：关掉后台压缩）后同一个窗口不再压
-		expect(await runTwoTurns('/sessions/b4-nobg', 40_000, { settings: { compaction: { backgroundTokens: 0 } } })).toBeUndefined();
+		expect(await runTwoTurns('/sessions/b4-nobg', BACKGROUND_CONTEXT_WINDOW, { settings: { compaction: { backgroundTokens: 0 } } })).toBeUndefined();
 	});
 });

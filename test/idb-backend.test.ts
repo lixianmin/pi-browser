@@ -230,3 +230,65 @@ describe('FileSystem 1.0.0 新增契约（id / truncateFile / flushFile）', () 
 		expect(got.ok && got.value).toBe('v');
 	});
 });
+
+describe('FileSystem 1.0.3 新增契约（openBinaryReader / openDirReader / watch）', () => {
+	it('openBinaryReader：定位读；info 报打开时的元信息；close 幂等且之后 read 报 invalid', async () => {
+		await fs.writeFile('/b.bin', new Uint8Array([1, 2, 3, 4, 5]), CTX);
+		const reader = getOrFail(await fs.openBinaryReader('/b.bin', undefined, CTX));
+		expect(getOrFail(await reader.info(CTX))).toMatchObject({ path: '/b.bin', kind: 'file', size: 5 });
+		expect([...getOrFail(await reader.read(1, 3, CTX))]).toEqual([2, 3, 4]);
+		expect([...getOrFail(await reader.read(3, 99, CTX))]).toEqual([4, 5]);   // 越界只在末尾少给
+		await reader.close(CTX);
+		await reader.close(CTX);
+		const afterClose = await reader.read(0, 1, CTX);
+		expect(afterClose.ok === false && afterClose.error.code).toBe('invalid');
+	});
+
+	it('openBinaryReader：scanLines 给选中行的字节范围；非法行号区间报 invalid', async () => {
+		await fs.writeFile('/lines.txt', 'aa\nbbbb\nc', CTX);
+		const reader = getOrFail(await fs.openBinaryReader('/lines.txt', undefined, CTX));
+		expect(getOrFail(await reader.scanLines({ startLine: 0, endLine: 2 }, CTX))).toEqual({
+			newlines: 2, start: 0, end: 7, firstLineEnd: 2, lastLineStart: 3, selectedBytes: 7, firstLineBytes: 2,
+		});
+		// 只选第 1 行（'bbbb'，字节 3..7）
+		expect(getOrFail(await reader.scanLines({ startLine: 1, endLine: 2 }, CTX))).toMatchObject({
+			start: 3, end: 7, selectedBytes: 4, firstLineBytes: 4,
+		});
+		const bad = await reader.scanLines({ startLine: 2, endLine: 2 }, CTX);
+		expect(bad.ok === false && bad.error.code).toBe('invalid');
+	});
+
+	it('openBinaryReader：目录 is_directory、缺失 not_found（上游口径）', async () => {
+		await fs.createDir('/d', undefined, CTX);
+		const dir = await fs.openBinaryReader('/d', undefined, CTX);
+		expect(dir.ok === false && dir.error.code).toBe('is_directory');
+		const missing = await fs.openBinaryReader('/nope', undefined, CTX);
+		expect(missing.ok === false && missing.error.code).toBe('not_found');
+	});
+
+	it('openDirReader：分页取直属条目（含子目录），翻完 done', async () => {
+		await fs.writeFile('/p/a.txt', 'a', CTX);
+		await fs.writeFile('/p/b.txt', 'b', CTX);
+		await fs.createDir('/p/sub', undefined, CTX);
+		const reader = getOrFail(await fs.openDirReader('/p', CTX));
+		const names: string[] = [];
+		let done = false;
+		for (let page = 0; page < 5 && !done; page++) {
+			const p = getOrFail(await reader.next(2, CTX));
+			names.push(...p.entries.map((e) => e.name));
+			done = p.done;
+		}
+		expect(done).toBe(true);
+		expect(names.sort()).toEqual(['a.txt', 'b.txt', 'sub']);
+		// 读满之后继续翻：仍是 done 的空页（契约允许 done 走空页来）
+		expect(getOrFail(await reader.next(2, CTX))).toEqual({ entries: [], done: true });
+		await reader.close(CTX);
+		const afterClose = await reader.next(2, CTX);
+		expect(afterClose.ok === false && afterClose.error.code).toBe('invalid');
+	});
+
+	it('watch 如实答 not_supported（浏览器没有 fs 事件源，不假装返回永不变化的 watcher）', async () => {
+		const r = await fs.watch([{ path: '/p' }], () => {}, CTX);
+		expect(r.ok === false && r.error.code).toBe('not_supported');
+	});
+});

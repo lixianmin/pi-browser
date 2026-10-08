@@ -56,6 +56,9 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		// 行读取器绑在**被分派到的后端**上（读全文是 open 时刻的事，delegate 只借用后端自身的方法）
 		openTextLineReader: (path, context) => delegate(path, (fs, p) => fs.openTextLineReader(p, context)),
 		readBinaryFile: (path, context) => delegate(path, (fs, p) => fs.readBinaryFile(p, context)),
+		// 读取器绑在**被分派到的后端**上（open 时刻就要读内容/列条目，delegate 只借用后端自身的方法）
+		openBinaryReader: (path, options, context) => delegate(path, (fs, p) => fs.openBinaryReader(p, options, context)),
+		openDirReader: (path, context) => delegate(path, (fs, p) => fs.openDirReader(p, context)),
 		writeFile: (path, content, context) => delegate(path, (fs, p) => fs.writeFile(p, content, context)),
 		appendFile: (path, content, context) => delegate(path, (fs, p) => fs.appendFile(p, content, context)),
 		createDir: (path, options, context) => delegate(path, (fs, p) => fs.createDir(p, options, context)),
@@ -108,5 +111,13 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 			}
 		},
 		roots: () => childMountNames('/'),
+		// 挂载表不合成事件源：watcher 的覆盖语义要求「覆盖建立后才不漏变更」，把多个后端的事件合成一份
+		// 需要真正的比较式 watch（上游 Node 侧的 polling 模式），本仓不做。取第一个后端的答复如实透上去
+		// ——今天两个浏览器后端都答 not_supported，表也就恒答 not_supported。
+		watch: async (targets, onChange, context) => {
+			const mount = mounts[0];
+			if (!mount) return err(new FileError('not_supported', '挂载表内没有后端可 watch'));
+			return await mount.fs.watch(targets, onChange, context);
+		},
 	};
 }
