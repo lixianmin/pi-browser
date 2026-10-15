@@ -6,22 +6,25 @@
 // 共有的实义字段只有 `name` / `description` / `parameters`（`constrainedSampling` 两边都没人用）。
 // execute 与结果面各有一套：
 //   core     execute(toolCallId, params, signal?, onUpdate?) → AgentToolResult{content, details, structuredContent?, usage?, isError?, terminate?}
-//   durable  execute(args, api: ToolExecutionApi, context)      → ToolExecutionResult{content?, isError?, details?, diagnostics?, usage?, control?}
+//   durable  execute(args, api: ToolExecutionApi, context)      → ToolExecutionResult{output?, structuredOutput?, isError?, details?, diagnostics?, usage?, control?}
 // 适配 = execute 的翻译 + 结果的投影。
 //
 // 逐条映射，以及**有意不搬**的字段（都写在这里，免得后来人以为漏了）：
 //   ① `name` / `description` / `parameters` 直传（两边共有的 `Tool` 字段）。
 //   ② `api.output(chunk)` ← `onUpdate` 的**文本块**：`api.output` 是 pi-durable 唯一的流式通道
-//      （`harness/types.d.ts:124`；它说结果省略 `content` 时留存的 output 会成为结果内容）。
+//      （`harness/types.d.ts:124`；它说结果省略 `output` 时留存的 output 会成为结果内容）。
 //      图片块**不进流**：`output` 收 `string | Uint8Array`，图片的 base64 + mimeType 没有无损表达；
-//      图片走最终结果的 `content`（本仓 read 的图片块本来就在那里），流的职责是「正在跑」的文本。
-//   ③ `content` / `details` / `isError` / `usage` 直传；缺省的键**整个不出现**（不是显式 undefined）——
-//      durable 侧省略 `content` / `details` 各有兜底语义（留存的 output / 最后一次 `api.details()`），
-//      写成 `undefined` 会把那些兜底绕过去。
-//   ④ `structuredContent`：**不搬**。durable 的 `ToolExecutionResult` 没有对应字段，而本仓七工厂
-//      都不产它（`grep -rn structuredContent src/tools/` 零命中；`test/durable-tool.test.ts` 最后一条
-//      用例把这个前提守住）——今天丢的是空气，不是东西。哪天某个工具开始产它，那时再决定塞进
-//      `details` 还是让宿主从 `AgentTool` 侧旁路取，不是在这里静默丢。
+//      图片走最终结果的 `output`（本仓 read 的图片块本来就在那里），流的职责是「正在跑」的文本。
+//   ③ `content` → **`output`**（pi-durable 1.2.0 改名：`ToolExecutionResult.content` 是 `output`，
+//      与新增的 `structuredOutput` 并列）。`details` / `isError` / `usage` 直传；缺省的键**整个不出现**
+//      （不是显式 undefined）——durable 侧省略 `details` 有兜底语义（最后一次 `api.details()`），
+//      写成 `undefined` 会把那个兜底绕过去。
+//   ④ `structuredContent`：**不搬**。durable 1.2.0 起确实有了对应位置 `structuredOutput`，但它只对声明了
+//      `structuredOutputSchema` 的工具有效（没声明 schema 时**不许**给，程序侧直接拿 `output` 本身），
+//      而本仓七工厂都不声明 schema 也不产它（`grep -rn structuredOutput src/tools/` 零命中；
+//      `test/durable-tool.test.ts` 最后一条用例把这个前提守住）——今天丢的是空气，不是东西。
+//      哪天某个工具开始产它，那时再决定塞进 `details` 还是让宿主从 `AgentTool` 侧旁路取，
+//      不是在这里静默丢。
 //   ⑤ **不搬** core 侧其余字段：`label`（durable 的 `Tool` 里没有这个位置，UI 标签得宿主自己从注册表给）、
 //      `prepareArguments`（两边签名相同，但七工厂都不声明，搬过来是死代码）、`outputSchema`（同 ④）、
 //      `replay` / `executionMode`（**词表不同**：core 是 `'never' | 'safe'`，durable 是 `'safe' | 'unsafe'`
@@ -73,7 +76,7 @@ export function asDurableTool<TParameters extends TSchema>(
 			});
 			// 缺省的键整个不出现（见文件头 ③）
 			return {
-				content: result.content,
+				output: result.content,
 				...(result.details === undefined ? {} : { details: result.details }),
 				...(result.isError === undefined ? {} : { isError: result.isError }),
 				...(result.usage === undefined ? {} : { usage: result.usage }),

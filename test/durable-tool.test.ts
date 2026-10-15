@@ -1,12 +1,13 @@
 // 批 2 B-3：本仓 `AgentTool`（七工厂的产物）→ pi-durable `ToolRegistration` 的适配（`asDurableTool`）。
 //
 // 断言三件事：
-//   ① 适配是**恒等**的：同一个工具经适配后跑真 fs，`content`/`details` 与直调工厂逐字相同；
+//   ① 适配是**恒等**的：同一个工具经适配后跑真 fs，`output`/`details` 与直调工厂逐字相同；
 //      `name`/`description`/`parameters`（`Tool<TParameters>` 两边共有的那三个字段）直传。
+//      （core 侧的 `content` 在 durable 1.2.0 起叫 `output`，映射见 src/tools/durable-tool.ts 文件头 ③。）
 //   ② 唯一的形状差（流式通道）接上了：`AgentTool.execute` 的 `onUpdate` → `ToolExecutionApi.output`。
 //      这一条用**合成工具**：`grep -rn onUpdate src/tools/` 里七工厂的参数名全是 `_onUpdate`（都没用），
 //      真实调用没有可断言的流，所以桥本身用合成工具守。真调用那一侧由 ① / ③ 覆盖。
-//   ③ 适配层注释里「七工厂都不产 `structuredContent`」这个前提由最后一条用例守住（顺带把七个都跑过一遍）。
+//   ③ 适配层注释里「七工厂都不产 structuredOutput」这个前提由最后一条用例守住（顺带把七个都跑过一遍）。
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Type } from 'typebox';
 import type { ToolExecutionApi } from '@earendil-works/pi-durable';
@@ -67,7 +68,7 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		await seed(fs, { 'sketch.ino': 'pinMode(2, OUTPUT);\ndigitalWrite(2, HIGH);' });
 	});
 
-	it('恒等：read 经适配层跑真 fs，content/details 与直调工厂一致，name/description/parameters 直传', async () => {
+	it('恒等：read 经适配层跑真 fs，output/details 与直调工厂一致，name/description/parameters 直传', async () => {
 		const tool = createReadTool('/', { operations: readOps(fs) });
 		const direct = await tool.execute('call-1', { path: 'sketch.ino' });
 
@@ -77,7 +78,7 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		expect(registration.parameters).toBe(tool.parameters);
 
 		const viaDurable = await registration.execute({ path: 'sketch.ino' }, recorder().api, CTX);
-		expect(viaDurable.content).toEqual(direct.content);
+		expect(viaDurable.output).toEqual(direct.content);
 		expect(viaDurable.details).toEqual(direct.details);
 		expect(viaDurable.isError).toBeUndefined();
 	});
@@ -99,7 +100,7 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		const { api, chunks } = recorder();
 		const result = await asDurableTool(streaming).execute({}, api, CTX);
 		expect(chunks).toEqual(['一', '二']);
-		expect(result.content).toEqual([{ type: 'text', text: '一二' }]);
+		expect(result.output).toEqual([{ type: 'text', text: '一二' }]);
 		expect(result.details).toEqual({ seen: 2 });
 	});
 
@@ -110,7 +111,7 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		const viaDurable = await asDurableTool(tool).execute({ command: 'false' }, recorder().api, CTX);
 		expect(direct.isError).toBe(true);
 		expect(viaDurable.isError).toBe(true);
-		expect(viaDurable.content).toEqual(direct.content);
+		expect(viaDurable.output).toEqual(direct.content);
 		expect(viaDurable.details).toEqual(direct.details);
 	});
 
@@ -120,7 +121,7 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		expect(await rejectionCode(tool.execute('call-1', { path: 'nope.txt' }))).toBe('not_found');
 	});
 
-	it('七工具都能经适配层跑通，且都不产 structuredContent（守住适配层丢弃它的前提）', async () => {
+	it('七工具都能经适配层跑通，且都不产 structuredOutput（守住适配层丢弃它的前提）', async () => {
 		// 七个工厂的 `parameters` 各不相同，塞进一个数组就得抹掉那个具体类型（只在这一处抹）
 		type AnyTool = AgentTool<any, any>;
 		const calls: Array<[string, AnyTool, unknown]> = [
@@ -135,8 +136,8 @@ describe('asDurableTool: AgentTool → pi-durable ToolRegistration', () => {
 		for (const [name, tool, args] of calls) {
 			const { api, chunks } = recorder();
 			const result = await asDurableTool(tool).execute(args, api, CTX);
-			expect(result, name).not.toHaveProperty('structuredContent');
-			expect(result.content?.length ?? 0, name).toBeGreaterThan(0);
+			expect(result, name).not.toHaveProperty('structuredOutput');
+			expect(result.output?.length ?? 0, name).toBeGreaterThan(0);
 			expect(chunks, name).toEqual([]);
 		}
 	});

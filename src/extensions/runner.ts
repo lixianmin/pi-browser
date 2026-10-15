@@ -463,6 +463,10 @@ export class ExtensionRunner {
 	/**
 	 * agent 循环开始前：收 handler 追加的消息，并让后一个 handler 看到前一个的 system prompt 覆盖
 	 * （`systemPrompt` 由宿主注入的渲染函数给出——浏览器侧没有 system prompt 构造器，宿主才是它的所有者）。
+	 *
+	 * 只发**用户回合**那一支：pi-coding-agent 1.2.0 起 `before_agent_start` 按 `messageType` 分叉，
+	 * 另一支是 `pi.sendMessage(..., { triggerTurn: true })` 在空闲时起的自定义消息回合——本仓的循环由
+	 * 宿主从提交内容驱动，没有那条入口，所以恒发 `messageType: 'user'`。
 	 */
 	async emitBeforeAgentStart(
 		prompt: string,
@@ -477,6 +481,7 @@ export class ExtensionRunner {
 			try {
 				const event: BeforeAgentStartEvent = {
 					type: 'before_agent_start',
+					messageType: 'user',
 					prompt,
 					images,
 					get systemPrompt() {

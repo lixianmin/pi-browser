@@ -354,18 +354,33 @@ export interface AfterProviderResponseEvent {
 	headers: Record<string, string>;
 }
 
-/** 出处：`types.d.ts:693`。 */
-export interface BeforeAgentStartEvent {
+/** 出处：`types.d.ts:717`（pi-coding-agent 1.2.0 起变成按 `messageType` 的 tagged union）。 */
+interface BeforeAgentStartEventBase {
 	type: 'before_agent_start';
-	/** The raw user prompt text (after expansion). */
-	prompt: string;
-	/** Images attached to the user prompt, if any. */
-	images?: ImageContent[];
 	/** The current system prompt, rendered from systemPromptOptions and earlier handler changes. */
 	readonly systemPrompt: string;
 	/** Mutable prompt sections. Later handlers observe mutations made by earlier handlers. */
 	systemPromptOptions: NormalizedBuildSystemPromptOptions;
 }
+
+/** 出处：`types.d.ts:720`。由提交提示词 / RPC prompt / `pi.sendUserMessage()` 起的回合。 */
+export interface BeforeAgentStartUserEvent extends BeforeAgentStartEventBase {
+	messageType: 'user';
+	/** The raw user prompt text (after expansion). */
+	prompt: string;
+	/** Images attached to the user prompt, if any. */
+	images?: ImageContent[];
+}
+
+/** 出处：`types.d.ts:726`。由 `pi.sendMessage(..., { triggerTurn: true })` 在空闲时起的回合。 */
+export interface BeforeAgentStartCustomEvent extends BeforeAgentStartEventBase {
+	messageType: 'custom';
+	/** The custom message that starts the run. */
+	message: CustomMessage;
+}
+
+/** 出处：`types.d.ts:731`。 */
+export type BeforeAgentStartEvent = BeforeAgentStartUserEvent | BeforeAgentStartCustomEvent;
 
 /** 出处：`types.d.ts:705`。 */
 export interface AgentStartEvent {

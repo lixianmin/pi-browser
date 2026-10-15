@@ -1,6 +1,6 @@
 // src/extensions/contract.ts —— S6 spec §2/§3.2/§3.4：上游名字的**唯一真源表**。
 //
-// 出处：@earendil-works/pi-coding-agent@1.1.0 `dist/core/extensions/types.d.ts`
+// 出处：@earendil-works/pi-coding-agent@1.2.0 `dist/core/extensions/types.d.ts`
 //   ExtensionAPI（`on` + 32 个非 on 成员，共 33）、`ExtensionAPI.on` 的 41 个事件名、
 //   ExtensionContext 18 个成员、ToolDefinition 字段（见 tool.ts）。
 //   本次重抄的漂移（0.85.1 → 0.99.1）：API 成员 +6（`getSettings`、`registerMcpServer`/
@@ -14,6 +14,8 @@
 //   missing/extra 均为空。**类型**层的漂移由 `test/extensions-events-types.test.ts` 双向 assignability +
 //   键集合断言挡下，本次补了 `BuildSystemPromptOptions.hiddenTools`（及 normalized 形状）、
 //   `ToolExecutionEndEvent.durationMs`。
+//   1.2.0 再核（2026-10-14）：三张名单仍逐字未变（33 / 18 / 41），同样用 tsc 双向核过 missing/extra。
+//   类型层本次只漂了一处：`BeforeAgentStartEvent` 变成按 `messageType` 的 tagged union（见 events.ts）。
 // 纪律（S6 spec §3.1/§3.2）：
 //   ① 对外面只允许出现下表中的名字，**不新增自造名**（S5 的 `defineExtension`/`composeToolset` 已删）；
 //   ② 标 UNSUPPORTED 的名字**不得**在本仓另有实现（测试断言公开面上没有同名替代物）；
