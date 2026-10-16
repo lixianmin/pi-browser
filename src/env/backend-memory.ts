@@ -4,6 +4,7 @@
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
 import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
+import type { Context } from './context';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import { createBinaryReader, createDirReader } from './pull-readers';
 import type { BrowserFileSystem } from './types';
@@ -68,16 +69,18 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		cwd,
 		// 文件命名空间 id：memory 后端每次调用都是独立世界（不进注册表），所以每实例一个
 		id: `memory-fs-${++memoryFsSeq}`,
-		absolutePath: async (path: string) => okv(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
-		joinPath: async (parts: string[]) => okv(normalizePath(parts.join('/'))),
-		canonicalPath: async (path: string) => okv(normalizePath(path)),
-		readTextFile: async (path) => {
+		// pi-durable 1.0.0/1.0.3 起每个方法都收 `context` 形参（spec §11 决策：内存后端无
+		// 异步 IO 可中断，形参只接不消费；与 mount.ts 透传过来的 `context` 同形不增值）。
+		absolutePath: async (path: string, _context: Context) => okv(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
+		joinPath: async (parts: string[], _context: Context) => okv(normalizePath(parts.join('/'))),
+		canonicalPath: async (path: string, _context: Context) => okv(normalizePath(path)),
+		readTextFile: async (path, _context) => {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
 			return okv(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '');
 		},
-		readBinaryFile: async (path) => {
+		readBinaryFile: async (path, _context) => {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
@@ -85,7 +88,7 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		},
 		// pi-durable 1.0.3 新增的必填契约：打开后的定位式读。`noFollow` 无从谈起（内存后端无符号链接），
 		// 目录按上游口径落 is_directory。抓的是打开瞬间那个节点对象，故此后改名不影响已开的读取器。
-		openBinaryReader: async (path) => {
+		openBinaryReader: async (path, _options, _context) => {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || !parentOk(abs)) return err(notFound(abs));
@@ -103,13 +106,13 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			return readAllTextLines(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs), options?.maxLines, context);
 		},
 		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
-		openTextLineReader: async (path) => {
+		openTextLineReader: async (path, _context) => {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
 			return okv(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs));
 		},
-		writeFile: async (path, content) => {
+		writeFile: async (path, content, _context) => {
 			const abs = normalizePath(path);
 			mkdirp(abs.split('/').slice(0, -1).join('/'));
 			files.set(abs, typeof content === 'string'
@@ -117,7 +120,7 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 				: { kind: 'file', bytes: new Uint8Array(content), mtimeMs: Date.now() });
 			return okv(undefined);
 		},
-		appendFile: async (path, content) => {
+		appendFile: async (path, content, _context) => {
 			const abs = normalizePath(path);
 			mkdirp(abs.split('/').slice(0, -1).join('/'));
 			const prevNode = files.get(abs);
@@ -126,7 +129,7 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			files.set(abs, { kind: 'file', data: prev + next, mtimeMs: Date.now() });
 			return okv(undefined);
 		},
-		renameFile: async (src, dest) => {
+		renameFile: async (src, dest, _context) => {
 			const from = normalizePath(src); const to = normalizePath(dest);
 			const n = files.get(from);
 			if (!n) return err(notFound(from));
@@ -135,23 +138,23 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			files.delete(from);
 			return okv(undefined);
 		},
-		fileInfo: async (path) => {
+		fileInfo: async (path, _context) => {
 			const abs = normalizePath(path);
 			if (!files.has(abs) || !parentOk(abs)) return err(notFound(abs));
 			return okv(info(abs));
 		},
-		listDir: async (path) => listEntries(normalizePath(path)),
+		listDir: async (path, _context) => listEntries(normalizePath(path)),
 		// pi-durable 1.0.3 新增的必填契约：目录分页。条目在 open 时列一次（见 pull-readers.ts 的快照取舍）
-		openDirReader: async (path) => {
+		openDirReader: async (path, _context) => {
 			const abs = normalizePath(path);
 			const listed = listEntries(abs);
 			return listed.ok ? okv(createDirReader(listed.value, abs)) : listed;
 		},
-		exists: async (path) => {
+		exists: async (path, _context) => {
 			const abs = normalizePath(path);
 			return okv(files.has(abs) && parentOk(abs));
 		},
-		createDir: async (path, options) => {
+		createDir: async (path, options, _context) => {
 			const abs = normalizePath(path);
 			if (options?.recursive === false) {
 				if (files.has(abs)) return err(new FileError('invalid', `Already exists: ${abs}`, abs));
@@ -162,7 +165,7 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			mkdirp(abs);
 			return okv(undefined);
 		},
-		remove: async (path, options) => {
+		remove: async (path, options, _context) => {
 			const abs = normalizePath(path);
 			if (!files.has(abs)) {
 				if (options?.force) return okv(undefined);
@@ -177,12 +180,12 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			files.delete(abs);
 			return okv(undefined);
 		},
-		createTempDir: async (prefix) => {
+		createTempDir: async (prefix, _context) => {
 			const dir = `/tmp/${prefix ?? 'tmp-'}${Math.random().toString(36).slice(2, 10)}`;
 			mkdirp(dir);
 			return okv(dir);
 		},
-		createTempFile: async (options) => {
+		createTempFile: async (options, _context) => {
 			mkdirp('/tmp');
 			const file = `/tmp/${options?.prefix ?? ''}${Math.random().toString(36).slice(2, 10)}${options?.suffix ?? ''}`;
 			files.set(file, { kind: 'file', data: '', mtimeMs: Date.now() });
@@ -192,7 +195,7 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		// （非负安全整数之外返 invalid）；缺文件返 not_found（上游先开 r+，开不到就没有下文）。
 		// 内存后端是**立即分配**：`size` 就是一次 `new Uint8Array(size)` 的大小（上游 ftruncate 是稀疏扩），
 		// 所以「合法的巨大 size」会当场吃掉对应内存（1e9 = 1GB）。本库没有调用方，先如实记着。
-		truncateFile: async (path, size) => {
+		truncateFile: async (path, size, _context) => {
 			const abs = normalizePath(path);
 			if (!Number.isSafeInteger(size) || size < 0) {
 				return err<void, FileError>(new FileError('invalid', 'File size must be a non-negative safe integer', abs));
@@ -207,16 +210,16 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			return okv(undefined);
 		},
 		// pi 1.0.0 新增：内存后端没有落盘面，flush 是 no-op；但存在性照上游（开 r+）如实回答
-		flushFile: async (path) => {
+		flushFile: async (path, _context) => {
 			const abs = normalizePath(path);
 			const n = files.get(abs);
 			if (!n || n.kind !== 'file') return err(notFound(abs));
 			return okv(undefined);
 		},
-		cleanup: async () => { /* 无资源需释放 */ },
+		cleanup: async (_context: Context) => { /* 无资源需释放 */ },
 		// pi-durable 1.0.3 新增的必填契约：浏览器没有 fs 事件源，**如实答不支持**，
 		// 不假装返回「永不变化的 watcher」（那会让调用方一直等不到覆盖建立）。
-		watch: async (targets) =>
+		watch: async (targets, _onChange, _context) =>
 			err(new FileError('not_supported', `内存 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
 		// 内存 FS 无 debounce，写入即时完成；同形接口让上层统一调用（见 BrowserFileSystem.flush）
 		flush: async () => { /* no-op */ },

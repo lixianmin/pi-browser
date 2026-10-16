@@ -163,8 +163,14 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		}
 	};
 
-	const exec = async (command: string, execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
+	const exec = async (command: string | readonly string[], execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
 		if (closed) return err(new ExecutionError('shell_unavailable', 'shell 已 cleanup：不能再 exec'));
+		// pi-durable 1.0.3 起 Shell.exec 接 argv 数组（不走 shell，`command[0]` 直跑）。本仓 wasi-sh / busybox
+		// 不透出 argv（busybox applet 不是独立可执行文件），如实返 unknown 错。错误码与上游同走
+		// `ExecutionError`（其 code 枚举无 `not_supported`），见 spec §10.2 P7。
+		if (typeof command !== 'string') {
+			return err(new ExecutionError('unknown', 'argv form not supported by wasi-sh backend'));
+		}
 		// 消费者回调抛错时由 sink 直接叫停活着的那次 exec（worker 路径需要杀子进程；上行传给 kill 的 'callback'
 		// 不写进 killed，因收尾原因由返回值给出，是 callback_error）
 		const output = createOutputSink(execOptions, context, () => { for (const kill of liveKills) kill('callback'); });

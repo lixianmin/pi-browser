@@ -6,7 +6,11 @@
 // 「路径改名后仍读到同一文件」，快照是它的加强版——浏览器后端没有句柄可挂。
 //
 // `scanLines` 的行号↔字节换算交给上游的 `LineScanner`：那是唯一一份实现，自己重写只会与上游漂。
+//
+// pi-durable 1.0.3 起 `BinaryReader` / `DirReader` 各方法都收 `context` 形参；浏览器后端无
+// 异步 IO 可中断、形参只接不消费（spec §11 决策）。
 import { FileError, LineScanner, err, ok, type BinaryReader, type DirReader, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
+import type { Context } from './context';
 
 /**
  * 从**已读入内存的整份字节**建一个定位式二进制读取器（上游 `NodeBinaryReader` 的等价物）。
@@ -18,8 +22,8 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 	let closed = false;
 	const closedErr = (): Result<never, FileError> => err(new FileError('invalid', 'Binary reader is closed', path));
 	return {
-		info: async () => (closed ? closedErr() : ok(opened)),
-		read: async (offset, length) => {
+		info: async (_context: Context) => (closed ? closedErr() : ok(opened)),
+		read: async (offset: number, length: number, _context: Context) => {
 			if (closed) return closedErr();
 			if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
 				return err(new FileError('invalid', `Invalid read range: offset=${offset} length=${length}`, path));
@@ -27,7 +31,7 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 			// 越界只该在文件末尾少给：`subarray` 自动收敛到末尾
 			return ok(bytes.subarray(offset, offset + length));
 		},
-		scanLines: async (options) => {
+		scanLines: async (options: { startLine: number; endLine?: number }, _context: Context) => {
 			if (closed) return closedErr();
 			// 上游 `LineScanner` 的前置条件（`startLine`/`endLine` 是非负安全整数且 endLine > startLine）
 			const { startLine, endLine } = options;
@@ -38,7 +42,7 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 			scanner.push(bytes);
 			return ok(scanner.finish());
 		},
-		close: async () => { closed = true; },
+		close: async (_context: Context) => { closed = true; },
 	};
 }
 
@@ -52,12 +56,12 @@ export function createDirReader(entries: FileInfo[], path: string): DirReader {
 	let cursor = 0;
 	let closed = false;
 	return {
-		next: async (maxEntries) => {
+		next: async (maxEntries: number, _context: Context) => {
 			if (closed) return err(new FileError('invalid', 'Directory reader is closed', path));
 			const page = entries.slice(cursor, cursor + maxEntries);
 			cursor += page.length;
 			return ok({ entries: page, done: cursor >= entries.length });
 		},
-		close: async () => { closed = true; },
+		close: async (_context: Context) => { closed = true; },
 	};
 }

@@ -242,3 +242,17 @@ describe('exec：shell:false 占位', () => {
 		if (!r.ok) expect(r.error.code).toBe('shell_unavailable');
 	});
 });
+
+// pi-durable 1.0.3 起 Shell.exec 接 `string | readonly string[]`（argv 形式不走 shell，command[0] 直跑）。
+// 本仓 wasi-sh / busybox 不透出 argv（busybox applet 不是独立可执行文件），如实返 unknown 错。
+describe('exec：argv 形式（1.0.3）', () => {
+	it('command 为数组时返 unknown 错（wasi-sh 不支持 argv 直跑）', async () => {
+		const env = isolatedEnv();
+		const r: Result<unknown, ExecutionError> = await env.exec(['echo', 'hello'] as readonly string[], undefined, CTX);
+		expect(r.ok).toBe(false);
+		if (!r.ok) {
+			expect(r.error.code).toBe('unknown');
+			expect(r.error.message).toContain('argv form not supported by wasi-sh backend');
+		}
+	});
+});
