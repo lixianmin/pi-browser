@@ -65,7 +65,8 @@ async function executeLs(
 ): Promise<AgentToolResult<LsToolDetails | undefined>> {
 	throwIfAborted(signal);
 	const dirPath = resolveToCwd(input.path ?? '.', cwd);
-	const effectiveLimit = input.limit ?? DEFAULT_LIMIT;
+	// limit:0/负数会让「非空目录」被报成 (empty directory)：和 grep 一样夹到至少 1
+	const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 	if (!(await operations.exists(dirPath))) {
 		throw new FileError('not_found', `Path not found: ${dirPath}`, dirPath);
 	}

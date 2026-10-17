@@ -157,6 +157,9 @@ function scanFile(
 	const rel = formatGrepPath(target, searchPath, searchIsDirectory);
 	// 与上游 `getFileLines` 一致：CRLF 与单 CR 都当行分隔符
 	const fileLines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+	// 相邻命中共享的上下文行只输出一次（rg 同款）；否则同一行会被重复计入 50KB 预算。
+	// 行号 → found.lines 下标：后一个命中把前一个命中的上下文行「升级」成命中行（`:` 标记）
+	const emittedAt = new Map<number, number>();
 	for (let i = 0; i < fileLines.length; i++) {
 		if (matcher.matchesLine(fileLines[i])) {
 			found.matchCount++;
@@ -166,9 +169,18 @@ function scanFile(
 			const start = contextLines > 0 ? Math.max(1, lineNum - contextLines) : lineNum;
 			const end = contextLines > 0 ? Math.min(fileLines.length, lineNum + contextLines) : lineNum;
 			for (let k = start; k <= end; k++) {
+				const isMatch = k === lineNum;
 				const truncated = truncateLine((fileLines[k - 1] ?? '').replace(/\r/g, ''));
 				if (truncated.wasTruncated) found.linesTruncated = true;
-				found.lines.push(`${k === lineNum ? `${rel}:${k}:` : `${rel}-${k}-`} ${truncated.text}`);
+				const entry = `${isMatch ? `${rel}:${k}:` : `${rel}-${k}-`} ${truncated.text}`;
+				const existing = emittedAt.get(k);
+				if (existing !== undefined) {
+					// 同一行既是上文命中的上下文、又是本次命中：只留一行，但标记必须升级成 `:`
+					if (isMatch) found.lines[existing] = entry;
+					continue;
+				}
+				emittedAt.set(k, found.lines.length);
+				found.lines.push(entry);
 			}
 			if (limitReached) {
 				found.matchLimitReached = limit;

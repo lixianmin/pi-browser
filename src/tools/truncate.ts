@@ -223,7 +223,11 @@ function replaceUnpairedSurrogates(content: string): string {
 /** 单行截断（grep 输出专用），超长行尾加 "... [truncated]"。 */
 export function truncateLine(line: string, maxChars: number = GREP_MAX_LINE_LENGTH): { text: string; wasTruncated: boolean } {
 	if (line.length <= maxChars) return { text: line, wasTruncated: false };
-	return { text: `${line.slice(0, maxChars)}... [truncated]`, wasTruncated: true };
+	// 切点落在代理对中间时往回退一格：孤立的高位代理会让下游 JSON/UTF-8 编码变成 U+FFFD 或直接报错
+	let end = Math.max(0, maxChars);
+	const last = line.charCodeAt(end - 1);
+	if (last >= 0xd800 && last <= 0xdbff) end--;
+	return { text: `${line.slice(0, end)}... [truncated]`, wasTruncated: true };
 }
 
 export interface MiddleTruncationResult {

@@ -132,3 +132,57 @@ describe('worker 模块的回传契约', () => {
 		expect(src).not.toContain('store.exportChanges()');
 	});
 });
+
+// 2026-10-17 评审回归：空目录在 guest 里不存在 ⇒ 收尾对账把「宿主有、guest 没给过」当成已删除，
+// 整条 worker 路径（浏览器默认路径）上每跑一条命令就静默删光所有空目录。
+describe('worker 路径：空目录与重写范围', () => {
+	it('推出去的空目录在 guest 里也建出来 → 收尾不被当成已删除', async () => {
+		const host = createMemoryFileSystem();
+		const store = { mounts: [{ prefix: '/', fs: host }] };
+		await host.writeFile('/workspace/keep.txt', 'hello', CTX);
+		expect((await host.createDir('/workspace/empty', { recursive: true }, CTX)).ok).toBe(true);
+
+		const pushed = await readMountTree(store);
+		expect(pushed.dirs).toContain('/workspace/empty');
+		const files: Record<string, string | Uint8Array> = {};
+		for (const { path, data } of pushed.written) files[path] = data;
+
+		const guest = createWasiFileSystem({ mounts: [] });
+		seedInto(guest, files);
+		// 修法：exec 在 spawn 前把 pushed.dirs 投给 worker，worker 逐个 mkdir
+		for (const dir of pushed.dirs) {
+			try { guest.mkdirSync(dir, { mode: 0o755, uid: 0, gid: 0 }); } catch { /* 已存在 */ }
+		}
+
+		const reconciled = reconcilePulled(pushed, guest.snapshot());
+		expect(reconciled.deleted).toEqual([]);
+		await applyChanges(store, reconciled);
+		expect(getOrFail(await host.exists('/workspace/empty', CTX))).toBe(true);
+	});
+
+	it('reconcilePulled 只回写内容变化的文件（不改未动文件的 mtime / 不整树重写）', () => {
+		const pushed: WasiFsChanges = {
+			deleted: [],
+			dirs: ['/w'],
+			written: [{ path: '/w/a.txt', data: enc('A') }, { path: '/w/b.txt', data: enc('B') }],
+		};
+		const pulled: WasiFsChanges = {
+			deleted: [],
+			dirs: ['/w'],
+			written: [
+				{ path: '/w/a.txt', data: enc('A') },          // 未变
+				{ path: '/w/b.txt', data: enc('B2') },         // 改了
+				{ path: '/w/c.txt', data: enc('C') },          // 新增
+			],
+		};
+
+		expect(reconcilePulled(pushed, pulled).written.map((w) => w.path)).toEqual(['/w/b.txt', '/w/c.txt']);
+	});
+
+	it('exec 把 dirs 推给 worker（worker 侧安装 PUSH_DIRS 监听）', async () => {
+		const execSrc = await readFile(new URL('../src/shell/exec.ts', import.meta.url), 'utf8');
+		const workerSrc = await readFile(new URL('../src/shell/worker.ts', import.meta.url), 'utf8');
+		expect(execSrc).toContain('PUSH_DIRS');
+		expect(workerSrc).toContain('PUSH_DIRS');
+	});
+});

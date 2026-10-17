@@ -6,9 +6,10 @@
 // 前缀，顺其自然按入参分派就会写出「内容在 IDB、路径读走内存」的 split-brain）。
 //
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
-import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
+import { FileError, ok, err, type DirReader, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
-import { abortedResult } from './context';
+import { abortedResult, type Context } from './context';
+import { createDirReader } from './pull-readers';
 import type { BrowserFileSystem, MountEntry } from './types';
 
 export interface MountTable extends FileSystem {
@@ -46,12 +47,42 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		return await fn(mount.fs, absPath);
 	}
 
+	/**
+	 * 目录视图（`listDir` 与 `openDirReader` 共用）：'/' 与挂载根由表合成，其余委托后端。
+	 * 两个枚举 API 必须看同一份视图，否则 `listDir('/tmp')` 看得到挂载根、`openDirReader('/tmp')` 却 not_found。
+	 */
+	async function listDirImpl(path: string, context: Context): Promise<Result<FileInfo[], FileError>> {
+		// 挂载根合成路径在空挂载点时不落到后端 —— 必须自己查 abort
+		const aborted = abortedResult<FileInfo[]>(context, path);
+		if (aborted) return aborted;
+		const p = abs(path);
+		// 目录视图只在 '/' 或挂载前缀处合成（挂载点的存在性不依赖后端）。更深的挂载点若其祖先
+		// 不是挂载前缀则无合成——默认表（'/' + '/tmp'）无此形状，不预造递归逻辑。
+		if (p !== '/' && !isMountRoot(p)) return await delegate(path, (fs, q) => fs.listDir(q, context));
+		const mount = mountFor(p);
+		const listed = mount ? await mount.fs.listDir(p, context) : undefined;
+		// 空挂载点（后端里没这个目录）不算失败：挂载根由表应答；'/' 的失败照传（不是挂载根语义）
+		if (listed && !listed.ok && !(isMountRoot(p) && listed.error.code === 'not_found')) return listed;
+		const own = listed?.ok ? listed.value : [];
+		const synth = childMountNames(p).map((n) => dirInfo(`${p === '/' ? '' : p}/${n}`));
+		const merged = [...own, ...synth.filter((s) => !own.some((i) => i.name === s.name))];
+		// 根/挂载根的合并视图排序：两个来源（后端 + 合成）无共同顺序，排序给确定结果
+		return ok(merged.sort((a, b) => a.name.localeCompare(b.name)));
+	}
+
 	return {
 		cwd,
 		id: rootEntry?.fs.id ?? `mount:${cwd}`,
 		absolutePath: async (path) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts) => ok(normalizePath(parts.join('/'))),
-		canonicalPath: (path, context) => delegate(path, (fs, p) => fs.canonicalPath(p, context)),
+		canonicalPath: async (path, context) => {
+			// 挂载根本身由表应答（与 fileInfo/exists 同口径）；委托后端只会得到 not_found
+			const aborted = abortedResult<string>(context, path);
+			if (aborted) return aborted;
+			const p = abs(path);
+			if (isMountRoot(p)) return ok(p);
+			return await delegate(path, (fs, q) => fs.canonicalPath(q, context));
+		},
 		readTextFile: (path, context) => delegate(path, (fs, p) => fs.readTextFile(p, context)),
 		readTextLines: (path, options, context) => delegate(path, (fs, p) => fs.readTextLines(p, options, context)),
 		// 行读取器绑在**被分派到的后端**上（读全文是 open 时刻的事，delegate 只借用后端自身的方法）
@@ -59,7 +90,15 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		readBinaryFile: (path, context) => delegate(path, (fs, p) => fs.readBinaryFile(p, context)),
 		// 读取器绑在**被分派到的后端**上（open 时刻就要读内容/列条目，delegate 只借用后端自身的方法）
 		openBinaryReader: (path, options, context) => delegate(path, (fs, p) => fs.openBinaryReader(p, options, context)),
-		openDirReader: (path, context) => delegate(path, (fs, p) => fs.openDirReader(p, context)),
+		openDirReader: async (path, context) => {
+			// 目录视图与 listDir 同源（挂载根由表合成），不能直接委托到「后端里没有这个路径」的空挂载点
+			const aborted = abortedResult<DirReader>(context, path);
+			if (aborted) return aborted;
+			const p = abs(path);
+			if (!isMountRoot(p)) return await delegate(path, (fs, q) => fs.openDirReader(q, context));
+			const listed = await listDirImpl(p, context);
+			return listed.ok ? ok(createDirReader(listed.value, p)) : listed;
+		},
 		writeFile: (path, content, context) => delegate(path, (fs, p) => fs.writeFile(p, content, context)),
 		appendFile: (path, content, context) => delegate(path, (fs, p) => fs.appendFile(p, content, context)),
 		createDir: (path, options, context) => delegate(path, (fs, p) => fs.createDir(p, options, context)),
@@ -96,24 +135,7 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 			if (isMountRoot(p)) return ok(true);
 			return await delegate(path, (fs, q) => fs.exists(q, context));
 		},
-		listDir: async (path, context) => {
-			// 挂载根合成路径在空挂载点时不落到后端 —— 必须自己查 abort
-			const aborted = abortedResult<FileInfo[]>(context, path);
-			if (aborted) return aborted;
-			const p = abs(path);
-			// 目录视图只在 '/' 或挂载前缀处合成（挂载点的存在性不依赖后端）。更深的挂载点若其祖先
-			// 不是挂载前缀则无合成——默认表（'/' + '/tmp'）无此形状，不预造递归逻辑。
-			if (p !== '/' && !isMountRoot(p)) return await delegate(path, (fs, q) => fs.listDir(q, context));
-			const mount = mountFor(p);
-			const listed = mount ? await mount.fs.listDir(p, context) : undefined;
-			// 空挂载点（后端里没这个目录）不算失败：挂载根由表应答；'/' 的失败照传（不是挂载根语义）
-			if (listed && !listed.ok && !(isMountRoot(p) && listed.error.code === 'not_found')) return listed;
-			const own = listed?.ok ? listed.value : [];
-			const synth = childMountNames(p).map((n) => dirInfo(`${p === '/' ? '' : p}/${n}`));
-			const merged = [...own, ...synth.filter((s) => !own.some((i) => i.name === s.name))];
-			// 根/挂载根的合并视图排序：两个来源（后端 + 合成）无共同顺序，排序给确定结果
-			return ok(merged.sort((a, b) => a.name.localeCompare(b.name)));
-		},
+		listDir: listDirImpl,
 		// 临时件固定投 '/tmp' 挂载（不按入参路径分派）：否则写进 '/' 后端、读走 /tmp 后端
 		createTempDir: (prefix, context) => delegate('/tmp', (fs) => fs.createTempDir(prefix, context)),
 		createTempFile: (options, context) => delegate('/tmp', (fs) => fs.createTempFile(options, context)),

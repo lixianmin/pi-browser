@@ -15,17 +15,28 @@ import {
 	createGuestHostBuiltins, createHostCommandChannel, HOST_COMMAND_SAB_MESSAGE,
 	type HostCommandGuestSide, type HostCommandSabMessage,
 } from './host-commands';
-import { PULL_CHANGES, createWasiFileSystem, type ChangesResponse, type PullChangesRequest } from './wasi-fs';
+import {
+	PULL_CHANGES, PUSH_DIRS, createWasiFileSystem,
+	type ChangesResponse, type PullChangesRequest, type PushDirsRequest,
+} from './wasi-fs';
 
 const store = createWasiFileSystem({ mounts: [] });
 
 /** 宿主命令通道（主线程在启动消息之前投递；未注册宿主命令时不存在） */
 let hostCommands: { channel: HostCommandGuestSide; names: string[] } | undefined;
 
-self.addEventListener('message', (event: MessageEvent<HostCommandSabMessage | PullChangesRequest>) => {
+self.addEventListener('message', (event: MessageEvent<HostCommandSabMessage | PullChangesRequest | PushDirsRequest>) => {
 	const data = event.data;
 	if (data?.type === HOST_COMMAND_SAB_MESSAGE) {
 		hostCommands = { channel: createHostCommandChannel(data.sab, { timeoutMs: data.timeoutMs }).guestSide, names: data.names };
+		return;
+	}
+	// 空目录不在 spawn 的 files 里（files 只表达文件），由主线程单独投递；必须在启动消息之前到达（FIFO）。
+	// 已存在的目录（含 wasi-sh 自己建的 /tmp）吞掉 EEXIST：这条消息是幂等的。
+	if (data?.type === PUSH_DIRS) {
+		for (const dir of data.dirs) {
+			try { store.mkdirSync(dir, { mode: 0o755, uid: 0, gid: 0 }); } catch { /* 已存在 */ }
+		}
 		return;
 	}
 	if (data?.type !== PULL_CHANGES) return;

@@ -19,8 +19,8 @@ import {
 } from './host-commands';
 import { applyChanges, createSyncSession } from './sync-session';
 import {
-	PULL_CHANGES, readMountTree,
-	type ChangesResponse, type PullChangesRequest, type ShellFsStore, type WasiFsChanges,
+	PULL_CHANGES, PUSH_DIRS, bytesEqual, readMountTree,
+	type ChangesResponse, type PullChangesRequest, type PushDirsRequest, type ShellFsStore, type WasiFsChanges,
 } from './wasi-fs';
 
 export interface BusyboxShellOptions {
@@ -66,6 +66,8 @@ interface OutputSink {
 	finalize(): Promise<string | undefined>;
 	/** 消费者的 `onOutput` 抛过的错（上游语义：转成 `callback_error` 并杀进程） */
 	callbackFailure(): Error | undefined;
+	/** 绑定「消费者抛错」的处置：worker 路径要杀**本次**子进程（inline 无需处理） */
+	onConsumerError(handler: () => void): void;
 }
 
 export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOptions = {}): Shell {
@@ -87,11 +89,22 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	const hostNames = hostCommandNames(hostCommands);
 	const wasm: WasmSource = options.wasm ?? DEFAULT_WASM_URL;
 
-	const createOutputSink = (execOptions: ShellExecOptions | undefined, context: Context, onConsumerError: () => void): OutputSink => {
+	const createOutputSink = (execOptions: ShellExecOptions | undefined, context: Context): OutputSink => {
+		let consumerHandler: () => void = () => {};
 		const onOutput = execOptions?.onOutput;
 		const spill = execOptions?.spill;
 		const decoder = onOutput ? new TextDecoder() : undefined;
 		let consumerError: Error | undefined;
+		/** 交付一段文本；消费者抛错 → 记 callback_error 并叫停本次 exec（stream 分片与收尾 flush 共用） */
+		const emit = (text: string): void => {
+			if (text === '' || !onOutput) return;
+			try {
+				onOutput(text, context, { stream: 'stdout' });
+			} catch (e) {
+				consumerError = toError(e);
+				consumerHandler();
+			}
+		};
 		// spill 借 OutputAccumulator 的「阈值以下有界、越线时把已攒的 rawChunks 全量落盘」实现（spec D2：落点是挂载表）
 		const accumulator = spill
 			? new OutputAccumulator(
@@ -103,32 +116,21 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			deliver(bytes) {
 				// 消费者抛错后不再交付（上游同款：`callbackError !== undefined` 即 return）
 				if (consumerError) return;
-				if (decoder && onOutput) {
-					const text = decoder.decode(bytes, { stream: true });
+				if (decoder) {
+					// pi-durable 1.0.3 起 onOutput 第三个参数是 `ShellOutputInfo`（上游 Node 侧按流分流）。
+					// 本仓两条路（inline `run()` 与 worker `Session`）都只给一路合流后的字节，
+					// wasi-sh 不透出流名，所以恒报 'stdout'——调用方不能靠 `stream` 分流两路
+					//（合并投递是本仓既有的有意分叉，见 shell-exec 测试「stderr 与 stdout 合入同一路」）。
 					// 空串不交付（上游显式跳过）：分片边界落在多字节字符中间时解码器会吐出空串
-					if (text !== '') {
-						try {
-							// pi-durable 1.0.3 起 onOutput 第三个参数是 `ShellOutputInfo`（上游 Node 侧按流分流）。
-							// 本仓两条路（inline `run()` 与 worker `Session`）都只给一路合流后的字节，
-							// wasi-sh 不透出流名，所以恒报 'stdout'——调用方不能靠 `stream` 分流两路
-							//（合并投递是本仓既有的有意分叉，见 shell-exec 测试「stderr 与 stdout 合入同一路」）。
-							onOutput(text, context, { stream: 'stdout' });
-						} catch (e) {
-							// 消费者的错不能让异常逃出 exec（契约是永远返回 Result），也不能被误标成 spawn_error。
-							// 上游的处置是记下 callback_error 并杀掉子进程。
-							consumerError = toError(e);
-							onConsumerError();
-						}
-					}
+					emit(decoder.decode(bytes, { stream: true }));
 				}
 				accumulator?.append(bytes);
 			},
 			callbackFailure: () => consumerError,
+			onConsumerError(handler) { consumerHandler = handler; },
 			async finalize() {
-				if (decoder && onOutput) {
-					const tail = decoder.decode();
-					if (tail !== '') onOutput(tail, context, { stream: 'stdout' });
-				}
+				// 收尾 flush 也要走同一条 emit：裸调 onOutput 抛错会被 finalizeSink 误判成「spill 落盘失败」
+				if (decoder && !consumerError) emit(decoder.decode());
 				if (!accumulator) return undefined;
 				accumulator.finish();
 				const snapshot = accumulator.snapshot();
@@ -173,8 +175,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		}
 		// 消费者回调抛错时由 sink 直接叫停活着的那次 exec（worker 路径需要杀子进程；上行传给 kill 的 'callback'
 		// 不写进 killed，因收尾原因由返回值给出，是 callback_error）
-		const output = createOutputSink(execOptions, context, () => { for (const kill of liveKills) kill('callback'); });
-		const cwd = normalizePath(execOptions?.cwd ?? store.mounts[0]?.fs.cwd ?? '/');
+		const output = createOutputSink(execOptions, context);
+		// 默认 cwd 取挂载表的根（与 mount.ts 同一口径），不是「第一个注册的挂载」
+		const cwd = normalizePath(execOptions?.cwd ?? createMountTable(store.mounts).cwd);
 		return typeof Worker === 'undefined'
 			? await execInline(command, execOptions, context, output, cwd)
 			: await execInWorker(command, execOptions, context, output, cwd);
@@ -209,6 +212,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			});
 		} catch (e) {
 			const failed = await finalizeSink(output);
+			// wasm trap（run() 只吞 WasiExit）：worker 路径下 trap 是 exit 134 + 照常 pull，
+			// 同一份写不该因为线程模型不同就丢掉。落盘失败不覆盖原始错误。
+			try { await session.pullAndApply(); } catch { /* 保留原始 spawn_error */ }
 			return err(execError('spawn_error', toError(e).message, toError(e), failed.spillPath));
 		}
 		// 收尾放在落盘之前：即便 guest 的写没落盘，已产生的输出也交付出去
@@ -242,21 +248,27 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		};
 		if (context.abortSignal?.aborted) return err(new ExecutionError('aborted', 'aborted'));   // 调用前已中止：不启动 worker（与 inline 入口检查对齐）
 		liveKills.add(kill);   // 从这里起它算「活着的 exec」；finally 里摘掉
+		// 消费者回调失败只杀**本次** exec；旧实现遍历 liveKills，一次回调抛错会把并发中的其它 exec 一起硬杀。
+		output.onConsumerError(() => kill('callback'));
 		const timer = execOptions?.timeout === undefined ? undefined : setTimeout(() => kill('timeout'), execOptions.timeout * 1000);
 		const onAbort = (): void => kill('aborted');
 		context.abortSignal?.addEventListener('abort', onAbort, { once: true });
-		const worker = new Worker(options.workerUrl, { type: 'module' });
-		liveWorkers.add(worker);
-		// 宿主命令通道（S2.1 §3.2）：SAB 分配与本端应答循环都在这里；guest 侧的 builtin 在 worker 里等它
-		// `??` 只挡 undefined：`timeout: 0` 会原样变成 0ms 宽限期，之后每次宿主命令应答都立即超时
-		// （kill 定时器也是 0ms，整条命令立刻被杀）。0 在任何一种解释下都不是「零宽限期」的意思，
-		// 落到缺省档。
-		const timeoutSeconds = (execOptions?.timeout ?? DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000);
-		const timeoutMs = (timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000) * 1000;
-		const sab = hostNames.length > 0 ? createHostCommandSharedBuffer() : undefined;
-		const channel = sab ? createHostCommandChannel(sab, { timeoutMs }) : undefined;
+		let worker: Worker | undefined;
+		let channel: ReturnType<typeof createHostCommandChannel> | undefined;
 		let serving: Promise<void> | undefined;
 		try {
+			// Worker 构造会**同步**抛（跨源 workerUrl → SecurityError / CSP 拦截）：留在 try 外会让 exec
+			// 直接 reject（违反「永远返回 Result」），并漏掉 timer 与 abort 监听的清理。
+			worker = new Worker(options.workerUrl, { type: 'module' });
+			liveWorkers.add(worker);
+			// 宿主命令通道（S2.1 §3.2）：SAB 分配与本端应答循环都在这里；guest 侧的 builtin 在 worker 里等它
+			// `??` 只挡 undefined：`timeout: 0` 会原样变成 0ms 宽限期，之后每次宿主命令应答都立即超时
+			// （kill 定时器也是 0ms，整条命令立刻被杀）。0 在任何一种解释下都不是「零宽限期」的意思，
+			// 落到缺省档。
+			const timeoutSeconds = (execOptions?.timeout ?? DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000);
+			const timeoutMs = (timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_HOST_COMMAND_TIMEOUT_MS / 1000) * 1000;
+			const sab = hostNames.length > 0 ? createHostCommandSharedBuffer() : undefined;
+			channel = sab ? createHostCommandChannel(sab, { timeoutMs }) : undefined;
 			if (sab && channel) {
 				// 先投消息再 spawn：spawn 的启动消息在其后入队，worker 模块收到 SAB 时 shell 还没开始跑
 				worker.postMessage({ type: HOST_COMMAND_SAB_MESSAGE, sab, timeoutMs, names: hostNames } satisfies HostCommandSabMessage);
@@ -266,14 +278,24 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			const pushed = await readMountTree(store);
 			const files: Record<string, string | Uint8Array> = {};
 			for (const { path, data } of pushed.written) files[path] = data;
+			// 空目录不在 files 里（spawn 的 files 只表达文件）：单独投给 worker，且必须在启动消息之前（FIFO）。
+			// 漏了它，guest 从一开始就「没有」这个目录，收尾对账会把宿主上的空目录当已删除递归删掉。
+			if (pushed.dirs.length > 0) worker.postMessage({ type: PUSH_DIRS, dirs: pushed.dirs } satisfies PushDirsRequest);
 			// spawn() 依赖 SharedArrayBuffer/crossOriginIsolated——浏览器部署需 COOP/COEP 响应头（README「浏览器部署」节）
 			session = await spawn({ worker, command: withCwd(command, cwd), wasm, env: envFor(execOptions), files });
+			// 先接输出再决定生死：spawn 期间先到的输出也要交付（已发布输出保留是硬杀语义的一部分）
+			session.onOutput((bytes) => output.deliver(bytes));
 			// cleanup 发生在 spawn 之前的窗口里：killLiveExec 当时还没东西可杀，这里补上
 			if (closed) kill('aborted');
-			// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
-			// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
-			if (channel) session.end();
-			session.onOutput((bytes) => output.deliver(bytes));
+			// spawn 期间到期的 timeout/abort 同样没东西可杀（session 还是 undefined），kill 只记了原因；
+			// 现在补刀，否则命令会跑完、只在最后被报成超时（写还被丢弃）。
+			if (killed !== undefined) {
+				session.terminate();
+			} else if (channel) {
+				// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
+				// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
+				session.end();
+			}
 			const exitCode = await session.exited;
 			const finalized = await finalizeSink(output);
 			if (killed === 'timeout') return err(execError('timeout', `timeout:${execOptions?.timeout}`, undefined, finalized.spillPath));
@@ -293,8 +315,8 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			void serving?.catch(() => {});
 			if (timer) clearTimeout(timer);
 			context.abortSignal?.removeEventListener('abort', onAbort);
-			worker.terminate();   // 一次 exec 一个 worker（与 run() 同构），杀掉不留悬挂线程
-			liveWorkers.delete(worker);
+			worker?.terminate();   // 一次 exec 一个 worker（与 run() 同构），杀掉不留悬挂线程
+			if (worker) liveWorkers.delete(worker);
 			liveKills.delete(kill);
 		}
 	}
@@ -353,7 +375,14 @@ async function pulledChanges(worker: Worker, pushed: WasiFsChanges): Promise<Was
 export function reconcilePulled(pushed: WasiFsChanges, pulled: WasiFsChanges): WasiFsChanges {
 	const alive = new Set<string>([...pulled.dirs, ...pulled.written.map((w) => w.path)]);
 	const candidates = [...pushed.written.map((w) => w.path), ...pushed.dirs].sort((a, b) => b.split('/').length - a.split('/').length);
-	return { deleted: candidates.filter((p) => !alive.has(p)), dirs: pulled.dirs, written: pulled.written };
+	// 只回写内容变了的文件：快照是全量，直接透传会把整棵工作区重写一遍（每条命令一次），
+	// 顺带把所有文件的 mtime 刷成「刚刚」——find -newer / 增量构建 / git 索引全部失真。
+	const before = new Map(pushed.written.map((w) => [w.path, w.data]));
+	const written = pulled.written.filter((w) => {
+		const prev = before.get(w.path);
+		return prev === undefined || !bytesEqual(prev, w.data);
+	});
+	return { deleted: candidates.filter((p) => !alive.has(p)), dirs: pulled.dirs, written };
 }
 
 function requestChanges(worker: Worker): Promise<WasiFsChanges> {

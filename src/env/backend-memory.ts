@@ -10,6 +10,7 @@ import { createBinaryReader, createDirReader } from './pull-readers';
 import type { BrowserFileSystem } from './types';
 
 const basename = (p: string): string => normalizePath(p).split('/').filter(Boolean).pop() ?? '';
+const ENCODER = new TextEncoder();
 
 /**
  * 纯内存 FileSystem（pi 契约）：Node / jsdom / 单测用。
@@ -60,7 +61,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 	};
 	const info = (abs: string): FileInfo => {
 		const n = files.get(abs)!;
-		return { name: basename(abs), path: abs, kind: n.kind, size: n.bytes?.length ?? n.data?.length ?? 0, mtimeMs: n.mtimeMs };
+		// 文本按 UTF-8 现算字节数：`data.length` 是 UTF-16 码元数，与 readBinaryFile 报的长度不一致
+		return { name: basename(abs), path: abs, kind: n.kind, size: n.bytes?.length ?? ENCODER.encode(n.data ?? '').length, mtimeMs: n.mtimeMs };
 	};
 	const okv = <T>(v: T): Result<T, FileError> => ok(v);
 	/** `listDir` 与 `openDirReader` 共用：直属条目按名排序 */
@@ -75,8 +77,10 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		}
 		return okv([...names].sort().map((n) => info(prefix + n)));
 	};
-	/** 节点上的字节（文本节点按 UTF-8 现算），供 `readBinaryFile` 与 `openBinaryReader` 共用 */
-	const bytesOf = (n: Node): Uint8Array => n.bytes ?? new TextEncoder().encode(n.data ?? '');
+	/** 节点上的字节（文本节点按 UTF-8 现算），供 `readBinaryFile` 与 `openBinaryReader` 共用。
+	 *  返回**副本**：节点是后端私有状态，把内部 Uint8Array 直接交给调用方（读取器再切 subarray）
+	 *  意味着一次读后改字节就改了「存储」。IDB 后端每次都是结构化克隆，两边必须同口径。 */
+	const bytesOf = (n: Node): Uint8Array => (n.bytes ? n.bytes.slice() : ENCODER.encode(n.data ?? ''));
 
 	return {
 		cwd,
@@ -100,6 +104,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));
@@ -109,6 +115,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));
@@ -120,14 +128,10 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
-			if (!n) {
-				// 路径穿过一个文件 → not_directory（上游 ENOTDIR），不是 not_found
-				const parent = abs.split('/').slice(0, -1).join('/') || '/';
-				if (files.get(parent)?.kind === 'file') return err(new FileError('not_directory', `Not a directory: ${parent}`, parent));
-				return err(notFound(abs));
-			}
-			if (!parentOk(abs)) return err(notFound(abs));
+			if (!n) return err(notFound(abs));
 			if (n.kind === 'directory') return err(new FileError('is_directory', `Is a directory: ${abs}`, abs));
 			return okv(createBinaryReader(bytesOf(n), info(abs), abs));
 		},
@@ -137,6 +141,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			// 上游同款短路：maxLines <= 0 连文件都不打开（缺失路径也返 ok([])）
 			if (options?.maxLines !== undefined && options.maxLines <= 0) return okv<string[]>([]);
 			const abs = normalizePath(path);
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));
@@ -147,6 +153,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));
@@ -189,9 +197,28 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const from = normalizePath(src); const to = normalizePath(dest);
 			const n = files.get(from);
 			if (!n) return err(notFound(from));
+			// 自我 rename 是成功的 no-op（上游 fs.rename 同款）；不挡的话下面先 set 再 delete 同一个 key = 静默删文件
+			if (from === to) return okv(undefined);
+			// 根不可改名（上游 EBUSY）；不挡会把整个文件系统从 '/' 搬到一个子路径
+			if (from === '/') return err(new FileError('unknown', 'Cannot rename the root directory', from));
 			// 类型冲突：rename 到已存在目录（上游 EISDIR），不能把目录替换掉
 			if (isDir(to)) return err(dirErr(to));
+			// 目录移进自己的子树：上游 EINVAL；不挡会把子树 re-key 到自己的下面，树直接烂掉
+			if (n.kind === 'directory' && to.startsWith(`${from}/`)) return err(new FileError('invalid', `Cannot move a directory into itself: ${to}`, to));
+			const existing = files.get(to);
+			if (n.kind === 'directory' && existing?.kind === 'file') return err(new FileError('not_directory', `Not a directory: ${to}`, to));
+			// 路径穿过文件：上游 ENOTDIR（与 writeFile/createDir 同一道闸）
+			const badParent = nonDirAncestor(to);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			mkdirp(to.split('/').slice(0, -1).join('/'));
+			// 表按整路径索引：目录改名时子项也要跟着换 key（与 idb/lightning-fs 及 wasi-fs.renameSync 同语义）
+			if (n.kind === 'directory') {
+				for (const key of [...files.keys()]) {
+					if (!key.startsWith(`${from}/`)) continue;
+					files.set(`${to}${key.slice(from.length)}`, files.get(key)!);
+					files.delete(key);
+				}
+			}
 			files.set(to, { ...n, mtimeMs: Date.now() });
 			files.delete(from);
 			return okv(undefined);
@@ -200,12 +227,11 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
-			if (!files.has(abs)) {
-				// 上游区分：路径不存在 → not_found；路径**穿过一个文件** → not_directory
-				const parent = abs.split('/').slice(0, -1).join('/') || '/';
-				if (files.get(parent)?.kind === 'file') return err(new FileError('not_directory', `Not a directory: ${parent}`, parent));
-				return err(notFound(abs));
-			}
+			// 上游区分：路径不存在 → not_found；路径**穿过一个文件** → not_directory（任意深度）
+			// 旧实现只看直接父节点，'/f' 是文件时 '/f/a/b' 会被报成 not_found。
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
+			if (!files.has(abs)) return err(notFound(abs));
 			if (!parentOk(abs)) return err(notFound(abs));
 			return okv(info(abs));
 		},
@@ -249,6 +275,8 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 删根之后整棵树都没了，所有路径变 ENOENT（上游 EBUSY）；与 wasi-fs.rmdirSync 同一道闸
+			if (abs === '/') return err(new FileError('unknown', 'Cannot remove the root directory', abs));
 			// 路径穿过文件：上游报 ENOTDIR（不能把「父路径是文件」当成「不存在」静默成功）
 			const badParent = nonDirAncestor(abs);
 			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
@@ -294,8 +322,14 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));
-			const bytes = n.bytes ?? new TextEncoder().encode(n.data ?? '');
-			const next = new Uint8Array(size);
+			const bytes = n.bytes ?? ENCODER.encode(n.data ?? '');
+			let next: Uint8Array;
+			try {
+				next = new Uint8Array(size);
+			} catch (e) {
+				// 合法但分配不下的 size（如 2**53-1）：契约是「不抛，返回 Result」（IDB 后端的 wrap 同一结果）
+				return err(new FileError('unknown', `Cannot allocate ${size} bytes: ${(e as Error).message}`, abs, e as Error));
+			}
 			next.set(bytes.subarray(0, Math.min(size, bytes.length)));
 			// 统一落成 bytes（不再是 data 字符串）：截断到非字符边界时字符串存不住
 			files.set(abs, { kind: 'file', bytes: next, mtimeMs: Date.now() });

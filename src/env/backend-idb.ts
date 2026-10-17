@@ -164,11 +164,10 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		const st = await statChecked(abs);
 		if (!st) {
 			// 上游区分：路径不存在 → not_found；路径**穿过一个文件** → not_directory。
-			// `statChecked` 逐段走时两者都返回 null，这里再查一次父路径把它们分开。
-			const parent = abs.split('/').slice(0, -1).join('/') || '/';
-			const parentSt = await statChecked(parent);
-			const parentIsDir = parentSt ? (parentSt.isDirectory ? parentSt.isDirectory() : parentSt.type === 'dir') : false;
-			if (parentSt && !parentIsDir) throw new FileError('not_directory', `Not a directory: ${parent}`, parent);
+			// `statChecked` 逐段走时两者都返回 null，这里沿整条父链再查一次（旧实现只看直接父节点，
+			// '/f' 是文件时 '/f/a/b' 被误报成 not_found）。
+			const badParent = await nonDirAncestor(abs);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			throw new FileError('not_found', `Not found: ${abs}`, abs);
 		}
 		const isDir = st.isDirectory ? st.isDirectory() : st.type === 'dir';
@@ -298,18 +297,30 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			await mkdirp(abs.split('/').slice(0, -1).join('/'));
 			let prev = '';
-			try { prev = await onFs((f) => f.promises.readFile(abs, 'utf8')); } catch (e) { if (!isNotFound(e)) throw e; }
+			try { prev = (await onFs((f) => f.promises.readFile(abs, 'utf8'))) ?? ''; } catch (e) { if (!isNotFound(e)) throw e; }
 			const next = typeof content === 'string' ? content : new TextDecoder().decode(content);
 			await onFs((f) => f.promises.writeFile(abs, prev + next));
 		}),
 		renameFile: (src, dest, context) => wrap(src, context, async () => {
+			const from = normalizePath(src);
 			const to = normalizePath(dest);
+			// 自我 rename：lightning-fs 是先 set 再 unlink 同一个 key ⇒ 静默删文件。上游 fs.rename 是成功 no-op
+			if (from === to) return;
+			// 根不可改名（上游 EBUSY）
+			if (from === '/') throw new FileError('unknown', 'Cannot rename the root directory', from);
 			// 类型冲突：rename 到已存在目录（上游 EISDIR），lightning-fs 会静默覆盖
 			const target = await statChecked(to);
 			const targetIsDir = target ? (target.isDirectory ? target.isDirectory() : target.type === 'dir') : false;
 			if (targetIsDir) throw new FileError('is_directory', `Is a directory: ${to}`, to);
+			// 目录 rename 到已存在文件：上游 ENOTDIR，不能把文件静默换成目录
+			const sourceInfo = await statChecked(from);
+			const sourceIsDir = sourceInfo ? (sourceInfo.isDirectory ? sourceInfo.isDirectory() : sourceInfo.type === 'dir') : false;
+			if (sourceIsDir && target) throw new FileError('not_directory', `Not a directory: ${to}`, to);
+			// 路径穿过文件：上游 ENOTDIR。不查时 mkdirp 会吞掉 EEXIST，再把子节点挂到文件下面
+			const badParent = await nonDirAncestor(to);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			await mkdirp(to.split('/').slice(0, -1).join('/'));
-			await onFs((f) => f.promises.rename(normalizePath(src), to));
+			await onFs((f) => f.promises.rename(from, to));
 		}),
 		fileInfo: (path, context) => wrap(path, context, () => statInfo(path)),
 		listDir: (path, context) => wrap(path, context, () => listEntries(normalizePath(path))),
@@ -344,6 +355,8 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		}),
 		remove: (path, options, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
+			// 删根之后整棵树都没了（上游 EBUSY）；与 memory 后端 / wasi-fs.rmdirSync 同一道闸
+			if (abs === '/') throw new FileError('unknown', 'Cannot remove the root directory', abs);
 			// 路径穿过文件：上游报 ENOTDIR（不能当成「不存在」静默成功）
 			const badParent = await nonDirAncestor(abs);
 			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);

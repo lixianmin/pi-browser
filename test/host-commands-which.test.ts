@@ -23,6 +23,17 @@ async function withFs(seed: Record<string, string>, resolvable: string[] = []): 
 const req = (name: string, args: string[], env?: Record<string, string>, mounts?: MountEntry[]): HostCommandRequest =>
 	({ name, args, cwd: '/', env, mounts });
 
+describe('默认宿主命令自解析（2026-10-17 评审回归）', () => {
+	it('which 能解析 which / mount 自己（它们不在 RESERVED_COMMAND_NAMES 里）', async () => {
+		const fs = createMemoryFileSystem();
+		const { which } = createDefaultHostCommands(new Set(['ls']));
+		const result = await which(req('which', ['which', 'mount'], { PATH: '/nope' }), fs);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toBe('which\nmount\n');
+	});
+});
+
 describe('which（解析式：applet/内建/宿主命令 + PATH 文件）', () => {
 	it('名字是 shell 可解析的（applet）：打印名字本身、退出 0 —— busybox 的 which 在这里会误报找不到', async () => {
 		const { fs, which } = await withFs({}, ['awk', 'ls', 'cd']);

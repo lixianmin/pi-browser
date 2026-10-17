@@ -44,9 +44,20 @@ export interface WasiFsChanges {
  * 常量住这里而不是 worker.ts：worker 模块 import 时会执行 `serve()`，主线程不能 import 它。
  */
 export const PULL_CHANGES = 'pi-browser:pull-changes';
+/**
+ * 主线程 → worker：把宿主的目录列表（含**空目录**）在 spawn 前交给 guest。
+ * spawn 的 `files` 只表达文件，wasi-sh 只建文件的父目录；不补这条消息，空目录在 guest 里从不存在，
+ * 收尾对账会把它算成「已删除」并从宿主递归删掉（静默数据丢失）。
+ */
+export const PUSH_DIRS = 'pi-browser:push-dirs';
 
 export interface PullChangesRequest {
 	type: typeof PULL_CHANGES;
+}
+
+export interface PushDirsRequest {
+	type: typeof PUSH_DIRS;
+	dirs: string[];
 }
 
 export interface ChangesResponse {
@@ -100,7 +111,7 @@ const parentOf = (path: string): string => {
 };
 const baseOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 const depthFirst = (a: string, b: string): number => a.split('/').length - b.split('/').length || a.localeCompare(b);
-const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
+export const bytesEqual = (a: Uint8Array, b: Uint8Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
 
 /**
  * 把挂载树读成变更集形状（`deleted` 恒空）。两个真实调用方：适配器的 `seed()`，以及 exec 的

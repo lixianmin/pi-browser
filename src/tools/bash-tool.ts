@@ -11,6 +11,7 @@
 // 平台偏差（P6 README）：busybox 无 fork（后台任务/需 fork 的子 shell/进程替换响亮失败）；不暴露 `PI_*`。
 
 import { type Static, Type } from 'typebox';
+import { ExecutionError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { ToolDefinition } from '../extensions/tool';
 import { OutputAccumulator, type OutputAccumulatorSpill } from '../shell/output-accumulator';
@@ -124,6 +125,25 @@ async function executeBash(
 			details,
 			...(exitCode === 0 ? {} : { isError: true }),
 		};
+	} catch (e) {
+		// 上游行为（bash.js 的 catch 分支）：命令被 timeout/abort 杀掉时，已经收到的输出要跟着错误一起
+		// 交出去——只报「超时」会把 50KB 编译错误扔掉，模型没有可排查的线索。
+		acceptingOutput = false;
+		accumulator.finish();
+		const snapshot = accumulator.snapshot({ persistIfTruncated: true });
+		if (e instanceof ExecutionError && (e.code === 'timeout' || e.code === 'aborted')) {
+			const parts = snapshot.content === '' ? [] : [snapshot.content];
+			if (snapshot.truncation.truncated) {
+				parts.push(truncationNotice(snapshot.truncation, accumulator.getLastLineBytes(), snapshot.fullOutputPath));
+			}
+			const status = e.code === 'aborted'
+				? 'Command aborted'
+				: `Command timed out after ${input.timeout} seconds`;
+			const wrapped = new ExecutionError(e.code, [...parts, status].join('\n\n'), e);
+			if (e.spillPath !== undefined) wrapped.spillPath = e.spillPath;
+			throw wrapped;
+		}
+		throw e;
 	} finally {
 		acceptingOutput = false;
 		// `closeTempFile` 是 accumulator 自己写明的必调项（不调则落盘失败被永久吞掉）；错误路径也要跑

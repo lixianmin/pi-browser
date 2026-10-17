@@ -7,6 +7,7 @@
 // 单写者由此成立：IDB 只由主线程在第 ③ 步写，guest 从不直接碰持久面。
 import { BACKGROUND_CONTEXT } from '../env/context';
 import { createMountTable } from '../env/mount';
+import { normalizePath } from '../env/path';
 import { createWasiFileSystem, type ShellFsStore, type WasiFsChanges, type WasiFileSystem } from './wasi-fs';
 
 export interface ShellSyncSession {
@@ -43,7 +44,10 @@ export async function applyChanges(store: ShellFsStore, changes: WasiFsChanges):
 		const removed = await table.remove(path, { recursive: true, force: true }, ctx);
 		if (!removed.ok) throw fail('remove', path, removed.error);
 	}
+	// 挂载根由表合成，后端里本来就没有同名目录：没必要建，建了会在 '/tmp' 后端里留下一个空壳。
+	const mountRoots = new Set(store.mounts.map((m) => normalizePath(m.prefix)).filter((p) => p !== '/'));
 	for (const path of changes.dirs) {
+		if (mountRoots.has(normalizePath(path))) continue;
 		const created = await table.createDir(path, { recursive: true }, ctx);
 		if (!created.ok) throw fail('createDir', path, created.error);
 	}

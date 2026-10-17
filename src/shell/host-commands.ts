@@ -229,7 +229,13 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 	/** 应答超过定长 → 阶段截断：stderr 的诊断价值优先（先砍 stdout），两者都放不下时只留说明 */
 	const fitResponse = (result: HostCommandResult, changes: WireChanges): { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges } => {
 		const encodedLength = (r: HostCommandResult & { changes: WireChanges }): number => ENC.encode(JSON.stringify(r)).length;
-		const cut = (text: string, maxBytes: number): string => DEC.decode(ENC.encode(text).subarray(0, Math.max(0, maxBytes)));
+		const cut = (text: string, maxBytes: number): string => {
+	const buf = ENC.encode(text);
+	let end = Math.max(0, Math.min(maxBytes, buf.length));
+	// 切点落在多字节字符中间时往回退到字符边界：否则 guest 收到的尾字是 U+FFFD（stderr 的诊断信息首当其冲）
+	while (end > 0 && end < buf.length && (buf[end] & 0xc0) === 0x80) end--;
+	return DEC.decode(buf.subarray(0, end));
+};
 		let response = { ...result, changes };
 		if (encodedLength(response) <= capacity) return response;
 		const note = `\n[宿主命令输出被截断：应答超过 ${capacity} 字节上限]\n`;

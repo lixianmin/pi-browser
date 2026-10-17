@@ -215,6 +215,40 @@ describe('ExtensionRunner（宿主，注入模型）', () => {
 		expect(() => api.registerTool(tool('late'))).toThrow(/close/);
 	});
 
+	// 2026-10-17 评审回归：invalidate() 只作废 runtime，旧代码的闸只看 `closed`，于是失效扩展仍能把
+	// 工具/订阅写进活表（api.ts 明说 close()/invalidate() 之后都要响亮失败）。
+	it('invalidate 之后 registerTool / on 同样响亮失败', async () => {
+		const f = fakes();
+		const { runner } = makeRunner([ext('ext-a', () => {})], f);
+		runner.bindCore(f.actions, f.contextActions);
+		const api = (await runner.load()).get('ext-a')!;
+
+		runner.invalidate();
+		expect(() => api.on('agent_start', () => {})).toThrow(/失效/);
+		expect(() => api.registerTool(tool('late'))).toThrow(/失效/);
+	});
+
+	// 并发 load() 旧代码不是单飞：两次都从空表起跑、两个工厂都把 handler 塞进同一张表 → emit 跑两遍。
+	it('并发 load() 单飞：handler 只注册一次', async () => {
+		const f = fakes();
+		const hits: string[] = [];
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => { release = resolve; });
+		const { runner } = makeRunner([ext('ext-a', async (pi) => {
+			await gate;
+			pi.on('agent_start', () => { hits.push('a'); });
+		})], f);
+		runner.bindCore(f.actions, f.contextActions);
+
+		const first = runner.load();
+		const second = runner.load();
+		release();
+		await Promise.all([first, second]);
+		await runner.emit({ type: 'agent_start' });
+
+		expect(hits).toEqual(['a']);
+	});
+
 	it('invalidate 后事件总线订阅被退订（runtime 统一退订）', async () => {
 		const f = fakes();
 		const { runner } = makeRunner([ext('ext-a', (pi) => { pi.events.on('tick', () => { hits.push(1); }); })], f);

@@ -46,14 +46,16 @@ describe('ExtensionRuntime / bindCore', () => {
 		expect(() => runtime.assertActive()).toThrow(/已 reload/);
 	});
 
-	it('trackEventBusSubscription：invalidate 时统一退订；手动取消后不再退订', () => {
+	it('trackEventBusSubscription：返回的取消函数立即真退订；invalidate 只退订仍存活的', () => {
 		const runtime = createExtensionRuntime();
 		const a = vi.fn();
 		const b = vi.fn();
-		runtime.trackEventBusSubscription(a)();
+		const cancelA = runtime.trackEventBusSubscription(a);
 		runtime.trackEventBusSubscription(b);
+		cancelA();
+		expect(a).toHaveBeenCalledTimes(1);   // 取消 = 立刻退订（上游同款）
 		runtime.invalidate();
-		expect(a).not.toHaveBeenCalled();   // 已手动取消
+		expect(a).toHaveBeenCalledTimes(1);   // 不重复退订
 		expect(b).toHaveBeenCalledTimes(1);
 	});
 

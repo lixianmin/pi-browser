@@ -111,6 +111,8 @@ export class ExtensionRunner {
 	private readonly errorListeners = new Set<ExtensionErrorListener>();
 	private phase: 'loading' | 'active' = 'loading';
 	private closed = false;
+	/** 单飞槽：并发的 `load()` 共用同一次装载（否则两次都清表再各注册一遍 → handler 跑两遍） */
+	private loading: Promise<Map<string, ExtensionAPI>> | undefined;
 	private contextActions: ExtensionContextActions | undefined;
 
 	constructor(
@@ -158,6 +160,17 @@ export class ExtensionRunner {
 		if (this.closed) {
 			throw new Error('ExtensionRunner：宿主已 close，不能再 load（要重新装载请新建 runner + runtime）');
 		}
+		if (this.loading) return this.loading;
+		this.loading = this.runLoad();
+		try {
+			return await this.loading;
+		} finally {
+			this.loading = undefined;
+		}
+	}
+
+	/** 真正跑工厂的那段（只由 `load()` 的单飞槽调用）。 */
+	private async runLoad(): Promise<Map<string, ExtensionAPI>> {
 		// 每次装载都从干净的三张表开始：工厂中途抛错时已注册的���具与订阅不会撤销，宿主 catch 后
 		// 重试 load() 会让同一个 handler 跑两遍（对有副作用的 handler 就是双写）。上游的 loader 在
 		// runner 诞生**之前**就跑完工厂，所以它没有这个失败模式；我们的 load() 自己跑工厂，就得自己兜。
@@ -172,7 +185,8 @@ export class ExtensionRunner {
 			const source = named?.name ?? `<anonymous:${++anonymous}>`;
 			await factory(this.apiFor(source));
 		}
-		this.phase = 'active';
+		// 装载期间宿主调了 close()：不要把已关闭的 runner 又标回 active
+		if (!this.closed) this.phase = 'active';
 		return this.apiPerSource;
 	}
 
@@ -588,8 +602,12 @@ export class ExtensionRunner {
 	 * `trackEventBusSubscription` 在已失效时会立刻自退订。
 	 */
 	private assertNotClosed(source: string, what: 'on' | 'registerTool'): void {
-		if (this.closed) {
-			throw new Error(`扩展 "${source}"：宿主已 close，不能再 ${what}（运行期成员也一并失效）`);
+		// 闸要跟 runtime 的生死一致：`invalidate()` 不会置 `closed`，只看 `closed` 时失效扩展仍能
+		// 往活表里写工具/订阅（api.ts 明说 close()/invalidate() 之后都要响亮失败）。
+		try {
+			this.runtime.assertActive();
+		} catch (e) {
+			throw new Error(`扩展 "${source}"：宿主已 close / invalidate，不能再 ${what}（${(e as Error).message}）`);
 		}
 	}
 

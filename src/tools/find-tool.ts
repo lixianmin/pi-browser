@@ -88,7 +88,8 @@ async function executeFind(
 ): Promise<AgentToolResult<FindToolDetails | undefined>> {
 	throwIfAborted(signal);
 	const searchPath = resolveToCwd(input.path ?? '.', cwd);
-	const effectiveLimit = input.limit ?? DEFAULT_LIMIT;
+	// limit:0/负数会让存在的文件被报成「未找到」：和 grep 一样夹到至少 1
+	const effectiveLimit = Math.max(1, input.limit ?? DEFAULT_LIMIT);
 	if (!(await operations.exists(searchPath))) {
 		throw new FileError('not_found', `Path not found: ${searchPath}`, searchPath);
 	}

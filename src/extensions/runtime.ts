@@ -98,10 +98,14 @@ export function createExtensionRuntime(): ExtensionRuntime {
 				unsubscribe();
 				return () => {};
 			}
-			subscriptions.add(unsubscribe);
-			return () => {
-				subscriptions.delete(unsubscribe);
+			// 返回的取消函数必须**真的退订**（上游同款）。旧实现只把订阅从跟踪表里摘掉，
+			// `pi.events.on` 的 handler 仍然活着，且 invalidate 也再也管不到它。
+			const cancel = (): void => {
+				if (!subscriptions.delete(cancel)) return;   // 幂等：invalidate 之后不再重复调用
+				unsubscribe();
 			};
+			subscriptions.add(cancel);
+			return cancel;
 		},
 	};
 }
