@@ -49,7 +49,8 @@ function normalizeErrno(code: string): string {
 		case 'EISDIR': return 'is_directory';
 		case 'EACCES':
 		case 'EPERM': return 'permission_denied';
-		case 'EEXIST': return 'already_exists';
+		// 沿主包 FileError 词表：EEXIST → invalid（没有 already_exists 这个 code）
+		case 'EEXIST': return 'invalid';
 		default: return code || 'unknown';
 	}
 }
@@ -97,7 +98,9 @@ export async function handleOp(dbName: string, op: FsOp): Promise<OpResult> {
 				if (!r.ok) throw r.error;
 				const bytes = r.value;
 				if (looksBinary(bytes)) {
-					return { ok: true, value: { kind: 'read', encoding: 'base64', content: bytesToBase64(bytes), totalBytes: bytes.length } };
+					// 二进制同样要封顶：否则多 MB 的镜像会被 base64 后在 page / SW / panel 之间复制三份
+					const truncated = bytes.length > maxBytes;
+					return { ok: true, value: { kind: 'read', encoding: 'base64', content: bytesToBase64(truncated ? bytes.subarray(0, maxBytes) : bytes), truncated, totalBytes: bytes.length } };
 				}
 				const truncated = bytes.length > maxBytes;
 				const text = new TextDecoder().decode(truncated ? bytes.subarray(0, maxBytes) : bytes);

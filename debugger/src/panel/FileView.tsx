@@ -18,14 +18,21 @@ export function FileView({ entry, runOp, onMutated }: FileViewProps) {
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState('');
 	const [loadedPath, setLoadedPath] = useState<string | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let alive = true;
 		setContent(null);
 		setEditing(false);
+		setLoadError(null);
 		(async () => {
 			const v = await runOp({ kind: 'read', path: entry.path, maxBytes: DEFAULT_MAX_BYTES });
-			if (!alive || !v || v.kind !== 'read') return;
+			if (!alive) return;
+			if (!v || v.kind !== 'read') {
+				// 不设 loadedPath 的话下面永远停在「加载中…」；错误详情在状态栏
+				setLoadError('读取失败（详情见状态栏）');
+				return;
+			}
 			setEncoding(v.encoding);
 			setTotalBytes(v.totalBytes);
 			setTruncated('truncated' in v ? v.truncated : false);
@@ -39,6 +46,7 @@ export function FileView({ entry, runOp, onMutated }: FileViewProps) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- runOp 由 App 用 useCallback 固定
 	}, [entry.path]);
 
+	if (loadError) return <div className="fileview">{loadError}</div>;
 	if (loadedPath !== entry.path) return <div className="fileview">加载中…</div>;
 
 	const isText = encoding === 'text' && !truncated;
@@ -56,7 +64,8 @@ export function FileView({ entry, runOp, onMutated }: FileViewProps) {
 	const del = async () => {
 		if (!window.confirm(`删除 ${entry.path}?`)) return;
 		const v = await runOp({ kind: 'delete', path: entry.path, recursive: false });
-		if (v?.kind === 'delete') onMutated([]);
+		// 把被删路径报给 App：否则 selected 不清空，右侧仍在编辑已不存在的文件，保存会把它复活
+		if (v?.kind === 'delete') onMutated([entry.path]);
 	};
 
 	const rename = async () => {
@@ -106,7 +115,7 @@ export function FileView({ entry, runOp, onMutated }: FileViewProps) {
 				<textarea className="editor" value={draft} onChange={(e) => setDraft(e.target.value)} spellCheck={false} />
 			) : content !== null && encoding === 'base64' ? (
 				<pre className="preview">{content.length > 8192 ? `${content.slice(0, 8192)}\n…(base64 截断)` : content}</pre>
-			) : content !== null ? (
+			) : content !== null && content.length > 0 ? (
 				<pre className="preview">{content}</pre>
 			) : (
 				<div className="fileview-note">(空文件)</div>

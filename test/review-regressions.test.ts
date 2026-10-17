@@ -1,7 +1,7 @@
 // @vitest-environment node
 // 代码评审回归集（2026-10-17）：每条用例对应 src/ 里一个已确认缺陷，全部先红后绿。
 // 分组与修复一一对应，断言只看可观察契约（返回值 / 宿主 fs 状态 / 输出文本）。
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
 import { ExecutionError, FileError, type Result } from '@earendil-works/pi-durable/env';
 import type { Context } from '../src/env/context';
@@ -251,6 +251,170 @@ describe('shell 回归', () => {
 		} finally {
 			if (saved === undefined) delete g.Worker;
 			else g.Worker = saved;
+		}
+	});
+});
+
+// ───────────────── 第二轮评审（2026-10-17）：上轮修复的回归 + 新发现 ─────────────────
+
+describe('shell 对账：类型变化与目录回写', () => {
+	it('reconcilePulled：文件↔目录类型变化必须进 deleted（applyChanges 前先删旧节点）', async () => {
+		const { reconcilePulled } = await import('../src/shell/exec');
+		const pushed = {
+			deleted: [],
+			dirs: ['/d'],
+			written: [{ path: '/f', data: ENC.encode('x') }],
+		};
+		const pulled = {
+			deleted: [],
+			dirs: ['/f'],
+			written: [{ path: '/d', data: ENC.encode('y') }],
+		};
+		const r = reconcilePulled(pushed, pulled);
+		expect(r.deleted).toEqual(expect.arrayContaining(['/d', '/f']));
+		expect(r.dirs).toEqual(['/f']);
+	});
+
+	it('reconcilePulled：已存在于宿主的目录不重复 createDir', async () => {
+		const { reconcilePulled } = await import('../src/shell/exec');
+		const pushed = { deleted: [], dirs: ['/w', '/w/sub'], written: [] };
+		const pulled = { deleted: [], dirs: ['/w', '/w/sub', '/w/new'], written: [] };
+		expect(reconcilePulled(pushed, pulled).dirs).toEqual(['/w/new']);
+	});
+});
+
+describe('env：路径穿过文件 / BOM / scanLines / 自我 rename', () => {
+	it('memory：truncateFile / flushFile 对「路径穿过文件」报 not_directory', async () => {
+		const fs = createMemoryFileSystem();
+		await fs.writeFile('/f', 'file', CTX);
+
+		const t = await fs.truncateFile('/f/child', 1, CTX);
+		expect(t.ok).toBe(false);
+		if (!t.ok) expect(t.error.code).toBe('not_directory');
+		const f = await fs.flushFile('/f/child', CTX);
+		expect(f.ok).toBe(false);
+		if (!f.ok) expect(f.error.code).toBe('not_directory');
+	});
+
+	it('IDB/lightning 后端：自我 rename 不删文件；缺失路径的自我 rename 仍 not_found', async () => {
+		const { createBrowserFileSystem } = await import('../src/env/backend-idb');
+		const fs = createBrowserFileSystem({ dbName: `r-self-${Math.random().toString(36).slice(2)}`, memory: false });
+		await fs.writeFile('/a.txt', 'keep', CTX);
+
+		expect((await fs.renameFile('/a.txt', '/a.txt', CTX)).ok).toBe(true);
+		expect(getOrFail(await fs.readTextFile('/a.txt', CTX))).toBe('keep');
+		const missing = await fs.renameFile('/missing', '/missing', CTX);
+		expect(missing.ok).toBe(false);
+		if (!missing.ok) expect(missing.error.code).toBe('not_found');
+	});
+
+	it('createTextLineReader 吃掉文件开头的 BOM（对齐上游 StreamDecoder）', async () => {
+		const { createTextLineReader } = await import('../src/env/text-line-reader');
+		const reader = createTextLineReader('\uFEFFa\nb', '/x');
+		const first = getOrFail(await reader.readLine(CTX));
+		expect(first).toEqual({ text: 'a', terminated: true });
+	});
+
+	it('BinaryReader.scanLines 接受 endLine: Infinity（上游语义：到文件末尾）', async () => {
+		const fs = createMemoryFileSystem();
+		await fs.writeFile('/b.txt', 'l1\nl2\nl3\n', CTX);
+		const reader = getOrFail(await fs.openBinaryReader('/b.txt', {}, CTX));
+		const r = await reader.scanLines({ startLine: 0, endLine: Number.POSITIVE_INFINITY }, CTX);
+		expect(r.ok).toBe(true);
+	});
+});
+
+describe('shell：宿主命令与 exec 边界', () => {
+	it('readStdin 读满整个 stdin（不再被 64KiB 单次上限截断）', async () => {
+		const { createInlineHostBuiltins } = await import('../src/shell/host-commands');
+		let seen: string | undefined;
+		const builtins = createInlineHostBuiltins({
+			probe: (req) => { seen = req.stdin; return { exitCode: 0 }; },
+		});
+		const chunks = [new Uint8Array(65536).fill(65), new Uint8Array(65536).fill(66), new Uint8Array(0)];
+		let i = 0;
+		const ctx = {
+			argv: ['probe'], env: {}, cwd: '/',
+			stdin: () => chunks[i++] ?? new Uint8Array(0),
+			stdout: () => {}, stderr: () => {}, fs: {},
+		};
+		const status = builtins.run(ctx as never);
+		expect(status).toBe(0);
+		expect(seen).toHaveLength(131072);
+	});
+
+	it('宿主命令抛出的超长错误不会撑爆 SAB / 打死应答循环', async () => {
+		const { createHostCommandChannel, createHostCommandSharedBuffer } = await import('../src/shell/host-commands');
+		const { hostSide, guestSide } = createHostCommandChannel(createHostCommandSharedBuffer({ capacity: 1024 }));
+		const seq = guestSide.send({ name: 'boom', args: [], cwd: '/', changes: { deleted: [], dirs: [], written: [] } });
+		const responder = async () => { throw new Error('E'.repeat(4096)); };
+
+		await expect(hostSide.respondOnce(responder)).resolves.toBe(true);
+		const r = guestSide.read(seq);
+		expect(r.exitCode).toBe(1);
+		expect((r.stderr ?? '').length).toBeLessThan(1024);
+		hostSide.stop();
+	});
+
+	it('非法 timeout（0 / 负数 / NaN）→ timeout 错误，不启动命令', async () => {
+		const env = createBrowserExecutionEnv({ mounts: [{ prefix: '/', fs: createMemoryFileSystem() }] });
+		try {
+			for (const timeout of [0, -1, Number.NaN]) {
+				const r = await env.exec('echo hi', { timeout }, CTX);
+				expect(r.ok).toBe(false);
+				if (!r.ok) expect(r.error.code).toBe('timeout');
+			}
+		} finally {
+			await env.cleanup(CTX);
+		}
+	});
+
+	it('缺少 SharedArrayBuffer（未开 COOP/COEP）→ shell_unavailable，而不是模糊的 spawn_error', async () => {
+		const g = globalThis as { Worker?: unknown; SharedArrayBuffer?: unknown };
+		const savedWorker = g.Worker;
+		const savedSab = Object.getOwnPropertyDescriptor(globalThis, 'SharedArrayBuffer');
+		g.Worker = class { constructor() { throw new Error('should not construct'); } };
+		Object.defineProperty(globalThis, 'SharedArrayBuffer', { value: undefined, configurable: true, writable: true });
+		try {
+			const env = createBrowserExecutionEnv({
+				mounts: [{ prefix: '/', fs: createMemoryFileSystem() }],
+				workerUrl: 'https://example.com/worker.js',
+			});
+			const r = await env.exec('echo hi', undefined, CTX);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.error.code).toBe('shell_unavailable');
+			await env.cleanup(CTX);
+		} finally {
+			if (savedWorker === undefined) delete g.Worker; else g.Worker = savedWorker;
+			if (savedSab) Object.defineProperty(globalThis, 'SharedArrayBuffer', savedSab);
+		}
+	});
+
+	it('cleanup 在 spawn 就绪前发生 → aborted，不等 30s readyTimeout', async () => {
+		const { createBusyboxShell } = await import('../src/shell/exec');
+		const g = globalThis as { Worker?: unknown };
+		const saved = g.Worker;
+		vi.useFakeTimers();
+		let started!: () => void;
+		const spawnStarted = new Promise<void>((resolve) => { started = resolve; });
+		g.Worker = class {
+			postMessage(msg: { files?: unknown }): void { if (msg && 'files' in msg) started(); }
+			addEventListener(): void {}
+			removeEventListener(): void {}
+			terminate(): void {}
+		};
+		try {
+			const fs = createMemoryFileSystem();
+			const shell = createBusyboxShell({ mounts: [{ prefix: '/', fs }] }, { workerUrl: 'https://example.com/worker.js', hostCommands: {} });
+			const running = shell.exec('echo hi', undefined, CTX);
+			await spawnStarted;
+			await shell.cleanup(CTX);
+			const r = await running;
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.error.code).toBe('aborted');
+		} finally {
+			vi.useRealTimers();
+			if (saved === undefined) delete g.Worker; else g.Worker = saved;
 		}
 	});
 });

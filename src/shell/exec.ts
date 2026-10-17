@@ -173,6 +173,11 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		if (typeof command !== 'string') {
 			return err(new ExecutionError('unknown', 'argv form not supported by wasi-sh backend'));
 		}
+		// 上游同款校验：0/负数/NaN 在 kill timer 与宿主命令等待里会被解释成不同值（立刻杀 vs 30s），
+		// 两种解释都不是调用方要的，统一报错而不是猜。
+		if (execOptions?.timeout !== undefined && (!Number.isFinite(execOptions.timeout) || execOptions.timeout <= 0)) {
+			return err(new ExecutionError('timeout', 'Invalid timeout: must be a finite number of seconds'));
+		}
 		// 消费者回调抛错时由 sink 直接叫停活着的那次 exec（worker 路径需要杀子进程；上行传给 kill 的 'callback'
 		// 不写进 killed，因收尾原因由返回值给出，是 callback_error）
 		const output = createOutputSink(execOptions, context);
@@ -235,16 +240,26 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		if (options.workerUrl === undefined) {
 			return err(new ExecutionError('shell_unavailable', '浏览器下的 busybox 需要 workerUrl：fs 不能跨 postMessage，必须由自建 worker 模块 serve({fs}) 注册'));
 		}
+		// 与 wasi-sh spawn() 同一道前置闸，但必须排在自建 SAB 之前：否则未开 COOP/COEP 的页面会先吃到
+		// `new SharedArrayBuffer` 的 TypeError，被包成 spawn_error，掩盖真正可执行的修复指引。
+		if (typeof SharedArrayBuffer === 'undefined'
+			|| (typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated === false)) {
+			return err(new ExecutionError('shell_unavailable', 'worker 路径需要 SharedArrayBuffer（跨源隔离）：请给页面加 Cross-Origin-Opener-Policy: same-origin 与 Cross-Origin-Embedder-Policy: require-corp，或改用 inline 路径（run() 不需要跨源隔离）'));
+		}
 		// cwd 校验走宿主挂载表（worker 内的 store 此刻还没拿到树），口径与 inline 路径一致：不存在 → spawn_error
 		const cwdInfo = await createMountTable(store.mounts).fileInfo(cwd, BACKGROUND_CONTEXT);
 		if (!cwdInfo.ok || cwdInfo.value.kind !== 'directory') return err(new ExecutionError('spawn_error', `Working directory does not exist: ${cwd}`));
 		// 硬杀语义（spec §3.2）：被杀运行的**文件变更整体丢弃**（变更集没拉），已发布的输出保留
 		let killed: 'timeout' | 'aborted' | undefined;
 		let session: Session | undefined;
+		// spawn 还没返回时 session 是 undefined：此时 kill 只能叫醒竞速里等 spawn 的那一侧，
+		// 否则 cleanup/abort 会等到 wasi-sh 的 30s readyTimeout 才以 spawn_error 收场。
+		let abortSpawn: ((e: Error) => void) | undefined;
 		const kill = (why: 'timeout' | 'aborted' | 'callback'): void => {
 			// 'callback' 不写 killed：收尾原因由返回值给出（callback_error），不能被 abort 分支盖掉
 			if (why !== 'callback') killed ??= why;
-			session?.terminate();
+			if (session) session.terminate();
+			else abortSpawn?.(new Error(why === 'timeout' ? 'timeout' : 'aborted'));
 		};
 		if (context.abortSignal?.aborted) return err(new ExecutionError('aborted', 'aborted'));   // 调用前已中止：不启动 worker（与 inline 入口检查对齐）
 		liveKills.add(kill);   // 从这里起它算「活着的 exec」；finally 里摘掉
@@ -281,25 +296,40 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			// 空目录不在 files 里（spawn 的 files 只表达文件）：单独投给 worker，且必须在启动消息之前（FIFO）。
 			// 漏了它，guest 从一开始就「没有」这个目录，收尾对账会把宿主上的空目录当已删除递归删掉。
 			if (pushed.dirs.length > 0) worker.postMessage({ type: PUSH_DIRS, dirs: pushed.dirs } satisfies PushDirsRequest);
+			// cleanup / abort 发生在 spawn 之前的窗口里：kill 没有 session 可杀，先把结果收尾。
+			if (killed !== undefined) {
+				const pre = await finalizeSink(output);
+				return err(execError(killed, killed === 'timeout' ? `timeout:${execOptions?.timeout}` : 'aborted', undefined, pre.spillPath));
+			}
 			// spawn() 依赖 SharedArrayBuffer/crossOriginIsolated——浏览器部署需 COOP/COEP 响应头（README「浏览器部署」节）
-			session = await spawn({ worker, command: withCwd(command, cwd), wasm, env: envFor(execOptions), files });
+			const spawning = spawn({ worker, command: withCwd(command, cwd), wasm, env: envFor(execOptions), files });
+			// 输掉竞速后 spawn 仍会自己 reject（30s readyTimeout）：必须消化，不能变 unhandled
+			spawning.catch(() => {});
+			const spawnAborted = new Promise<never>((_, reject) => { abortSpawn = reject; });
+			try {
+				session = await Promise.race([spawning, spawnAborted]);
+			} finally {
+				abortSpawn = undefined;
+			}
 			// 先接输出再决定生死：spawn 期间先到的输出也要交付（已发布输出保留是硬杀语义的一部分）
 			session.onOutput((bytes) => output.deliver(bytes));
-			// cleanup 发生在 spawn 之前的窗口里：killLiveExec 当时还没东西可杀，这里补上
-			if (closed) kill('aborted');
-			// spawn 期间到期的 timeout/abort 同样没东西可杀（session 还是 undefined），kill 只记了原因；
-			// 现在补刀，否则命令会跑完、只在最后被报成超时（写还被丢弃）。
+			// kill 恰好落在竞速已结算之后：补一刀（否则命令会跑完、只在最后被报成超时）
 			if (killed !== undefined) {
 				session.terminate();
-			} else if (channel) {
+			} else {
 				// 本 shell 没有活 stdin（exec 从不写 stdin）：直接置 EOF，与 inline（run() 的固定输入）行为一致。
+				// 与宿主命令通道无关：没有 hostCommands 时也必须置 EOF，否则 cat/read 会永久阻塞。
 				// 管道（echo x | hostcmd）走 pipe fd、重定向（hostcmd < f）走 file fd，都不受这句影响
 				session.end();
 			}
 			const exitCode = await session.exited;
+			// 先停表再快照收尾原因：spill 落盘可能跨过 deadline，否则一个已经退出 0 的命令会被
+			// 报成 timeout，且 applyChanges 不再执行（写全丢）。
+			if (timer) clearTimeout(timer);
+			const killReason = killed;
 			const finalized = await finalizeSink(output);
-			if (killed === 'timeout') return err(execError('timeout', `timeout:${execOptions?.timeout}`, undefined, finalized.spillPath));
-			if (killed === 'aborted') return err(execError('aborted', 'aborted', undefined, finalized.spillPath));
+			if (killReason === 'timeout') return err(execError('timeout', `timeout:${execOptions?.timeout}`, undefined, finalized.spillPath));
+			if (killReason === 'aborted') return err(execError('aborted', 'aborted', undefined, finalized.spillPath));
 			if (finalized.failure) return err(execError('unknown', finalized.failure.message, undefined, finalized.spillPath));
 			const consumerError = output.callbackFailure();
 			if (consumerError) return err(execError('callback_error', consumerError.message, consumerError, finalized.spillPath));
@@ -307,6 +337,9 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 			return ok({ exitCode, ...(finalized.spillPath === undefined ? {} : { spillPath: finalized.spillPath }) });
 		} catch (e) {
 			const failed = await finalizeSink(output);
+			// 竞速失败也可能是 kill 叫醒的：报回真实原因，而不是 spawn_error
+			if (killed === 'timeout') return err(execError('timeout', `timeout:${execOptions?.timeout}`, undefined, failed.spillPath));
+			if (killed === 'aborted') return err(execError('aborted', 'aborted', undefined, failed.spillPath));
 			return err(execError('spawn_error', toError(e).message, toError(e), failed.spillPath));
 		} finally {
 			channel?.hostSide.stop();
@@ -373,8 +406,18 @@ async function pulledChanges(worker: Worker, pushed: WasiFsChanges): Promise<Was
  * 按深度降序删，保证到父目录时已空。
  */
 export function reconcilePulled(pushed: WasiFsChanges, pulled: WasiFsChanges): WasiFsChanges {
-	const alive = new Set<string>([...pulled.dirs, ...pulled.written.map((w) => w.path)]);
-	const candidates = [...pushed.written.map((w) => w.path), ...pushed.dirs].sort((a, b) => b.split('/').length - a.split('/').length);
+	const pushedDirs = new Set(pushed.dirs);
+	const pushedFiles = new Set(pushed.written.map((w) => w.path));
+	const pulledDirs = new Set(pulled.dirs);
+	const pulledFiles = new Set(pulled.written.map((w) => w.path));
+	// 消失 + 类型变化（文件↔目录）。后者必须进 deleted：applyChanges 的契约是「先删旧节点再建新的」，
+	// 否则 writeFile 打到旧目录 / createDir 打到旧文件，applyChanges 抛错、整轮其它写也不落盘。
+	const gone = [...pushedFiles, ...pushed.dirs].filter((p) => !pulledDirs.has(p) && !pulledFiles.has(p));
+	const kindChanged = [
+		...pushed.dirs.filter((p) => pulledFiles.has(p)),
+		...[...pushedFiles].filter((p) => pulledDirs.has(p)),
+	];
+	const deleted = [...gone, ...kindChanged].sort((a, b) => b.split('/').length - a.split('/').length);
 	// 只回写内容变了的文件：快照是全量，直接透传会把整棵工作区重写一遍（每条命令一次），
 	// 顺带把所有文件的 mtime 刷成「刚刚」——find -newer / 增量构建 / git 索引全部失真。
 	const before = new Map(pushed.written.map((w) => [w.path, w.data]));
@@ -382,7 +425,9 @@ export function reconcilePulled(pushed: WasiFsChanges, pulled: WasiFsChanges): W
 		const prev = before.get(w.path);
 		return prev === undefined || !bytesEqual(prev, w.data);
 	});
-	return { deleted: candidates.filter((p) => !alive.has(p)), dirs: pulled.dirs, written };
+	// 目录同理：只建新出现的（类型变化的那批不在 pushedDirs 里，会保留）
+	const dirs = pulled.dirs.filter((p) => !pushedDirs.has(p));
+	return { deleted, dirs, written };
 }
 
 function requestChanges(worker: Worker): Promise<WasiFsChanges> {

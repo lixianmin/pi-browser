@@ -171,7 +171,7 @@ export class ExtensionRunner {
 
 	/** 真正跑工厂的那段（只由 `load()` 的单飞槽调用）。 */
 	private async runLoad(): Promise<Map<string, ExtensionAPI>> {
-		// 每次装载都从干净的三张表开始：工厂中途抛错时已注册的���具与订阅不会撤销，宿主 catch 后
+		// 每次装载都从干净的三张表开始：工厂中途抛错时已注册的工具与订阅不会撤销，宿主 catch 后
 		// 重试 load() 会让同一个 handler 跑两遍（对有副作用的 handler 就是双写）。上游的 loader 在
 		// runner 诞生**之前**就跑完工厂，所以它没有这个失败模式；我们的 load() 自己跑工厂，就得自己兜。
 		this.registered.clear();

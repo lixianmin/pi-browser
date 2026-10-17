@@ -304,7 +304,13 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		renameFile: (src, dest, context) => wrap(src, context, async () => {
 			const from = normalizePath(src);
 			const to = normalizePath(dest);
-			// 自我 rename：lightning-fs 是先 set 再 unlink 同一个 key ⇒ 静默删文件。上游 fs.rename 是成功 no-op
+			// 路径穿过文件：上游 ENOTDIR
+			const badSource = await nonDirAncestor(from);
+			if (badSource) throw new FileError('not_directory', `Not a directory: ${badSource}`, badSource);
+			// 先验源存在：上游 fs.rename 对缺失路径（含 from === to）报 ENOENT。
+			// 自我 rename 本身是成功 no-op，但 lightning-fs 是先 set 再 unlink 同一个 key ⇒ 静默删文件。
+			const sourceInfo = await statChecked(from);
+			if (!sourceInfo) throw new FileError('not_found', `Not found: ${from}`, from);
 			if (from === to) return;
 			// 根不可改名（上游 EBUSY）
 			if (from === '/') throw new FileError('unknown', 'Cannot rename the root directory', from);
@@ -313,8 +319,7 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			const targetIsDir = target ? (target.isDirectory ? target.isDirectory() : target.type === 'dir') : false;
 			if (targetIsDir) throw new FileError('is_directory', `Is a directory: ${to}`, to);
 			// 目录 rename 到已存在文件：上游 ENOTDIR，不能把文件静默换成目录
-			const sourceInfo = await statChecked(from);
-			const sourceIsDir = sourceInfo ? (sourceInfo.isDirectory ? sourceInfo.isDirectory() : sourceInfo.type === 'dir') : false;
+			const sourceIsDir = sourceInfo.isDirectory ? sourceInfo.isDirectory() : sourceInfo.type === 'dir';
 			if (sourceIsDir && target) throw new FileError('not_directory', `Not a directory: ${to}`, to);
 			// 路径穿过文件：上游 ENOTDIR。不查时 mkdirp 会吞掉 EEXIST，再把子节点挂到文件下面
 			const badParent = await nonDirAncestor(to);

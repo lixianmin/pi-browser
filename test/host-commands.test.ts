@@ -264,7 +264,15 @@ describe('worker 侧 glue（假通道，不起 worker）', () => {
 			argv: ['push', 'a'],
 			cwd: '/sub',
 			env: { A: '1' },
-			stdin: () => ENC.encode('piped'),
+			// stdin(max) 的契约是「读到 EOF 返回空数组」：真实 readFd 会推进偏移，mock 也要一次性耗尽
+			stdin: (() => {
+				let sent = false;
+				return () => {
+					if (sent) return new Uint8Array(0);
+					sent = true;
+					return ENC.encode('piped');
+				};
+			})(),
 			stdout: (bytes: string | Uint8Array) => out.push(String(bytes)),
 			stderr: (bytes: string | Uint8Array) => err.push(String(bytes)),
 			interrupted: () => false,

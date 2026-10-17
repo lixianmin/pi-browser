@@ -27,7 +27,10 @@ interface TextLineReader {
  * - `""`       → `undefined`（空文件无行）
  */
 export function createTextLineReader(text: string, path: string): TextLineReader {
-	let remaining = text;
+	// 开头的 U+FEFF 是字节序标记，不是内容：上游 StreamDecoder 在流首丢弃它（decode.js:16-30）。
+	// IDB 后端的 utf8 读会保留 BOM（内存后端的 TextDecoder 已吃掉），不在这里归一，同一份
+	// JSONL 在两个后端会一行有 BOM、一行没有（JSON.parse 直接判存储损坏）。
+	let remaining = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 	let closed = false;
 	return {
 		readLine: async (context: Context) => {

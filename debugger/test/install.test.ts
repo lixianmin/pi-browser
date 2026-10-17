@@ -7,7 +7,11 @@ import { installBridge, PI_BRIDGE_VERSION } from '../src/bridge/install';
 import { resetHandlerCache } from '../src/bridge/handler';
 import type { PiBridge } from '../src/bridge/install';
 
-beforeEach(() => resetHandlerCache());
+beforeEach(() => {
+	resetHandlerCache();
+	// 测试间复位：install 用 defineProperty（不可写），直接 delete 不会成功
+	Object.defineProperty(window, '__piBrowserDebugger', { value: undefined, writable: true, configurable: true });
+});
 
 describe('installBridge', () => {
 	it('首装:installed,window 上可见且版本正确', () => {
@@ -25,9 +29,19 @@ describe('installBridge', () => {
 	});
 
 	it('旧版本对象:replaced(整体替换)', () => {
-		window.__piBrowserDebugger = { version: PI_BRIDGE_VERSION - 1, call: () => Promise.reject(new Error('stale')) };
+		Object.defineProperty(window, '__piBrowserDebugger', {
+			value: { version: PI_BRIDGE_VERSION - 1, call: () => Promise.reject(new Error('stale')) },
+			writable: true, configurable: true,
+		});
 		expect(installBridge()).toBe('replaced');
 		expect(window.__piBrowserDebugger?.version).toBe(PI_BRIDGE_VERSION);
+	});
+
+	it('安装后的 bridge 不能被普通赋值改写', () => {
+		installBridge();
+		expect(() => {
+			(window as { __piBrowserDebugger?: unknown }).__piBrowserDebugger = { version: PI_BRIDGE_VERSION, call: () => {} };
+		}).toThrow(TypeError);
 	});
 
 	it('安装后的 call 真正走 fs:write→read', async () => {

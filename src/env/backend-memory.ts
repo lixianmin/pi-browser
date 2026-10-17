@@ -316,6 +316,9 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游 ENOTDIR（与读写/删同一道闸）
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			if (!Number.isSafeInteger(size) || size < 0) {
 				return err<void, FileError>(new FileError('invalid', 'File size must be a non-negative safe integer', abs));
 			}
@@ -340,6 +343,9 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			const aborted = abortedResult<never>(context, path);
 			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游 ENOTDIR
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			const n = files.get(abs);
 			if (!n) return err(notFound(abs));
 			if (n.kind !== 'file') return err(dirErr(abs));

@@ -28,11 +28,10 @@
 // 连同 `conversationId` 一起交给 `HarnessOptions.env` 的 `EnvTarget`——所以宿主在自己的 `env` 构造器里
 // 拿到 `target.cwd` 决定挂载/前缀即可，本仓再收一个 cwd 就是没有消费者的死配置（AGENTS §2）。
 //
-// **没有中止通道**（上游契约，不是本仓的缺口）：`ToolExecutionApi`（`harness/types.d.ts`）**没有 `signal`**，
-// 所以经 `Harness` 跑的工具执行**无法中途取消**——只有 `TaskRuntime.signal` 在任务层（abort mark 生效时
-// 任务结束，但已经进到 `execute()` 里的那次调用收不到信号）。本仓的 `asDurableTool` 因此给 `execute`
-// 传的 signal 是 `undefined`（见 tools/durable-tool.ts 文件头）。接入方必须知道这条限制：chat 主线上的
-// 「中止」对工具这一层不生效，只能等它自己返回。
+// 中止通道走 `Context`：`ToolExecutionApi`（`harness/types.d.ts`）本身没有 `signal` 字段，但
+// `ToolRegistration.execute(args, api, context)` 的第三个参数是 chord `Context`，其 `abortSignal` 就是本次调用的
+// 取消信号（调度器用 `withAbortSignal` 构造）。`asDurableTool` 已把它转给 `AgentTool.execute` 的 signal
+// （见 tools/durable-tool.ts），所以经 `Harness` 跑的工具（含 bash 超时/中止）可以被打断。
 import { Harness } from '@earendil-works/pi-durable';
 import type { HarnessOptions, HarnessSettings, RegistryReader, Storage, ToolRegistration } from '@earendil-works/pi-durable';
 import type { Models } from '@earendil-works/pi-ai';

@@ -56,6 +56,18 @@ describe('bridge handler', () => {
 		expect(r.value.totalBytes).toBe(4);
 	});
 
+	it('read 二进制超 maxBytes → base64 同样截断（不让多 MB 内容跨三层消息）', async () => {
+		const bytes = new Uint8Array(5000).fill(1);
+		bytes[0] = 0;   // NUL → 走二进制分支
+		await seed('h-bin-trunc', '/big.bin', bytes);
+		const r = await call('h-bin-trunc', { kind: 'read', path: '/big.bin', maxBytes: 1000 });
+		expect(r.ok).toBe(true);
+		if (!r.ok || r.value.kind !== 'read' || r.value.encoding !== 'base64') return fail('unreachable');
+		expect(r.value.truncated).toBe(true);
+		expect(r.value.totalBytes).toBe(5000);
+		expect(atob(r.value.content)).toHaveLength(1000);
+	});
+
 	it('read 超 maxBytes → truncated 且截断', async () => {
 		const big = 'x'.repeat(5000);
 		await seed('h-trunc', '/big.txt', big);

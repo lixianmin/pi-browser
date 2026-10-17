@@ -108,6 +108,14 @@ const SLOT_RESPONSE_LENGTH = 3;
 const ENC = new TextEncoder();
 const DEC = new TextDecoder();
 
+/** 按字节上限截断文本，切点回退到 UTF-8 字符边界（避免尾部 U+FFFD）。 */
+const cutUtf8 = (text: string, maxBytes: number): string => {
+	const buf = ENC.encode(text);
+	let end = Math.max(0, Math.min(maxBytes, buf.length));
+	while (end > 0 && end < buf.length && (buf[end] & 0xc0) === 0x80) end--;
+	return DEC.decode(buf.subarray(0, end));
+};
+
 /**
  * 从 SAB 视图解码前**必须拷成非共享视图**：Chrome 的 `TextDecoder.decode()` 拒绝 SharedArrayBuffer 视图
  * （抛 "The provided ArrayBufferView value must not be shared"）。Node 不抛——所以本仓单测全绿、
@@ -229,13 +237,7 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 	/** 应答超过定长 → 阶段截断：stderr 的诊断价值优先（先砍 stdout），两者都放不下时只留说明 */
 	const fitResponse = (result: HostCommandResult, changes: WireChanges): { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges } => {
 		const encodedLength = (r: HostCommandResult & { changes: WireChanges }): number => ENC.encode(JSON.stringify(r)).length;
-		const cut = (text: string, maxBytes: number): string => {
-	const buf = ENC.encode(text);
-	let end = Math.max(0, Math.min(maxBytes, buf.length));
-	// 切点落在多字节字符中间时往回退到字符边界：否则 guest 收到的尾字是 U+FFFD（stderr 的诊断信息首当其冲）
-	while (end > 0 && end < buf.length && (buf[end] & 0xc0) === 0x80) end--;
-	return DEC.decode(buf.subarray(0, end));
-};
+		const cut = cutUtf8;
 		let response = { ...result, changes };
 		if (encodedLength(response) <= capacity) return response;
 		const note = `\n[宿主命令输出被截断：应答超过 ${capacity} 字节上限]\n`;
@@ -295,17 +297,25 @@ export function createHostCommandChannel(sab: SharedArrayBuffer, options: { time
 		const seq = await waitForRequest();
 		if (seq === undefined) return false;
 		served = seq;
-		// 载荷里 changes 是 JSON 形态（字节数组），解出来换成领域类型再交给 responder
-		const { changes: guestChanges, ...command } = JSON.parse(
-			decodeShared(requestBytes, Atomics.load(ctrl, SLOT_REQUEST_LENGTH)),
-		) as HostCommandRequest & { changes: WireChanges };
+		const failure = (name: string, e: unknown): { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges } =>
+			// 错误应答也必须过 fitResponse：处理器抛的超长 message 会撑爆定长 SAB，把 serve 循环打死
+			fitResponse({ exitCode: 1, stderr: cutUtf8(`${name}: ${toError(e).message}\n`, capacity) }, emptyChanges());
 		let response: { exitCode: number; stdout?: string; stderr?: string; changes: WireChanges };
 		try {
-			const exchange = await raceWithTimeout(responder(command, decodeChanges(guestChanges)), timeoutMs, command.name);
-			response = fitResponse({ exitCode: exchange.exitCode, stdout: exchange.stdout, stderr: exchange.stderr }, encodeChanges(exchange.changes));
+			// 载荷里 changes 是 JSON 形态（字节数组），解出来换成领域类型再交给 responder。
+			// JSON.parse 也在 try 内：解不开的请求同样要回一个应答，否则 guest 只能等到超时。
+			const { changes: guestChanges, ...command } = JSON.parse(
+				decodeShared(requestBytes, Atomics.load(ctrl, SLOT_REQUEST_LENGTH)),
+			) as HostCommandRequest & { changes: WireChanges };
+			try {
+				const exchange = await raceWithTimeout(responder(command, decodeChanges(guestChanges)), timeoutMs, command.name);
+				response = fitResponse({ exitCode: exchange.exitCode, stdout: exchange.stdout, stderr: exchange.stderr }, encodeChanges(exchange.changes));
+			} catch (e) {
+				// 协议层失败（处理器自己的异常已在 responder 里变成 exitCode=1）：也不能让 guest 挂死
+				response = failure(command.name, e);
+			}
 		} catch (e) {
-			// 协议层失败（处理器自己的异常已在 responder 里变成 exitCode=1）：也不能让 guest 挂死
-			response = { exitCode: 1, stderr: `${command.name}: ${toError(e).message}\n`, changes: emptyChanges() };
+			response = failure('host-command', e);
 		}
 		const payload = ENC.encode(JSON.stringify(response));
 		responseBytes.set(payload, 0);
@@ -394,10 +404,30 @@ export function createHostCommandResponder(store: ShellFsStore, handlers: HostCo
 
 // ——————————————————————————— guest 侧 builtins ———————————————————————————
 
+/**
+ * `ctx.stdin()` 单次最多给 64KiB；超过这个量必须循环读到 EOF（空数组）。
+ * 上限与请求 SAB 同量级：再多的输入根本装不进一条宿主命令请求，也免得异常 source 造成死循环。
+ */
+const MAX_STDIN_BYTES = 8 * 1024 * 1024;
+
 /** guest 从 fd 0 读输入（管道/文件重定向即时可读；无活 stdin 时是 EOF） */
 function readStdin(ctx: BuiltinContext): string | undefined {
-	const bytes = ctx.stdin();
-	return bytes.length > 0 ? DEC.decode(bytes) : undefined;
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	while (total < MAX_STDIN_BYTES) {
+		const bytes = ctx.stdin();
+		if (bytes.length === 0) break;
+		chunks.push(bytes);
+		total += bytes.length;
+	}
+	if (chunks.length === 0) return undefined;
+	const all = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		all.set(chunk, offset);
+		offset += chunk.length;
+	}
+	return DEC.decode(all);
 }
 
 /**

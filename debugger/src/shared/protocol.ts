@@ -35,7 +35,7 @@ export type OpValue =
 	| { kind: 'databases'; names: string[] }
 	| { kind: 'list'; entries: ListEntry[] }
 	| { kind: 'read'; encoding: 'text'; content: string; truncated: boolean; totalBytes: number }
-	| { kind: 'read'; encoding: 'base64'; content: string; totalBytes: number }
+	| { kind: 'read'; encoding: 'base64'; content: string; truncated: boolean; totalBytes: number }
 	| { kind: 'write'; bytes: number }
 	| { kind: 'delete' }
 	| { kind: 'mkdir' }

@@ -5,7 +5,7 @@ import { callOp, onNavigated } from '../src/panel/transport';
 const chromeStub = {
 	devtools: {
 		inspectedWindow: { tabId: 123 },
-		network: { onNavigated: { addListener: vi.fn() } },
+		network: { onNavigated: { addListener: vi.fn(), removeListener: vi.fn() } },
 	},
 	runtime: { sendMessage: vi.fn(async (): Promise<unknown> => ({ ok: true, value: { kind: 'delete' } })) },
 };
@@ -35,9 +35,18 @@ describe('transport', () => {
 		});
 	});
 
-	it('onNavigated 注册到 devtools.network', () => {
+	it('onNavigated 注册到 devtools.network，返回的退订函数真的移除监听', () => {
 		const cb = () => {};
-		onNavigated(cb);
+		const off = onNavigated(cb);
 		expect(chromeStub.devtools.network.onNavigated.addListener).toHaveBeenCalledWith(cb);
+		off();
+		expect(chromeStub.devtools.network.onNavigated.removeListener).toHaveBeenCalledWith(cb);
+	});
+
+	it('sendMessage reject（扩展被 reload）→ 结构化 bridge_unreachable，不向调用方抛', async () => {
+		chromeStub.runtime.sendMessage.mockRejectedValueOnce(new Error('Extension context invalidated'));
+		const r = await callOp({ kind: 'databases' }, null);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error.code).toBe('bridge_unreachable');
 	});
 });

@@ -1,6 +1,6 @@
 // debugger/src/panel/App.tsx —— 面板主组件:库选择/面包屑/工具栏/树/视图/状态栏。
 // 所有 fs 调用经 runOp 集中:错误 → 状态栏;导航(onNavigated)后整树重置重载(spec §3)。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_DB, type FsOp, type ListEntry, type OpValue } from '../shared/protocol';
 import { callOp, onNavigated } from './transport';
 import { Tree, type Dirs } from './Tree';
@@ -21,6 +21,10 @@ export function App() {
 	const [selected, setSelected] = useState<ListEntry | null>(null);
 	const [cwd, setCwd] = useState('/');
 	const [status, setStatus] = useState<string>('');
+	/** 库列表拿到之前不碰 fs：否则会先在默认库上打开/创建 IDB，并把它的根列表覆盖到真正选中的库 */
+	const [dbReady, setDbReady] = useState(false);
+	/** 装载代次：切库/导航后，旧的 list 响应不许再写进 dirs（闭包里带着旧 dbName） */
+	const generation = useRef(0);
 
 	const runOp = useCallback(
 		async (op: FsOp): Promise<OpValue | null> => {
@@ -36,8 +40,9 @@ export function App() {
 
 	const loadDir = useCallback(
 		async (path: string): Promise<ListEntry[] | null> => {
+			const gen = generation.current;
 			const v = await runOp({ kind: 'list', path });
-			if (!v || v.kind !== 'list') return null;
+			if (!v || v.kind !== 'list' || gen !== generation.current) return null;
 			setDirs((d) => ({ ...d, [path]: v.entries }));
 			return v.entries;
 		},
@@ -55,29 +60,31 @@ export function App() {
 			} else if (!r.ok) {
 				setStatus(`✗ ${r.error.code}: ${r.error.message}`);
 			}
+			setDbReady(true);
 		})();
 	}, []);
 
-	// 首次/切库:重置树并加载根
+	// 首次/切库:重置树并加载根（库列表就绪前不加载，见 dbReady）
 	useEffect(() => {
+		if (!dbReady) return;
+		generation.current += 1;
 		setDirs({});
 		setExpanded(new Set(['/']));
 		setSelected(null);
 		setCwd('/');
 		void loadDir('/');
-	}, [dbName, loadDir]);
+	}, [dbName, dbReady, loadDir]);
 
 	// 页面导航:bridge 可能随旧文档销毁,ensureBridge 在下次调用自动重装;这里只重置 UI 态
-	useEffect(() => {
-		onNavigated(() => {
-			setDirs({});
-			setExpanded(new Set(['/']));
-			setSelected(null);
-			setCwd('/');
-			void loadDir('/');
-			setStatus('页面已导航,已重新加载');
-		});
-	}, [loadDir]);
+	useEffect(() => onNavigated(() => {
+		generation.current += 1;
+		setDirs({});
+		setExpanded(new Set(['/']));
+		setSelected(null);
+		setCwd('/');
+		void loadDir('/');
+		setStatus('页面已导航,已重新加载');
+	}), [loadDir]);
 
 	const toggleDir = useCallback(
 		(entry: ListEntry) => {

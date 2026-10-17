@@ -43,8 +43,10 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 			if (closed) return closedErr();
 			// 上游 `LineScanner` 的前置条件（`startLine`/`endLine` 是非负安全整数且 endLine > startLine）
 			const { startLine, endLine } = options;
+			// 上游 LineScanner 明确接受 endLine === Infinity（"到文件末尾"）；只认 safe integer 会把它判成非法
 			const validRange = Number.isSafeInteger(startLine) && startLine >= 0
-				&& (endLine === undefined || (Number.isSafeInteger(endLine) && endLine > startLine));
+				&& (endLine === undefined || endLine === Number.POSITIVE_INFINITY
+					|| (Number.isSafeInteger(endLine) && endLine > startLine));
 			if (!validRange) return err(new FileError('invalid', `Invalid line range: ${startLine}..${endLine}`, path));
 			const scanner = new LineScanner(startLine, endLine);
 			scanner.push(bytes);
