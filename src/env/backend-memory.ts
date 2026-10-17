@@ -2,9 +2,9 @@
 // 源：spice `packages/harness/src/session/fs-adapters.ts:87-238`（Plan 7b T6a），函数体逐字平移，
 // 只做三处改名：类型 SpiceFileSystem → BrowserFileSystem、normalizePath 改从 ./path 导入、
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
-import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
+import { FileError, ok, err, type FileInfo, type FileWatcher, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
-import type { Context } from './context';
+import { abortedResult, type Context } from './context';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import { createBinaryReader, createDirReader } from './pull-readers';
 import type { BrowserFileSystem } from './types';
@@ -26,6 +26,19 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 	const files = new Map<string, Node>([['/', { kind: 'directory', mtimeMs: 0 }]]);
 	const cwd = normalizePath(cwdInput);
 	const notFound = (p: string) => new FileError('not_found', `Not found: ${p}`, p);
+	const dirErr = (p: string) => new FileError('is_directory', `Is a directory: ${p}`, p);
+	/** 父路径链上第一个「存在但不是目录」的段（路径穿过文件）；全为目录或不存在返回 undefined。
+	 *  上游对这类路径报 ENOTDIR → not_directory；不查就会在文件节点下挂出子节点（脏状态）。 */
+	const nonDirAncestor = (abs: string): string | undefined => {
+		const segs = abs.split('/').filter(Boolean);
+		let cur = '';
+		for (let i = 0; i < segs.length - 1; i++) {
+			cur += `/${segs[i]}`;
+			const n = files.get(cur);
+			if (n && n.kind !== 'directory') return cur;
+		}
+		return undefined;
+	};
 	const isDir = (p: string) => files.get(p)?.kind === 'directory';
 	/** 逐段校验父路径（与 lightning-fs 版同一语义：路径穿过文件即不存在） */
 	const parentOk = (abs: string): boolean => {
@@ -69,29 +82,52 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		cwd,
 		// 文件命名空间 id：memory 后端每次调用都是独立世界（不进注册表），所以每实例一个
 		id: `memory-fs-${++memoryFsSeq}`,
-		// pi-durable 1.0.0/1.0.3 起每个方法都收 `context` 形参（spec §11 决策：内存后端无
-		// 异步 IO 可中断，形参只接不消费；与 mount.ts 透传过来的 `context` 同形不增值）。
+		// pi-durable 1.0.0/1.0.3 起每个方法都收 `context` 形参；`abortSignal` 做**入口检查**
+		// （`abortedResult`，同上游 `abortResult`）——已取消的调用返 `aborted` 且不产生副作用。
+		// 上游不查的两个纯路径计算方法（`absolutePath` / `joinPath`）也不查；`cleanup` 同样不查。
 		absolutePath: async (path: string, _context: Context) => okv(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts: string[], _context: Context) => okv(normalizePath(parts.join('/'))),
-		canonicalPath: async (path: string, _context: Context) => okv(normalizePath(path)),
-		readTextFile: async (path, _context) => {
+		canonicalPath: async (path: string, context: Context) => {
+			const aborted = abortedResult<string>(context, path);
+			if (aborted) return aborted;
+			const abs = normalizePath(path);
+			// 上游走 realpath：路径不存在报 ENOENT → not_found。浏览器无 symlink 可解析，
+			// 但仍要核实存在性——否则 canonicalPath 会把「不存在」与「存在」混为一谈。
+			if (!files.has(abs) || !parentOk(abs)) return err(notFound(abs));
+			return okv(abs);
+		},
+		readTextFile: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			return okv(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '');
 		},
-		readBinaryFile: async (path, _context) => {
+		readBinaryFile: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			return okv(bytesOf(n));
 		},
 		// pi-durable 1.0.3 新增的必填契约：打开后的定位式读。`noFollow` 无从谈起（内存后端无符号链接），
 		// 目录按上游口径落 is_directory。抓的是打开瞬间那个节点对象，故此后改名不影响已开的读取器。
-		openBinaryReader: async (path, _options, _context) => {
+		openBinaryReader: async (path, _options, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || !parentOk(abs)) return err(notFound(abs));
+			if (!n) {
+				// 路径穿过一个文件 → not_directory（上游 ENOTDIR），不是 not_found
+				const parent = abs.split('/').slice(0, -1).join('/') || '/';
+				if (files.get(parent)?.kind === 'file') return err(new FileError('not_directory', `Not a directory: ${parent}`, parent));
+				return err(notFound(abs));
+			}
+			if (!parentOk(abs)) return err(notFound(abs));
 			if (n.kind === 'directory') return err(new FileError('is_directory', `Is a directory: ${abs}`, abs));
 			return okv(createBinaryReader(bytesOf(n), info(abs), abs));
 		},
@@ -102,26 +138,44 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			if (options?.maxLines !== undefined && options.maxLines <= 0) return okv<string[]>([]);
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			return readAllTextLines(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs), options?.maxLines, context);
 		},
 		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
-		openTextLineReader: async (path, _context) => {
+		openTextLineReader: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			return okv(createTextLineReader(n.bytes ? new TextDecoder().decode(n.bytes) : n.data ?? '', abs));
 		},
-		writeFile: async (path, content, _context) => {
+		writeFile: async (path, content, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 类型冲突：目录不能被静默替换成文件（上游 writeFile 对目录报 EISDIR）
+			if (isDir(abs)) return err(dirErr(abs));
+			// 路径穿过文件：上游报 ENOTDIR；不查会建出「文件下挂子节点」的脏状态
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			mkdirp(abs.split('/').slice(0, -1).join('/'));
 			files.set(abs, typeof content === 'string'
 				? { kind: 'file', data: content, mtimeMs: Date.now() }
 				: { kind: 'file', bytes: new Uint8Array(content), mtimeMs: Date.now() });
 			return okv(undefined);
 		},
-		appendFile: async (path, content, _context) => {
+		appendFile: async (path, content, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 类型冲突：目录不能被静默替换成文件（上游 appendFile 对目录报 EISDIR）
+			if (isDir(abs)) return err(dirErr(abs));
+			// 路径穿过文件：上游报 ENOTDIR
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			mkdirp(abs.split('/').slice(0, -1).join('/'));
 			const prevNode = files.get(abs);
 			const prev = prevNode?.bytes ? new TextDecoder().decode(prevNode.bytes) : prevNode?.data ?? '';
@@ -129,44 +183,75 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			files.set(abs, { kind: 'file', data: prev + next, mtimeMs: Date.now() });
 			return okv(undefined);
 		},
-		renameFile: async (src, dest, _context) => {
+		renameFile: async (src, dest, context) => {
+			const aborted = abortedResult<never>(context, src);
+			if (aborted) return aborted;
 			const from = normalizePath(src); const to = normalizePath(dest);
 			const n = files.get(from);
 			if (!n) return err(notFound(from));
+			// 类型冲突：rename 到已存在目录（上游 EISDIR），不能把目录替换掉
+			if (isDir(to)) return err(dirErr(to));
 			mkdirp(to.split('/').slice(0, -1).join('/'));
 			files.set(to, { ...n, mtimeMs: Date.now() });
 			files.delete(from);
 			return okv(undefined);
 		},
-		fileInfo: async (path, _context) => {
+		fileInfo: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
-			if (!files.has(abs) || !parentOk(abs)) return err(notFound(abs));
+			if (!files.has(abs)) {
+				// 上游区分：路径不存在 → not_found；路径**穿过一个文件** → not_directory
+				const parent = abs.split('/').slice(0, -1).join('/') || '/';
+				if (files.get(parent)?.kind === 'file') return err(new FileError('not_directory', `Not a directory: ${parent}`, parent));
+				return err(notFound(abs));
+			}
+			if (!parentOk(abs)) return err(notFound(abs));
 			return okv(info(abs));
 		},
-		listDir: async (path, _context) => listEntries(normalizePath(path)),
+		listDir: async (path, context) =>
+			abortedResult<FileInfo[]>(context, path) ?? listEntries(normalizePath(path)),
 		// pi-durable 1.0.3 新增的必填契约：目录分页。条目在 open 时列一次（见 pull-readers.ts 的快照取舍）
-		openDirReader: async (path, _context) => {
+		openDirReader: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const listed = listEntries(abs);
 			return listed.ok ? okv(createDirReader(listed.value, abs)) : listed;
 		},
-		exists: async (path, _context) => {
+		exists: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			return okv(files.has(abs) && parentOk(abs));
 		},
-		createDir: async (path, options, _context) => {
+		createDir: async (path, options, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
+			// 类型冲突：已存在的**文件**不能被静默替换成目录（上游 EEXIST；spec §3 禁止对齐 unknown → invalid）
+			if (files.get(abs)?.kind === 'file') return err(new FileError('invalid', `Already exists: ${abs}`, abs));
 			if (options?.recursive === false) {
 				if (files.has(abs)) return err(new FileError('invalid', `Already exists: ${abs}`, abs));
-				mkdirp(abs.split('/').slice(0, -1).join('/'));
+				// recursive:false 要求父目录已存在（上游 mkdir 报 ENOENT）；不能偷偷 mkdirp
+				const parent = abs.split('/').slice(0, -1).join('/') || '/';
+				if (parent !== '/' && !isDir(parent)) return err(notFound(parent));
 				files.set(abs, { kind: 'directory', mtimeMs: Date.now() });
 				return okv(undefined);
 			}
 			mkdirp(abs);
 			return okv(undefined);
 		},
-		remove: async (path, options, _context) => {
+		remove: async (path, options, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR（不能把「父路径是文件」当成「不存在」静默成功）
+			const badParent = nonDirAncestor(abs);
+			if (badParent) return err(new FileError('not_directory', `Not a directory: ${badParent}`, badParent));
 			if (!files.has(abs)) {
 				if (options?.force) return okv(undefined);
 				return err(notFound(abs));
@@ -180,12 +265,16 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			files.delete(abs);
 			return okv(undefined);
 		},
-		createTempDir: async (prefix, _context) => {
+		createTempDir: async (prefix, context) => {
+			const aborted = abortedResult<never>(context, prefix);
+			if (aborted) return aborted;
 			const dir = `/tmp/${prefix ?? 'tmp-'}${Math.random().toString(36).slice(2, 10)}`;
 			mkdirp(dir);
 			return okv(dir);
 		},
-		createTempFile: async (options, _context) => {
+		createTempFile: async (options, context) => {
+			const aborted = abortedResult<never>(context, options?.prefix);
+			if (aborted) return aborted;
 			mkdirp('/tmp');
 			const file = `/tmp/${options?.prefix ?? ''}${Math.random().toString(36).slice(2, 10)}${options?.suffix ?? ''}`;
 			files.set(file, { kind: 'file', data: '', mtimeMs: Date.now() });
@@ -195,13 +284,16 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 		// （非负安全整数之外返 invalid）；缺文件返 not_found（上游先开 r+，开不到就没有下文）。
 		// 内存后端是**立即分配**：`size` 就是一次 `new Uint8Array(size)` 的大小（上游 ftruncate 是稀疏扩），
 		// 所以「合法的巨大 size」会当场吃掉对应内存（1e9 = 1GB）。本库没有调用方，先如实记着。
-		truncateFile: async (path, size, _context) => {
+		truncateFile: async (path, size, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			if (!Number.isSafeInteger(size) || size < 0) {
 				return err<void, FileError>(new FileError('invalid', 'File size must be a non-negative safe integer', abs));
 			}
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			const bytes = n.bytes ?? new TextEncoder().encode(n.data ?? '');
 			const next = new Uint8Array(size);
 			next.set(bytes.subarray(0, Math.min(size, bytes.length)));
@@ -210,17 +302,20 @@ export function createMemoryFileSystem(cwdInput = '/'): BrowserFileSystem {
 			return okv(undefined);
 		},
 		// pi 1.0.0 新增：内存后端没有落盘面，flush 是 no-op；但存在性照上游（开 r+）如实回答
-		flushFile: async (path, _context) => {
+		flushFile: async (path, context) => {
+			const aborted = abortedResult<never>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
 			const n = files.get(abs);
-			if (!n || n.kind !== 'file') return err(notFound(abs));
+			if (!n) return err(notFound(abs));
+			if (n.kind !== 'file') return err(dirErr(abs));
 			return okv(undefined);
 		},
 		cleanup: async (_context: Context) => { /* 无资源需释放 */ },
 		// pi-durable 1.0.3 新增的必填契约：浏览器没有 fs 事件源，**如实答不支持**，
 		// 不假装返回「永不变化的 watcher」（那会让调用方一直等不到覆盖建立）。
-		watch: async (targets, _onChange, _context) =>
-			err(new FileError('not_supported', `内存 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
+		watch: async (targets, _onChange, context) =>
+			abortedResult<FileWatcher>(context) ?? err(new FileError('not_supported', `内存 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
 		// 内存 FS 无 debounce，写入即时完成；同形接口让上层统一调用（见 BrowserFileSystem.flush）
 		flush: async () => { /* no-op */ },
 	};

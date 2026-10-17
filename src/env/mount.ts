@@ -8,6 +8,7 @@
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
 import { FileError, ok, err, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
+import { abortedResult } from './context';
 import type { BrowserFileSystem, MountEntry } from './types';
 
 export interface MountTable extends FileSystem {
@@ -66,6 +67,9 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		flushFile: (path, context) => delegate(path, (fs, p) => fs.flushFile(p, context)),
 		remove: (path, options, context) => delegate(path, (fs, p) => fs.remove(p, options, context)),
 		renameFile: async (sourcePath, destinationPath, context) => {
+			// 跨挂载点分支直接应答、不落到后端 —— 必须自己查 abort（上游同款入口检查）
+			const aborted = abortedResult<void>(context, sourcePath);
+			if (aborted) return aborted;
 			const from = abs(sourcePath);
 			const to = abs(destinationPath);
 			const fromMount = mountFor(from);
@@ -77,16 +81,25 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 			return await fromMount.fs.renameFile(from, to, context);
 		},
 		fileInfo: async (path, context) => {
+			// 挂载根分支直接应答、不落到后端 —— 必须自己查 abort
+			const aborted = abortedResult<FileInfo>(context, path);
+			if (aborted) return aborted;
 			const p = abs(path);
 			if (isMountRoot(p)) return ok(dirInfo(p));
 			return await delegate(path, (fs, q) => fs.fileInfo(q, context));
 		},
 		exists: async (path, context) => {
+			// 挂载根分支直接应答、不落到后端 —— 必须自己查 abort
+			const aborted = abortedResult<boolean>(context, path);
+			if (aborted) return aborted;
 			const p = abs(path);
 			if (isMountRoot(p)) return ok(true);
 			return await delegate(path, (fs, q) => fs.exists(q, context));
 		},
 		listDir: async (path, context) => {
+			// 挂载根合成路径在空挂载点时不落到后端 —— 必须自己查 abort
+			const aborted = abortedResult<FileInfo[]>(context, path);
+			if (aborted) return aborted;
 			const p = abs(path);
 			// 目录视图只在 '/' 或挂载前缀处合成（挂载点的存在性不依赖后端）。更深的挂载点若其祖先
 			// 不是挂载前缀则无合成——默认表（'/' + '/tmp'）无此形状，不预造递归逻辑。
@@ -112,11 +125,21 @@ export function createMountTable(entries: MountEntry[]): MountTable {
 		},
 		roots: () => childMountNames('/'),
 		// 挂载表不合成事件源：watcher 的覆盖语义要求「覆盖建立后才不漏变更」，把多个后端的事件合成一份
-		// 需要真正的比较式 watch（上游 Node 侧的 polling 模式），本仓不做。取第一个后端的答复如实透上去
-		// ——今天两个浏览器后端都答 not_supported，表也就恒答 not_supported。
+		// 需要真正的比较式 watch（上游 Node 侧的 polling 模式），本仓不做。
+		// 回归：曾无条件委托给 `mounts[0]`，而 mounts 按前缀长度降序排过 ⇒ 默认表里落到 '/tmp' 后端，
+		// `watch([{ path: '/' }])` 就派驻错了后端。现在按 targets 各自的路径分派；跨挂载点如实答不支持。
 		watch: async (targets, onChange, context) => {
-			const mount = mounts[0];
-			if (!mount) return err(new FileError('not_supported', '挂载表内没有后端可 watch'));
+			// 无覆盖 / 跨挂载分支直接应答、不落到后端 —— 必须自己查 abort
+			const aborted = abortedResult<never>(context, targets[0]?.path);
+			if (aborted) return aborted;
+			const mountsUsed = new Set(targets.map((t) => mountFor(abs(t.path))));
+			if (mountsUsed.size === 0 || mountsUsed.has(undefined)) {
+				return err(new FileError('not_supported', `watch targets 无挂载点覆盖: ${targets.map((t) => t.path).join(', ')}`));
+			}
+			if (mountsUsed.size > 1) {
+				return err(new FileError('not_supported', `watch targets 跨多个挂载点，浏览器侧不合成事件源: ${targets.map((t) => t.path).join(', ')}`));
+			}
+			const mount = [...mountsUsed][0]!;
 			return await mount.fs.watch(targets, onChange, context);
 		},
 	};

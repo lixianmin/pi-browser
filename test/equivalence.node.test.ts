@@ -99,8 +99,11 @@ describe('已登记的有意分叉', () => {
 	it('canonicalPath 不解析符号链接（Node 用 realpath）', async () => {
 		// 接受：两个浏览器后端都没有符号链接（lightning-fs 无 symlink，内存后端只存 kind file|directory），
 		// 归一即规范路径。Node 的 canonicalPath 走 realpath，会解析 symlink；对齐它需要先有 symlink 支持。
+		// 存在性**已对齐**：路径不存在两边都报 not_found（2026-10-15 review 修正）。
 		const browser = createBrowserFileSystem({ memory: true });
+		await browser.writeFile('/b', 'x', CTX);
 		expect(getOrFail(await browser.canonicalPath('a/../b', CTX))).toBe('/b');
+		expect((await browser.canonicalPath('/nope', CTX)).ok === false).toBe(true);
 	});
 
 	it('listDir 内存后端排序（Node 用 readdir 原序）', async () => {

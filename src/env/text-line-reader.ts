@@ -7,7 +7,7 @@
 //
 // 与 Node 版的差别：两个浏览器后端都先把整份文本读进内存（lightning-fs 无真正的流式读），故这里直接从
 // 字符串切，不做分块解码。契约其余部分照抄：`close` 幂等且不抛；关闭后 `readLine` 返 invalid。
-import type { Context } from './context';
+import { abortedResult, type Context } from './context';
 import { FileError, err, ok, type Result } from '@earendil-works/pi-durable/env';
 
 // 结构上与上游 `TextLine` / `TextLineReader`（pi-agent-core `dist/harness/types.d.ts`）一致。
@@ -30,7 +30,9 @@ export function createTextLineReader(text: string, path: string): TextLineReader
 	let remaining = text;
 	let closed = false;
 	return {
-		readLine: async () => {
+		readLine: async (context: Context) => {
+			const aborted = abortedResult<TextLine | undefined>(context, path);
+			if (aborted) return aborted;
 			if (closed) return err(new FileError('invalid', 'Text line reader is closed', path));
 			const newline = remaining.indexOf('\n');
 			if (newline !== -1) {

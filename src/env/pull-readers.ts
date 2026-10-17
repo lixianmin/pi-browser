@@ -7,10 +7,10 @@
 //
 // `scanLines` 的行号↔字节换算交给上游的 `LineScanner`：那是唯一一份实现，自己重写只会与上游漂。
 //
-// pi-durable 1.0.3 起 `BinaryReader` / `DirReader` 各方法都收 `context` 形参；浏览器后端无
-// 异步 IO 可中断、形参只接不消费（spec §11 决策）。
-import { FileError, LineScanner, err, ok, type BinaryReader, type DirReader, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
-import type { Context } from './context';
+// pi-durable 1.0.3 起 `BinaryReader` / `DirReader` 各方法都收 `context` 形参；`abortSignal` 做入口检查
+// （`abortedResult`），其余 `context` 内容不消费（浏览器后端没有可中断的长循环）。
+import { FileError, LineScanner, err, ok, type BinaryReader, type DirReader, type FileInfo, type LineScan, type Result } from '@earendil-works/pi-durable/env';
+import { abortedResult, type Context } from './context';
 
 /**
  * 从**已读入内存的整份字节**建一个定位式二进制读取器（上游 `NodeBinaryReader` 的等价物）。
@@ -22,8 +22,14 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 	let closed = false;
 	const closedErr = (): Result<never, FileError> => err(new FileError('invalid', 'Binary reader is closed', path));
 	return {
-		info: async (_context: Context) => (closed ? closedErr() : ok(opened)),
-		read: async (offset: number, length: number, _context: Context) => {
+		info: async (context: Context) => {
+			const aborted = abortedResult<FileInfo>(context, path);
+			if (aborted) return aborted;
+			return closed ? closedErr() : ok(opened);
+		},
+		read: async (offset: number, length: number, context: Context) => {
+			const aborted = abortedResult<Uint8Array>(context, path);
+			if (aborted) return aborted;
 			if (closed) return closedErr();
 			if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
 				return err(new FileError('invalid', `Invalid read range: offset=${offset} length=${length}`, path));
@@ -31,7 +37,9 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 			// 越界只该在文件末尾少给：`subarray` 自动收敛到末尾
 			return ok(bytes.subarray(offset, offset + length));
 		},
-		scanLines: async (options: { startLine: number; endLine?: number }, _context: Context) => {
+		scanLines: async (options: { startLine: number; endLine?: number }, context: Context) => {
+			const aborted = abortedResult<LineScan>(context, path);
+			if (aborted) return aborted;
 			if (closed) return closedErr();
 			// 上游 `LineScanner` 的前置条件（`startLine`/`endLine` 是非负安全整数且 endLine > startLine）
 			const { startLine, endLine } = options;
@@ -42,6 +50,7 @@ export function createBinaryReader(bytes: Uint8Array, opened: FileInfo, path: st
 			scanner.push(bytes);
 			return ok(scanner.finish());
 		},
+		// 上游 reader 的 `close` 不查 abort：清理不该被取消
 		close: async (_context: Context) => { closed = true; },
 	};
 }
@@ -56,12 +65,22 @@ export function createDirReader(entries: FileInfo[], path: string): DirReader {
 	let cursor = 0;
 	let closed = false;
 	return {
-		next: async (maxEntries: number, _context: Context) => {
+		next: async (maxEntries: number, context: Context) => {
+			// 上游顺序：abort → closed → 参数校验
+			const aborted = abortedResult<{ entries: FileInfo[]; done: boolean }>(context, path);
+			if (aborted) return aborted;
 			if (closed) return err(new FileError('invalid', 'Directory reader is closed', path));
+			// 上游 `NodeDirReader.next` 同款前置条件。缺了它时 `entries.slice(cursor, cursor + maxEntries)`
+			// 会把负数当「从末尾计数」（next(-1) 返回除末项外的全部条目——错误数据），
+			// 0 则返回空页且 done 恒 false（按 done 循环的调用方会死循环）。
+			if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) {
+				return err(new FileError('invalid', 'maxEntries must be a positive safe integer', path));
+			}
 			const page = entries.slice(cursor, cursor + maxEntries);
 			cursor += page.length;
 			return ok({ entries: page, done: cursor >= entries.length });
 		},
+		// 上游 reader 的 `close` 不查 abort：清理不该被取消
 		close: async (_context: Context) => { closed = true; },
 	};
 }

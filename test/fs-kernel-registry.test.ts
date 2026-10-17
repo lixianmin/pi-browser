@@ -54,10 +54,14 @@ describe('fs 内核注册表：同 dbName = 同世界（持久路径）', () => 
 });
 
 describe('适配层契约收口（readFile-null / remove 目录归一）', () => {
-	it('readTextFile 命中目录：统一 not_found（LFS 系内核原返回 ok(null)）', async () => {
+	// 2026-10-15 修正：这条从 `not_found` 改为 `is_directory`，与上游 `NodeExecutionEnv` 对齐。
+	// 原断言把「LFS 内核报 ok(null)」归一成 `not_found` 就收手了；但调用方会按错误码分支——
+	// `read` 工具把 `not_found` 当「文件不存在」继续走建文件分支，结果把目录覆盖掉。
+	// 上游对目录报 EISDIR → `is_directory`（见 `test/fs-type-conflicts.test.ts` 的逐条对照）。
+	it('readTextFile 命中目录：统一 is_directory（LFS 系内核原返回 ok(null)）', async () => {
 		const fs = createBrowserFileSystem({ dbName: rnd(), memory: false });
 		await fs.createDir('/d', { recursive: true }, CTX);
-		expect(await fs.readTextFile('/d', CTX)).toMatchObject({ ok: false, error: { code: 'not_found' } });
+		expect(await fs.readTextFile('/d', CTX)).toMatchObject({ ok: false, error: { code: 'is_directory' } });
 	});
 
 	it('remove 非递删目录：统一 is_directory（LFS 系内核原静默删条目留孤儿）；recursive 不受影响', async () => {

@@ -2,8 +2,8 @@
 // spec §3 测试：MountTable 路由（先归一后分派 / 段边界 / 最长前缀 / temp 固定投递 / 跨 mount 拒绝 / 挂载根合成）。
 // 探测技巧：两个内存后端当探针——各自写入不同内容，断言读到谁的等于断言路由到了谁（内存后端各持一份 Map）。
 import { describe, it, expect, beforeEach } from 'vitest';
-import { BACKGROUND_CONTEXT } from '../src/env/context';
-import type { FileError, Result } from '@earendil-works/pi-durable/env';
+import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
+import { err, FileError, type Result } from '@earendil-works/pi-durable/env';
 import { createMountTable, type MountTable } from '../src/env/mount';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
 import type { BrowserFileSystem } from '../src/env/types';
@@ -154,5 +154,40 @@ describe('FileSystem 1.0.0 新增契约的转发', () => {
 		expect(getOrFail(await tmp.readTextFile('/tmp/a', CTX))).toBe('ab');
 		expect((await table.flushFile('/tmp/a', CTX)).ok).toBe(true);
 		expect((await table.flushFile('/nope', CTX)).ok).toBe(false);
+	});
+
+	// 回归：`watch` 曾无条件委托给 `mounts[0]`，而 mounts 按前缀长度降序排过 ⇒ 默认表里是 '/tmp' 后端。
+	// 于是 `watch([{ path: '/' }])` 会打到 '/tmp' 后端（语义错位）。今天两个后端都答 not_supported 所以
+	// 可观察行为一样，但任何后端真实现 watch 时就会委托错。
+	it('watch 按 targets 路径分派，不取 mounts[0]', async () => {
+		const calls: string[] = [];
+		root.watch = async () => { calls.push('root'); return err(new FileError('not_supported', 'root-watch')); };
+		tmp.watch = async () => { calls.push('tmp'); return err(new FileError('not_supported', 'tmp-watch')); };
+		const r = await table.watch([{ path: '/a' }], () => {}, CTX);
+		expect(calls).toEqual(['root']);
+		expect(r.ok === false && r.error.message).toBe('root-watch');
+	});
+
+	it('watch targets 跨挂载点 → not_supported，不静默委托给某一个后端', async () => {
+		const calls: string[] = [];
+		root.watch = async () => { calls.push('root'); return err(new FileError('not_supported', 'root')); };
+		tmp.watch = async () => { calls.push('tmp'); return err(new FileError('not_supported', 'tmp')); };
+		const r = await table.watch([{ path: '/a' }, { path: '/tmp/b' }], () => {}, CTX);
+		expect(r.ok === false && r.error.code).toBe('not_supported');
+		expect(calls).toEqual([]);
+	});
+
+	// 回归：挂载根（`/tmp`）的 `fileInfo` / `exists` 与跨挂载 `renameFile` 原先**直接应答**、
+	// 不落到后端，于是漏了 abort 检查（上游 `NodeExecutionEnv` 对它们查 abort）。
+	// 「不委托后端」的分支必须自己查，否则已取消的调用仍拿到成功结果。
+	it('不委托后端的应答（挂载根 / 跨挂载拒绝）也查 abort', async () => {
+		const ac = new AbortController(); ac.abort();
+		const aborted = withAbortSignal(ac.signal, CTX);
+		const code = (r: Result<unknown, FileError>) => (r.ok ? 'ok' : r.error.code);
+		expect(code(await table.fileInfo('/tmp', aborted))).toBe('aborted');
+		expect(code(await table.exists('/tmp', aborted))).toBe('aborted');
+		expect(code(await table.renameFile('/a', '/tmp/b', aborted))).toBe('aborted');
+		expect(code(await table.listDir('/', aborted))).toBe('aborted');
+		expect(code(await table.listDir('/tmp', aborted))).toBe('aborted');
 	});
 });

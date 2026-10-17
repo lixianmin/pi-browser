@@ -3,9 +3,9 @@
 // 逻辑逐字平移：mapError/isNotFound/LfsStats/useMemoryBackend/basename 与工厂函数体均只做改名
 // Spice* → Browser*、normalizePath 改从 ./path 导入、createMemoryFileSystem 改从 ./backend-memory 导入。
 import LightningFS from '@isomorphic-git/lightning-fs';
-import { FileError, ok, err, type FileInfo, type Result } from '@earendil-works/pi-durable/env';
+import { FileError, ok, err, type FileInfo, type FileWatcher, type Result } from '@earendil-works/pi-durable/env';
 import { normalizePath } from './path';
-import type { Context } from './context';
+import { abortedResult, type Context } from './context';
 import { createTextLineReader, readAllTextLines } from './text-line-reader';
 import { createBinaryReader, createDirReader } from './pull-readers';
 import { createMemoryFileSystem } from './backend-memory';
@@ -162,9 +162,57 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 	async function statInfo(path: string): Promise<FileInfo> {
 		const abs = normalizePath(path);
 		const st = await statChecked(abs);
-		if (!st) throw new FileError('not_found', `Not found: ${abs}`, abs);
+		if (!st) {
+			// 上游区分：路径不存在 → not_found；路径**穿过一个文件** → not_directory。
+			// `statChecked` 逐段走时两者都返回 null，这里再查一次父路径把它们分开。
+			const parent = abs.split('/').slice(0, -1).join('/') || '/';
+			const parentSt = await statChecked(parent);
+			const parentIsDir = parentSt ? (parentSt.isDirectory ? parentSt.isDirectory() : parentSt.type === 'dir') : false;
+			if (parentSt && !parentIsDir) throw new FileError('not_directory', `Not a directory: ${parent}`, parent);
+			throw new FileError('not_found', `Not found: ${abs}`, abs);
+		}
 		const isDir = st.isDirectory ? st.isDirectory() : st.type === 'dir';
 		return { name: basename(abs), path: abs, kind: isDir ? 'directory' : 'file', size: st.size ?? 0, mtimeMs: st.mtimeMs ?? 0 };
+	}
+
+	/**
+	 * 读文件内容，并把 lightning-fs 把「目标其实是目录」报成的 ENOENT 归一成 `is_directory`
+	 * （上游 `NodeExecutionEnv` 对目录落 is_directory；调用方会按错误码分支，`not_found`
+	 * 会让 `read` 工具继续走「建文件」分支把目录覆盖掉）。
+	 *
+	 * 只在**错误路径**多一次 stat：正常读不付这笔开销。
+	 */
+	async function readFileChecked(abs: string, encoding: 'utf8'): Promise<string>;
+	async function readFileChecked(abs: string): Promise<Uint8Array>;
+	async function readFileChecked(abs: string, encoding?: 'utf8'): Promise<string | Uint8Array> {
+		try {
+			const v = encoding === 'utf8'
+				? await onFs((f) => f.promises.readFile(abs, 'utf8'))
+				: await onFs((f) => f.promises.readFile(abs));
+			return ensureFileContent(v, abs) as string | Uint8Array;
+		} catch (e) {
+			if (!isNotFound(e)) throw e;
+			const st = await statChecked(abs).catch(() => null);
+			const isDir = st ? (st.isDirectory ? st.isDirectory() : st.type === 'dir') : false;
+			if (isDir) throw new FileError('is_directory', `Is a directory: ${abs}`, abs);
+			throw e;
+		}
+	}
+
+	/** 父路径链上第一个「存在但不是目录」的段（路径穿过文件）；全为目录或不存在返回 undefined。
+	 *  lightning-fs 对这类路径异常宽容（会把子节点挂到文件下面），必须先查。 */
+	async function nonDirAncestor(abs: string): Promise<string | undefined> {
+		const segs = abs.split('/').filter(Boolean);
+		let cur = '';
+		for (let i = 0; i < segs.length - 1; i++) {
+			cur += `/${segs[i]}`;
+			const st = await statChecked(cur);
+			if (st) {
+				const isDir = st.isDirectory ? st.isDirectory() : st.type === 'dir';
+				if (!isDir) return cur;
+			}
+		}
+		return undefined;
 	}
 
 	/** 递归删除（lightning-fs 的 rmdir 只删空目录） */
@@ -183,7 +231,10 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		return await Promise.all(names.map((n) => statInfo(`${abs}/${n}`)));
 	}
 
-	const wrap = async <T>(path: string, fn: () => Promise<T>): Promise<Result<T, FileError>> => {
+	/** 统一入口：先查 abort（上游同款，已取消的调用不产生副作用），再跑 fn，错误归一。 */
+	const wrap = async <T>(path: string, context: Context, fn: () => Promise<T>): Promise<Result<T, FileError>> => {
+		const aborted = abortedResult<T>(context, path);
+		if (aborted) return aborted;
 		try { return ok<T, FileError>(await fn()); }
 		catch (e) { return err<T, FileError>(mapError(e, normalizePath(path))); }
 	};
@@ -196,13 +247,14 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		absolutePath: async (path: string, _context: Context) => ok(normalizePath(path.startsWith('/') ? path : `${cwd}/${path}`)),
 		joinPath: async (parts: string[], _context: Context) => ok(normalizePath(parts.join('/'))),
 
-		// pi-durable 1.0.0/1.0.3 起每个方法都收 `context` 形参（spec §11 决策：浏览器后端无
-		// 异步 IO 可中断，形参只接不消费；与 mount.ts 透传过来的 `context` 同形不增值）。
-		readTextFile: (path, _context) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path), 'utf8'), path))),
-		readBinaryFile: (path, _context) => wrap(path, () => onFs(async (f) => ensureFileContent(await f.promises.readFile(normalizePath(path)), path))),
+		// pi-durable 1.0.0/1.0.3 起每个方法都收 `context` 形参；`abortSignal` 做**入口检查**
+		// （`abortedResult`，同上游 `abortResult`）——已取消的调用返 `aborted` 且不产生副作用。
+		// 上游不查的两个纯路径计算方法（`absolutePath` / `joinPath`）也不查；`cleanup` 同样不查。
+		readTextFile: (path, context) => wrap(path, context, () => readFileChecked(normalizePath(path), 'utf8')),
+		readBinaryFile: (path, context) => wrap(path, context, () => readFileChecked(normalizePath(path))),
 		// pi-durable 1.0.3 新增的必填契约：打开后的定位式读。`noFollow` 无从谈起（lightning-fs 无符号链接），
 		// 目录按上游口径落 is_directory。整份字节在 open 时读进内存（lightning-fs 无真正的定位读原语）。
-		openBinaryReader: (path, _options, _context) => wrap(path, async () => {
+		openBinaryReader: (path, _options, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
 			// 先 stat 再读：lightning-fs 的 readFile 读目录报 ENOENT（会被归一成 not_found），
 			// 而上游契约要目录落 is_directory
@@ -219,54 +271,82 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 			if (options?.maxLines !== undefined && options.maxLines <= 0) return ok<string[], FileError>([]);
 			try {
 				const abs = normalizePath(path);
-				const text = ensureFileContent(await onFs((f) => f.promises.readFile(abs, 'utf8')), abs);
+				const text = await readFileChecked(abs, 'utf8');
 				return await readAllTextLines(createTextLineReader(text, abs), options?.maxLines, context);
 			} catch (e) {
 				return err<string[], FileError>(mapError(e, normalizePath(path)));
 			}
 		},
 		// 契约（pi 0.99.1 新增）：拉取式行读取，末行 `terminated` 必须诚实（见 text-line-reader.ts）
-		openTextLineReader: (path, _context) => wrap(path, async () => {
-			const text = ensureFileContent(await onFs((f) => f.promises.readFile(normalizePath(path), 'utf8')), path);
+		openTextLineReader: (path, context) => wrap(path, context, async () => {
+			const text = await readFileChecked(normalizePath(path), 'utf8');
 			return createTextLineReader(text, normalizePath(path));
 		}),
-		writeFile: (path, content, _context) => wrap(path, async () => {
+		writeFile: (path, content, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR；lightning-fs 会把子节点挂到文件下面
+			const badParent = await nonDirAncestor(abs);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			await mkdirp(abs.split('/').slice(0, -1).join('/'));
 			await onFs((f) => f.promises.writeFile(abs, content));
 		}),
 		// lightning-fs 无 appendFile：读旧内容拼接（会话 JSONL 追加走这里，文件不大）
-		appendFile: (path, content, _context) => wrap(path, async () => {
+		appendFile: (path, content, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR
+			const badParent = await nonDirAncestor(abs);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			await mkdirp(abs.split('/').slice(0, -1).join('/'));
 			let prev = '';
 			try { prev = await onFs((f) => f.promises.readFile(abs, 'utf8')); } catch (e) { if (!isNotFound(e)) throw e; }
 			const next = typeof content === 'string' ? content : new TextDecoder().decode(content);
 			await onFs((f) => f.promises.writeFile(abs, prev + next));
 		}),
-		renameFile: (src, dest, _context) => wrap(src, async () => {
+		renameFile: (src, dest, context) => wrap(src, context, async () => {
 			const to = normalizePath(dest);
+			// 类型冲突：rename 到已存在目录（上游 EISDIR），lightning-fs 会静默覆盖
+			const target = await statChecked(to);
+			const targetIsDir = target ? (target.isDirectory ? target.isDirectory() : target.type === 'dir') : false;
+			if (targetIsDir) throw new FileError('is_directory', `Is a directory: ${to}`, to);
 			await mkdirp(to.split('/').slice(0, -1).join('/'));
 			await onFs((f) => f.promises.rename(normalizePath(src), to));
 		}),
-		fileInfo: (path, _context) => wrap(path, () => statInfo(path)),
-		listDir: (path, _context) => wrap(path, () => listEntries(normalizePath(path))),
+		fileInfo: (path, context) => wrap(path, context, () => statInfo(path)),
+		listDir: (path, context) => wrap(path, context, () => listEntries(normalizePath(path))),
 		// pi-durable 1.0.3 新增的必填契约：目录分页。条目在 open 时列一次（见 pull-readers.ts 的快照取舍）
-		openDirReader: (path, _context) => wrap(path, async () => {
+		openDirReader: (path, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
 			return createDirReader(await listEntries(abs), abs);
 		}),
-		// lightning-fs 无符号链接：归一化即规范路径
-		canonicalPath: async (path: string, _context: Context) => ok(normalizePath(path)),
-		// pi 契约：缺失路径返 false；权限类失败才返 FileError（lightning-fs 无权限概念 → 基本只有 false 分支）
-		exists: (path, _context) => wrap(path, async () => (await statChecked(normalizePath(path))) !== null),
-		createDir: (path, options, _context) => wrap(path, async () => {
+		// lightning-fs 无符号链接：归一化即规范路径；仍照上游查 abort 与存在性（上游 realpath 报 ENOENT）
+		canonicalPath: async (path: string, context: Context) => {
+			const aborted = abortedResult<string>(context, path);
+			if (aborted) return aborted;
 			const abs = normalizePath(path);
+			return (await statChecked(abs)) === null
+				? err<string, FileError>(new FileError('not_found', `Not found: ${abs}`, abs))
+				: ok(abs);
+		},
+		// pi 契约：缺失路径返 false；权限类失败才返 FileError（lightning-fs 无权限概念 → 基本只有 false 分支）
+		exists: (path, context) => wrap(path, context, async () => (await statChecked(normalizePath(path))) !== null),
+		createDir: (path, options, context) => wrap(path, context, async () => {
+			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR
+			const badParent = await nonDirAncestor(abs);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
+			// 类型冲突：已存在的**文件**不能被静默替换成目录（上游 EEXIST；spec §3 禁止对齐 unknown → invalid）
+			const existing = await statChecked(abs);
+			if (existing && !(existing.isDirectory ? existing.isDirectory() : existing.type === 'dir')) {
+				throw new FileError('invalid', `Already exists: ${abs}`, abs);
+			}
 			if (options?.recursive === false) await onFs((f) => f.promises.mkdir(abs));
 			else await mkdirp(abs);
 		}),
-		remove: (path, options, _context) => wrap(path, async () => {
+		remove: (path, options, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
+			// 路径穿过文件：上游报 ENOTDIR（不能当成「不存在」静默成功）
+			const badParent = await nonDirAncestor(abs);
+			if (badParent) throw new FileError('not_directory', `Not a directory: ${badParent}`, badParent);
 			try {
 				if (options?.recursive) await removeRecursive(abs);
 				else {
@@ -282,12 +362,12 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 				throw e;
 			}
 		}),
-		createTempDir: (prefix, _context) => wrap('/', async () => {
+		createTempDir: (prefix, context) => wrap('/', context, async () => {
 			const dir = `/tmp/${prefix ?? 'tmp-'}${Math.random().toString(36).slice(2, 10)}`;
 			await mkdirp(dir);
 			return dir;
 		}),
-		createTempFile: (options, _context) => wrap('/', async () => {
+		createTempFile: (options, context) => wrap('/', context, async () => {
 			const file = `/tmp/${options?.prefix ?? ''}${Math.random().toString(36).slice(2, 10)}${options?.suffix ?? ''}`;
 			await mkdirp('/tmp');
 			await onFs((f) => f.promises.writeFile(file, ''));
@@ -297,30 +377,33 @@ export function createBrowserFileSystem(o: BrowserFileSystemOptions = {}): Brows
 		// pi 1.0.0 新增。lightning-fs **没有** truncate 原语（实测 grep 无此方法），所以走读-改-写。
 		// `size` 校验与上游 NodeExecutionEnv 同款；缺文件由 readFile 的 ENOENT 归一为 not_found。
 		// 同内存后端：这是**立即分配**（`new Uint8Array(size)`），上游 ftruncate 是稀疏扩。
-		truncateFile: (path, size, _context) => wrap(path, async () => {
+		truncateFile: (path, size, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
 			if (!Number.isSafeInteger(size) || size < 0) {
 				throw new FileError('invalid', 'File size must be a non-negative safe integer', abs);
 			}
-			await onFs(async (f) => {
-				const bytes = ensureFileContent(await f.promises.readFile(abs), abs) as Uint8Array;
-				const next = new Uint8Array(size);
-				next.set(bytes.subarray(0, Math.min(size, bytes.length)));
-				await f.promises.writeFile(abs, next);
-			});
+			const bytes = await readFileChecked(abs);   // 目录在这里落 is_directory
+			const next = new Uint8Array(size);
+			next.set(bytes.subarray(0, Math.min(size, bytes.length)));
+			await onFs((f) => f.promises.writeFile(abs, next));
 		}),
 		// pi 1.0.0 新增：lightning-fs 没有 per-file flush，如实降级为**整体落盘**
 		// （与自有 BrowserFileSystem.flush() 同一条路径）。存在性照上游先开 r+。
-		flushFile: (path, _context) => wrap(path, async () => {
+		flushFile: (path, context) => wrap(path, context, async () => {
 			const abs = normalizePath(path);
-			if ((await statChecked(abs)) === null) throw new FileError('not_found', `Not found: ${abs}`, abs);
+			const st = await statChecked(abs);
+			if (st === null) throw new FileError('not_found', `Not found: ${abs}`, abs);
+			if (st.isDirectory ? st.isDirectory() : st.type === 'dir') {
+				throw new FileError('is_directory', `Is a directory: ${abs}`, abs);
+			}
 			await onFs((f) => f.promises.flush());
 		}),
 		cleanup: async (_context: Context) => { /* 无资源需释放 */ },
 		// pi-durable 1.0.3 新增的必填契约：浏览器没有 fs 事件源（lightning-fs 也不提供），
 		// **如实答不支持**，不假装返回「永不变化的 watcher」（那会让调用方一直等不到覆盖建立）。
-		watch: async (targets, _onChange, _context) =>
-			err(new FileError('not_supported', `浏览器 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
+		// 仍照上游先查 abort：已取消的调用不该开始建 watcher。
+		watch: async (targets, _onChange, context) =>
+			abortedResult<FileWatcher>(context) ?? err(new FileError('not_supported', `浏览器 fs 不支持 watch: ${targets.map((t) => t.path).join(', ')}`)),
 		// 强制把超级块（目录树）写入 IDB，绕开 lightning-fs 的 500ms debounce（见 BrowserFileSystem.flush）
 		flush: async () => { await onFs((f) => f.promises.flush()); },
 	};

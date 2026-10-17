@@ -23,7 +23,11 @@ describe('createMemoryFileSystem：路径与读写（Plan 7b T6a）', () => {
 		expect(fs.cwd).toBe('/');
 		expect(getOrFail(await fs.absolutePath('a/b.txt', CTX))).toBe('/a/b.txt');
 		expect(getOrFail(await fs.joinPath(['/a', 'b', '..', 'c.txt'], CTX))).toBe('/a/c.txt');
+		// canonicalPath 走上游 realpath 语义：要求路径**存在**（不存在 → not_found）。
+		// 归一化本身由 absolutePath / joinPath 覆盖（它们不要求存在）。
+		await fs.writeFile('/x/y', 'x', CTX);
 		expect(getOrFail(await fs.canonicalPath('./x/./y', CTX))).toBe('/x/y');
+		expect((await fs.canonicalPath('/x/nope', CTX)).ok === false).toBe(true);
 	});
 
 	it('writeFile 自动建父目录；readTextFile 读回原文', async () => {
@@ -122,10 +126,11 @@ describe('createMemoryFileSystem：目录、存在性与错误映射（Plan 7b T
 		expect(getOrFail(await fs.exists('/f.txt', CTX))).toBe(true);
 		expect(getOrFail(await fs.exists('/nope.txt', CTX))).toBe(false);
 		expect(getOrFail(await fs.exists('/f.txt/child', CTX))).toBe(false);   // 不带子文件的路径
-		// fileInfo 对这类路径给 not_found（不返回文件本身的 stat）
+		// 2026-10-15 修正：fileInfo 对「路径穿过一个文件」给 not_directory（上游 ENOTDIR），不再是 not_found。
+		// 原断言曾把两者并成 not_found；上游区分「不存在」与「中间段不是目录」，调用方会按码分支。
 		const info = await fs.fileInfo('/f.txt/child', CTX);
 		expect(info.ok).toBe(false);
-		expect(info.ok === false && info.error.code).toBe('not_found');
+		expect(info.ok === false && info.error.code).toBe('not_directory');
 	});
 
 	it('读不存在的文件 → not_found（FileError，不抛）', async () => {
@@ -264,6 +269,23 @@ describe('FileSystem 1.0.3 新增契约（openBinaryReader / openDirReader / wat
 		await reader.close(CTX);
 		const afterClose = await reader.next(2, CTX);
 		expect(afterClose.ok === false && afterClose.error.code).toBe('invalid');
+	});
+
+	// 上游 `DirReader.next` 契约：maxEntries 必须是正安全整数（Node 实现：
+	// `if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) return err(invalid)`）。
+	// 回归：本仓曾直接 `entries.slice(cursor, cursor + maxEntries)`——负数触发 Array.slice 的
+	// 「从末尾计数」语义（`next(-1)` 返回除最后一项外的全部条目，是**错误数据**），
+	// 0 返回空页且 done 恒 false（调用方按 done 循环时死循环）。
+	it('openDirReader：maxEntries 必须是正安全整数（0 / 负数 / NaN / 小数 / Infinity 报 invalid）', async () => {
+		await fs.createDir('/md', undefined, CTX);
+		const reader = getOrFail(await fs.openDirReader('/md', CTX));
+		for (const n of [0, -1, Number.NaN, 1.5, Number.POSITIVE_INFINITY]) {
+			const r = await reader.next(n, CTX);
+			expect(r.ok === false && r.error.code, `maxEntries=${n}`).toBe('invalid');
+		}
+		// 合法值仍然正常
+		expect(getOrFail(await reader.next(1, CTX))).toEqual({ entries: [], done: true });
+		await reader.close(CTX);
 	});
 
 	it('watch 如实答 not_supported（浏览器没有 fs 事件源，不假装返回永不变化的 watcher）', async () => {
