@@ -22,7 +22,7 @@ S1 五导出 + S2 七工具工厂 + S4 skills/compaction + S2.1 宿主命令 sea
 | `createBrowserExecutionEnv` | `(o?: { dbName?; mounts?; shell?: 'busybox' \| false; workerUrl?; wasm?; hostCommands? }) => ExecutionEnv` | 默认挂载 `/`→IDB、`/tmp`→内存；`exec` 默认走 busybox（`shell: false` 退回 `shell_unavailable` 占位） |
 | `MountEntry` | `{ prefix: string; fs: BrowserFileSystem }` | 挂载条目类型（挂载表 / shell 适配器的注入面） |
 | `createWasiFileSystem` | `(store: { mounts: MountEntry[] }) => FileSystem` | wasi-sh 的同步 `FileSystem` 适配器（busybox guest 侧视图） |
-| `openBrowserSessionStorage` | `(directory: string, fs: BrowserFileSystem, context: Context, options?: JsonlStorageOptions) => Promise<Storage>` | pi-durable 会话存储的**浏览器侧装配**（批 2 B-1）：`JsonlStorage` 是 fs 注入式的（自己不开文件、不 import `node:fs`），`BrowserFileSystem` 是 `FileSystem` 契约的超集，直接喂进去，不需要 adapter；返回值就是 `createSession(storage)` 吃的 `Storage`。`JsonlStorageOptions`（**纯类型**）随该行透出（与下方类型行同一个惯例），目前只有 `fsync`；落盘时机仍要宿主自己调 `fs.flush()`（IDB 目录项写入有 500ms debounce） |
+| `openBrowserSessionStorage` | `(directory: string, fs: FileSystem, context: Context, options?: JsonlStorageOptions) => Promise<Storage>` | pi-durable 会话存储的**浏览器侧装配**（批 2 B-1）：`JsonlStorage` 是 fs 注入式的（自己不开文件、不 import `node:fs`），`BrowserFileSystem` 是 `FileSystem` 契约的超集，直接喂进去，不需要 adapter；参数类型收在**契约**（`FileSystem`，不是本仓子类），因为宿主装配层手里只有契约类型；返回值就是 `createSession(storage)` 吃的 `Storage`。`JsonlStorageOptions`（**纯类型**）随该行透出（与下方类型行同一个惯例），目前只有 `fsync`；落盘时机仍要宿主自己调 `fs.flush()`（IDB 目录项写入有 500ms debounce） |
 | `asDurableTool` | `<TParameters extends TSchema>(tool: AgentTool<TParameters, any>) => ToolRegistration<TParameters, any>` | pi-durable 编排层的工具接线（批 2 B-3）：把任一本仓工具（七工厂的产物）包成可装进 pi-durable `Registry` 的 `ToolRegistration`。一个通用函数覆盖七个工具——差别（grep 的 `fs`、bash 的 `operations`/`spill`）都在工厂的构造参数里，适配层只做 execute 的翻译（`onUpdate` 文本块 → `api.output`）与结果投影（`content`/`details`/`isError`/`usage`）。有意不搬：`label`（durable 侧无此位）、`structuredContent`（durable 结果面无此字段，七工厂也不产它）、`replay`/`executionMode`（两边**词表不同**，且是恢复策略不是翻译——归 B-2/B-4）；fs 在**构造期**捕获而非从 `api.env` 取（`ExecutionEnv` 取不出 `BrowserFileSystem`），详见 `src/tools/durable-tool.ts` 文件头 |
 | `openBrowserHarness` | `(o: OpenBrowserHarnessOptions) => Promise<Harness>` | 会话/Harness 装配（批 2 B-2）：把 B-1 的存储、pi-ai 的 `Models`、工具 `Registry`、`Context` 与（可选的）`env`/`settings`/`now`/`onReport` 按 `Harness.open(storage, options, context)` 的形状接起来，返回可直接用的 `Harness`。**逐个都是参数**：本仓不硬编任何 provider，也不替宿主决定工具面与执行环境（注册表用上游 `createRegistry()` 造，扩展由宿主 `install`）。`OpenBrowserHarnessOptions`（**纯类型**）随该行透出。`env` 是**逐次调用**构造的（上游每次工具调用前重建，异步也行），会话工作目录经 `EnvTarget.cwd` 到达它——`Harness.open` 本身没有 cwd 的位置，工作目录是每个 conversation 的 `pi.agent.cwd`。**中止**：`ToolExecutionApi` 没有 `signal` 字段，但 `ToolRegistration.execute` 的第三个参数 `Context.abortSignal` 就是本次调用的取消信号；`asDurableTool` 已把它转给工具，经 Harness 跑的工具（含 bash 超时/中止）可以被打断 |
 | `asDurableTools` | `(tools: readonly AgentTool<any, any>[]) => ToolRegistration[]` | 批量工具接线 + **恢复策略标注**（批 2 B-2）：逐个走 `asDurableTool`，再按工具名标 `replay`。只读工具（`read`/`grep`/`ls`/`find`）标 `'safe'`（中断后重跑无害），有副作用的（`write`/`edit`/`bash`）**不标** = 缺省 `'unsafe'`（中断时可能已部分落盘，静默重跑更危险，如实报「可能已部分执行」）。名单是白名单：将来加工具时缺省落在安全的那一档 |
@@ -321,6 +321,23 @@ TS/jiti 加载、`~/.pi` 与 `.pi` 目录发现、项目信任门、`/reload` �
 ```sh
 bun install && bunx vitest run
 ```
+
+### 构建产物 `lib/`（提交进 git）
+
+包入口（`exports` / `main` / `types`）指向 **`lib/`**，不是 `src/`。原因：消费者里既有打包器（vite/vitest，能直接吃 `.ts`）
+也有裸 Node 进程（Playwright 的 e2e 收集、CLI、bench）。Node **不转译 `node_modules` 下的 `.ts`**
+（`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`，Playwright 的 ESM loader 同样跳过 `node_modules`），
+exports 直指源码时整包在 Node 里一个符号都拿不到。
+
+**改完源码必须重新构建并提交产物**（消费者经 `github:<sha>` 安装，安装时不跑构建）：
+
+```sh
+bun run build          # tsc -p tsconfig.build.json → lib/*.js + *.d.ts，并复制 busybox.wasm
+git add lib && git commit
+```
+
+`test/lib-in-sync.test.ts` 把「源码变了 lib/ 没变」变成红灯（重新编译一遍逐字节比对，不用 mtime——git checkout
+会把 mtime 刷成检出时刻）。`src/` 仍随包发布：需要读源码的 deep-path 消费者（如 spice 的 bench 取 `src/shell/busybox.wasm`）不受影响。
 
 ## 浏览器部署
 
