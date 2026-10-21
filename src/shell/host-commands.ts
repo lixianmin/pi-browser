@@ -9,12 +9,12 @@
 //     主线程跑异步处理器（这才是这个 seam 的价值：宿主可以用任意异步库），并按 §3.3 对账 FS：
 //     调用前把 guest 变更集落进权威 store，处理器直接读写权威 store，返回后把 store 的净变化推回 guest 缓存。
 import { toError } from '@earendil-works/pi-durable/env';
-import { atomics } from './atomics';
+import { atomics } from './atomics.js';
 import type { HostBuiltins, BuiltinContext } from 'wasi-sh';
-import type { BrowserFileSystem, MountEntry } from '../env/types';
-import { createMountTable } from '../env/mount';
-import { applyChanges, flushMounts } from './sync-session';
-import { readMountTree, type ShellFsStore, type WasiFileSystem, type WasiFsChanges } from './wasi-fs';
+import type { BrowserFileSystem, MountEntry } from '../env/types.js';
+import { createMountTable } from '../env/mount.js';
+import { applyChanges, flushMounts } from './sync-session.js';
+import { readMountTree, type ShellFsStore, type WasiFileSystem, type WasiFsChanges } from './wasi-fs.js';
 
 export interface HostCommandRequest {
 	/** 命令名（注册时的 key；argv[0]） */

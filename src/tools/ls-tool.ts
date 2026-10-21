@@ -7,11 +7,11 @@
 import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { ToolDefinition } from '../extensions/tool';
-import { normalizePath } from '../env/path';
-import { DEFAULT_MAX_BYTES, formatSize, truncateHead, type TruncationResult } from './truncate';
-import { resolveToCwd } from './path-utils';
-import { throwIfAborted } from './fs-ops';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { normalizePath } from '../env/path.js';
+import { DEFAULT_MAX_BYTES, formatSize, truncateHead, type TruncationResult } from './truncate.js';
+import { resolveToCwd } from './path-utils.js';
+import { throwIfAborted } from './fs-ops.js';
 
 const DEFAULT_LIMIT = 500;
 

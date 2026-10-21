@@ -8,7 +8,7 @@
 //   / on browser-fs
 //   /tmp on browser-fs
 // 真实后端类型（IDB / 内存）不在 MountEntry 里，不编造。
-import type { HostCommandHandler } from '../host-commands';
+import type { HostCommandHandler } from '../host-commands.js';
 
 export function makeMount(): HostCommandHandler {
 	return (request) => {

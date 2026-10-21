@@ -5,9 +5,9 @@
 // busybox 的 which 找不到 applet、mount 根本不存在）。让每个消费者各撞一遍再各自修，是重复浪费。
 //
 // 消费者仍可覆盖：createBrowserExecutionEnv 里 `{ ...默认, ...调用方给的 }`，同名以调用方为准。
-import type { HostCommandRegistry } from '../host-commands';
-import { makeMount } from './mount';
-import { makeWhich } from './which';
+import type { HostCommandRegistry } from '../host-commands.js';
+import { makeMount } from './mount.js';
+import { makeWhich } from './which.js';
 
 /**
  * @param resolvable shell 能自行解析的名字（applet + ash 内建 + 已注册的宿主命令），供 `which` 判定。

@@ -25,8 +25,8 @@
 //      `prepareArguments` / `executionMode` / `renderCall` / `renderResult`，见 tool.ts 与 S6 §3.3 裁决）
 //      因此无从透传；`AgentTool` 侧它们都是可选项，缺省即可。
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import type { ExtensionContext } from './context';
-import type { ToolDefinition } from './tool';
+import type { ExtensionContext } from './context.js';
+import type { ToolDefinition } from './tool.js';
 
 /** 为一次工具调用构造上下文（上游 `ToolContextFactory` 的浏览器子集：只回 `ExtensionContext`）。 */
 export type ToolContextFactory = (toolCallId: string, signal: AbortSignal | undefined) => ExtensionContext;

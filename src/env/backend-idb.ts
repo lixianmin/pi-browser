@@ -4,12 +4,12 @@
 // Spice* → Browser*、normalizePath 改从 ./path 导入、createMemoryFileSystem 改从 ./backend-memory 导入。
 import LightningFS from '@isomorphic-git/lightning-fs';
 import { FileError, ok, err, type FileInfo, type FileWatcher, type Result } from '@earendil-works/pi-durable/env';
-import { normalizePath } from './path';
-import { abortedResult, type Context } from './context';
-import { createTextLineReader, readAllTextLines } from './text-line-reader';
-import { createBinaryReader, createDirReader } from './pull-readers';
-import { createMemoryFileSystem } from './backend-memory';
-import type { BrowserFileSystem } from './types';
+import { normalizePath } from './path.js';
+import { abortedResult, type Context } from './context.js';
+import { createTextLineReader, readAllTextLines } from './text-line-reader.js';
+import { createBinaryReader, createDirReader } from './pull-readers.js';
+import { createMemoryFileSystem } from './backend-memory.js';
+import type { BrowserFileSystem } from './types.js';
 
 type MemoryBackendCtor = new () => LightningFS.IDB;
 const MemoryBackend = (LightningFS as unknown as { MemoryBackend: MemoryBackendCtor }).MemoryBackend;

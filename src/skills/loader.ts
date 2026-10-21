@@ -5,10 +5,10 @@
 // dist/harness/skills.js`——上游 1.0.2 的实现在 Node 侧同步读 fs，浏览器后端的读是 Promise（spec D3）。
 import ignore from 'ignore';
 import { parse } from 'yaml';
-import { BACKGROUND_CONTEXT, type Context } from '../env/context';
-import { normalizePath } from '../env/path';
-import type { ExecutionEnv, FileInfo } from '../env/types';
-import type { SourceInfo } from '../extensions/api';
+import { BACKGROUND_CONTEXT, type Context } from '../env/context.js';
+import { normalizePath } from '../env/path.js';
+import type { ExecutionEnv, FileInfo } from '../env/types.js';
+import type { SourceInfo } from '../extensions/api.js';
 
 /** Agent Skills spec 的名字长度上限（上游同名常量） */
 const MAX_NAME_LENGTH = 64;

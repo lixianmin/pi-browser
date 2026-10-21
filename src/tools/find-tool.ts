@@ -4,15 +4,15 @@
 // 实现体自持：上游把文件查找外包给 fd，本仓由调用方注入 `FindOperations.glob`（D5），工具只做
 // 结果相对化、limit 与截断。平台偏差：文案声明 `respects .gitignore`，本仓不读 .gitignore（P6 README）。
 
-import picomatch from './picomatch-typed';
+import picomatch from './picomatch-typed.js';
 import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { ToolDefinition } from '../extensions/tool';
-import { normalizePath } from '../env/path';
-import { DEFAULT_MAX_BYTES, formatSize, truncateHead, type TruncationResult } from './truncate';
-import { resolveToCwd } from './path-utils';
-import { throwIfAborted } from './fs-ops';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { normalizePath } from '../env/path.js';
+import { DEFAULT_MAX_BYTES, formatSize, truncateHead, type TruncationResult } from './truncate.js';
+import { resolveToCwd } from './path-utils.js';
+import { throwIfAborted } from './fs-ops.js';
 
 const DEFAULT_LIMIT = 1000;
 

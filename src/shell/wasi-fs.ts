@@ -6,14 +6,14 @@
 // run 边界（seed / exportChanges，见 sync-session.ts）。
 //
 // 明确不做：不在这里碰 IDB（单写者协议规定 IDB 只由主线程在 run 边界写）；不做 shell 之外的持久化。
-import { BACKGROUND_CONTEXT } from '../env/context';
+import { BACKGROUND_CONTEXT } from '../env/context.js';
 import {
 	DEFAULT_DIR_MODE, DEFAULT_FILE_MODE, S_IFDIR, S_IFMT, S_IFREG,
 	fsError, type CreationOptions, type FileSystem, type InodeLike,
 } from 'wasi-sh/fs';
-import { createMountTable } from '../env/mount';
-import { normalizePath } from '../env/path';
-import type { MountEntry } from '../env/types';
+import { createMountTable } from '../env/mount.js';
+import { normalizePath } from '../env/path.js';
+import type { MountEntry } from '../env/types.js';
 
 /**
  * 适配器的注入面：宿主权威树。seed 把它的当前内容读进缓存，pull 把变更写回它；

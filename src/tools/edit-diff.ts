@@ -11,8 +11,8 @@
 // 的实现已作废；fs 错误的 FileError 码仍由 edit 工具经 fs-ops 抛出。
 
 import * as Diff from 'diff';
-import { splitBom } from './text';
-import { resolveToCwd } from './path-utils';
+import { splitBom } from './text.js';
+import { resolveToCwd } from './path-utils.js';
 
 export function detectLineEnding(content: string): '\r\n' | '\n' {
 	const crlfIdx = content.indexOf('\r\n');

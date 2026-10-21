@@ -6,16 +6,16 @@
 // 平台偏差：上游文案声明 `respects .gitignore`，本仓遍历不读 .gitignore（P6 README 记）。
 // 错误仍是带 FileErrorCode 的 FileError（spec §3.3）：非法正则/glob → invalid，路径不存在 → not_found。
 
-import picomatch from './picomatch-typed';
+import picomatch from './picomatch-typed.js';
 import { type Static, Type } from 'typebox';
-import type { Context } from '../env/context';
+import type { Context } from '../env/context.js';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { BrowserFileSystem } from '../env/types';
-import type { ToolDefinition } from '../extensions/tool';
-import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine, type TruncationResult } from './truncate';
-import { resolveToCwd } from './path-utils';
-import { contextFor, displayPath, listTree, readText, statPath, throwIfAborted } from './fs-ops';
+import type { BrowserFileSystem } from '../env/types.js';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine, type TruncationResult } from './truncate.js';
+import { resolveToCwd } from './path-utils.js';
+import { contextFor, displayPath, listTree, readText, statPath, throwIfAborted } from './fs-ops.js';
 
 const DEFAULT_LIMIT = 100;
 

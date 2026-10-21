@@ -17,7 +17,7 @@
 //     浏览器侧没有同形类型。
 //   · `ContextUsage` 是**照抄的数据形状**（pi 的原始定义在 CLI 仓，不在 pi-agent-core）。
 import type { Model } from '@earendil-works/pi-ai';
-import type { ExtensionContextActions } from './runtime';
+import type { ExtensionContextActions } from './runtime.js';
 
 /** 上下文用量（pi `ContextUsage` 逐字段照抄）。 */
 export interface ContextUsage {

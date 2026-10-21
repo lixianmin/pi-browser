@@ -23,14 +23,14 @@ import type {
 } from '@earendil-works/pi-ai';
 // 工具入参/详情类型复用本仓 P2 工具件的同名导出（上游从 `../tools/index.ts` 聚合，本仓没有那层 barrel，
 // 按模块逐个 import；形状由 `test/extensions-events-types.test.ts` 的对照断言钉住）
-import type { BashToolDetails, BashToolInput } from '../tools/bash-tool';
-import type { EditToolDetails, EditToolInput } from '../tools/edit-tool';
-import type { FindToolDetails, FindToolInput } from '../tools/find-tool';
-import type { GrepToolDetails, GrepToolInput } from '../tools/grep-tool';
-import type { LsToolDetails, LsToolInput } from '../tools/ls-tool';
-import type { ReadToolDetails, ReadToolInput } from '../tools/read-tool';
-import type { WriteToolInput } from '../tools/write-tool';
-import type { Skill } from '../skills/loader';
+import type { BashToolDetails, BashToolInput } from '../tools/bash-tool.js';
+import type { EditToolDetails, EditToolInput } from '../tools/edit-tool.js';
+import type { FindToolDetails, FindToolInput } from '../tools/find-tool.js';
+import type { GrepToolDetails, GrepToolInput } from '../tools/grep-tool.js';
+import type { LsToolDetails, LsToolInput } from '../tools/ls-tool.js';
+import type { ReadToolDetails, ReadToolInput } from '../tools/read-tool.js';
+import type { WriteToolInput } from '../tools/write-tool.js';
+import type { Skill } from '../skills/loader.js';
 
 // ———— CLI 仓内部类型的逐字转写（出处逐条注明）———
 

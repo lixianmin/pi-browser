@@ -37,8 +37,8 @@ import type { HarnessOptions, HarnessSettings, RegistryReader, Storage, ToolRegi
 import type { Models } from '@earendil-works/pi-ai';
 import type { TSchema } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import type { Context } from '../env/context';
-import { asDurableTool } from '../tools/durable-tool';
+import type { Context } from '../env/context.js';
+import { asDurableTool } from '../tools/durable-tool.js';
 
 export interface OpenBrowserHarnessOptions {
 	/** pi-ai 模型访问（`HarnessOptions.models`）：宿主提供，本仓不认 provider。 */

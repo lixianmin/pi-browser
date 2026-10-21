@@ -9,7 +9,7 @@
 //   ③ 路径归一走本仓纯 JS 的 normalizePath（env/path），不用 node:path；与上游一致地在
 //      resolveToCwd 这条链上剥 `@` 前缀并把 Unicode 空格归一为普通空格（经 expandPath）。
 
-import { normalizePath } from '../env/path';
+import { normalizePath } from '../env/path.js';
 
 const NARROW_NO_BREAK_SPACE = '\u202F';
 /** 上游 utils/paths.js 的同一张表（Unicode 空格 → 普通空格）。

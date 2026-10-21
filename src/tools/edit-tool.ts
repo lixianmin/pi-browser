@@ -6,14 +6,14 @@
 
 import { type Static, Type } from 'typebox';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { ToolDefinition } from '../extensions/tool';
-import { resolveToCwd } from './path-utils';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { resolveToCwd } from './path-utils.js';
 import {
 	applyEditsToNormalizedContent, detectLineEnding, generateDiffString, generateUnifiedPatch, normalizeToLF, restoreLineEndings,
 	type Edit as DiffEdit,
-} from './edit-diff';
-import { splitBom } from './text';
-import { throwIfAborted } from './fs-ops';
+} from './edit-diff.js';
+import { splitBom } from './text.js';
+import { throwIfAborted } from './fs-ops.js';
 
 const replaceEditSchema = Type.Object({
 	oldText: Type.String({

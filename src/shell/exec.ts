@@ -4,24 +4,24 @@
 //   node/vitest（无 Worker 全局）→ `run({inline:true, fs: guestFs})`：主线程同步跑，run 边界同步见 sync-session。
 //   浏览器（有 Worker 全局）→ `new Worker(workerUrl)` + `spawn()`：worker 内 `serve({fs})` 持有纯内存 store；
 //     timeout/abort 走 `terminate()` 硬杀（inline 没有中断通道，只能做调用前 abort 检查）。
-import { BACKGROUND_CONTEXT, type Context } from '../env/context';
+import { BACKGROUND_CONTEXT, type Context } from '../env/context.js';
 import { ExecutionError, err, ok, toError, type Result, type ExecutionErrorCode } from '@earendil-works/pi-durable/env';
-import type { Shell, ShellExecOptions, ShellExecResult } from '../env/types';
+import type { Shell, ShellExecOptions, ShellExecResult } from '../env/types.js';
 import { run, spawn, type RunResult, type Session, type WasmSource } from 'wasi-sh';
 import { isDir } from 'wasi-sh/fs';
-import { createMountTable } from '../env/mount';
-import { normalizePath } from '../env/path';
-import { createMountSpill, OutputAccumulator } from './output-accumulator';
+import { createMountTable } from '../env/mount.js';
+import { normalizePath } from '../env/path.js';
+import { createMountSpill, OutputAccumulator } from './output-accumulator.js';
 import {
 	createHostCommandChannel, createHostCommandResponder, createHostCommandSharedBuffer, createInlineHostBuiltins,
 	DEFAULT_HOST_COMMAND_TIMEOUT_MS, hostCommandNames, HOST_COMMAND_SAB_MESSAGE,
 	type HostCommandRegistry, type HostCommandSabMessage,
-} from './host-commands';
-import { applyChanges, createSyncSession } from './sync-session';
+} from './host-commands.js';
+import { applyChanges, createSyncSession } from './sync-session.js';
 import {
 	PULL_CHANGES, PUSH_DIRS, bytesEqual, readMountTree,
 	type ChangesResponse, type PullChangesRequest, type PushDirsRequest, type ShellFsStore, type WasiFsChanges,
-} from './wasi-fs';
+} from './wasi-fs.js';
 
 export interface BusyboxShellOptions {
 	/**

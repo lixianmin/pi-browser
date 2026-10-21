@@ -10,7 +10,7 @@
 // pi-durable 1.0.3 起 `BinaryReader` / `DirReader` 各方法都收 `context` 形参；`abortSignal` 做入口检查
 // （`abortedResult`），其余 `context` 内容不消费（浏览器后端没有可中断的长循环）。
 import { FileError, LineScanner, err, ok, type BinaryReader, type DirReader, type FileInfo, type LineScan, type Result } from '@earendil-works/pi-durable/env';
-import { abortedResult, type Context } from './context';
+import { abortedResult, type Context } from './context.js';
 
 /**
  * 从**已读入内存的整份字节**建一个定位式二进制读取器（上游 `NodeBinaryReader` 的等价物）。

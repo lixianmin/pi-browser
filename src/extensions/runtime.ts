@@ -15,8 +15,8 @@
 
 import type { Model, TextContent, ImageContent } from '@earendil-works/pi-ai';
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { CompactOptions, ExtensionContext } from './context';
-import type { ToolInfo } from './api';
+import type { CompactOptions, ExtensionContext } from './context.js';
+import type { ToolInfo } from './api.js';
 
 /** 上游 `ExtensionRuntimeState` 的浏览器子集。 */
 export interface ExtensionRuntimeState {

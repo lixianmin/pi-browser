@@ -8,10 +8,10 @@
 
 import { type Static, Type } from 'typebox';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { ToolDefinition } from '../extensions/tool';
-import { dirname } from '../env/path';
-import { resolveToCwd } from './path-utils';
-import { throwIfAborted } from './fs-ops';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { dirname } from '../env/path.js';
+import { resolveToCwd } from './path-utils.js';
+import { throwIfAborted } from './fs-ops.js';
 
 const writeSchema = Type.Object({
 	path: Type.String({ description: 'Path to the file to write (relative or absolute)' }),

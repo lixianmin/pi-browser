@@ -3,11 +3,11 @@
 // 只做三处改名：类型 SpiceFileSystem → BrowserFileSystem、normalizePath 改从 ./path 导入、
 // 模块级 helper basename 就地复制（fs-adapters.ts:70 逐字相同；两后端各自自足，本批不建共享 utils 文件）。
 import { FileError, ok, err, type FileInfo, type FileWatcher, type Result } from '@earendil-works/pi-durable/env';
-import { normalizePath } from './path';
-import { abortedResult, type Context } from './context';
-import { createTextLineReader, readAllTextLines } from './text-line-reader';
-import { createBinaryReader, createDirReader } from './pull-readers';
-import type { BrowserFileSystem } from './types';
+import { normalizePath } from './path.js';
+import { abortedResult, type Context } from './context.js';
+import { createTextLineReader, readAllTextLines } from './text-line-reader.js';
+import { createBinaryReader, createDirReader } from './pull-readers.js';
+import type { BrowserFileSystem } from './types.js';
 
 const basename = (p: string): string => normalizePath(p).split('/').filter(Boolean).pop() ?? '';
 const ENCODER = new TextEncoder();

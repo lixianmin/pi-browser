@@ -8,7 +8,7 @@
 // `prepareArguments` / `executionMode`）：声明了却不生效比不声明更糟（S5 的「静默失效最糟」口径）。
 import type { AgentToolResult, AgentToolUpdateCallback } from '@earendil-works/pi-agent-core';
 import type { Static, TSchema } from 'typebox';
-import type { ExtensionContext } from './context';
+import type { ExtensionContext } from './context.js';
 
 /**
  * 扩展工具声明（pi `ToolDefinition` 的子集：只保留浏览器能兑现的字段）。

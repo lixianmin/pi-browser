@@ -11,9 +11,9 @@
 //      落盘点是宿主给的挂载表（`/tmp`），因此从构造注入。未接 seam 时超限只截断展示、不落盘、不抛；
 //      但溢出的分片也不再进 `#rawChunks`，所以此时 `readFullOutput` 只能给前缀并如实报 `truncated: true`
 //      （上游不可能处于这个状态：它的 `ensureTempFile()` 无条件建流，每片不是落盘就是进缓冲）。
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, utf8ByteLength, type TruncationResult } from '../tools/truncate';
-import type { FileSystem } from '../env/types';
-import { BACKGROUND_CONTEXT } from '../env/context';
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, utf8ByteLength, type TruncationResult } from '../tools/truncate.js';
+import type { FileSystem } from '../env/types.js';
+import { BACKGROUND_CONTEXT } from '../env/context.js';
 
 export interface OutputAccumulatorOptions {
 	/** 展示窗口的行数上限（默认 `DEFAULT_MAX_LINES`） */

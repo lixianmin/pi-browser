@@ -14,11 +14,11 @@ import type { HostBuiltins } from 'wasi-sh';
 import {
 	createGuestHostBuiltins, createHostCommandChannel, HOST_COMMAND_SAB_MESSAGE,
 	type HostCommandGuestSide, type HostCommandSabMessage,
-} from './host-commands';
+} from './host-commands.js';
 import {
 	PULL_CHANGES, PUSH_DIRS, createWasiFileSystem,
 	type ChangesResponse, type PullChangesRequest, type PushDirsRequest,
-} from './wasi-fs';
+} from './wasi-fs.js';
 
 const store = createWasiFileSystem({ mounts: [] });
 

@@ -7,10 +7,10 @@
 //
 // 路由只做分派，不搞插件框架（AGENTS §2）：表内三个内建 backend 之上不加抽象。
 import { FileError, ok, err, type DirReader, type FileInfo, type FileSystem, type Result } from '@earendil-works/pi-durable/env';
-import { normalizePath } from './path';
-import { abortedResult, type Context } from './context';
-import { createDirReader } from './pull-readers';
-import type { BrowserFileSystem, MountEntry } from './types';
+import { normalizePath } from './path.js';
+import { abortedResult, type Context } from './context.js';
+import { createDirReader } from './pull-readers.js';
+import type { BrowserFileSystem, MountEntry } from './types.js';
 
 export interface MountTable extends FileSystem {
 	/** 挂载顶层名（'/tmp' → 'tmp'；'/' 不入列），供 `listDir('/')` 合成挂载根 */

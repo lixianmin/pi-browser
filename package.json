@@ -6,6 +6,7 @@
 		"debugger"
 	],
 	"files": [
+		"lib",
 		"src",
 		"scripts",
 		"test",
@@ -13,11 +14,19 @@
 	],
 	"sideEffects": false,
 	"exports": {
-		".": "./src/index.ts",
-		"./shell/worker": "./src/shell/worker.ts"
+		".": {
+			"types": "./lib/index.d.ts",
+			"import": "./lib/index.js"
+		},
+		"./shell/worker": {
+			"types": "./lib/shell/worker.d.ts",
+			"import": "./lib/shell/worker.js"
+		}
 	},
-	"main": "./src/index.ts",
+	"main": "./lib/index.js",
+	"types": "./lib/index.d.ts",
 	"scripts": {
+		"build": "tsc -p tsconfig.build.json && cp src/shell/busybox.wasm lib/shell/busybox.wasm",
 		"test": "vitest run",
 		"typecheck": "tsc --noEmit"
 	},

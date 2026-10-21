@@ -25,8 +25,8 @@
 // 的 `flushFile`，与 superblock 落盘不是一回事）。
 import { JsonlStorage, type JsonlStorageOptions } from '@earendil-works/pi-durable/storage/jsonl';
 import type { Storage } from '@earendil-works/pi-durable';
-import type { Context } from '../env/context';
-import type { BrowserFileSystem } from '../env/types';
+import type { Context } from '../env/context.js';
+import type { BrowserFileSystem } from '../env/types.js';
 
 /**
  * 在本仓的浏览器 fs 上打开（或新建）一个 pi-durable 会话存储。

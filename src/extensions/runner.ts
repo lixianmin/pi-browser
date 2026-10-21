@@ -23,9 +23,9 @@
 //     operations 注入缝同款，不是新发明。
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { getCurrentSystemMessage, type ImageContent, type ProviderHeaders } from '@earendil-works/pi-ai';
-import { SUPPORTED_EVENTS, UNSUPPORTED_EVENTS } from './contract';
-import { createExtensionAPI, type Extension, type ExtensionAPI, type SourceInfo } from './api';
-import { createExtensionContext, type ExtensionContext } from './context';
+import { SUPPORTED_EVENTS, UNSUPPORTED_EVENTS } from './contract.js';
+import { createExtensionAPI, type Extension, type ExtensionAPI, type SourceInfo } from './api.js';
+import { createExtensionContext, type ExtensionContext } from './context.js';
 import type {
 	BeforeAgentStartEvent, BeforeAgentStartEventResult, BeforeProviderHeadersEvent,
 	BeforeProviderRequestEvent, BoundaryContextPreview, BoundaryResult, BuildSystemPromptOptions,
@@ -33,9 +33,9 @@ import type {
 	SessionBeforeCompactResult, SessionBeforeTreeResult, SessionBoundaryDraft,
 	SupportedExtensionEvent, ToolCallEvent, ToolCallEventResult, ToolResultEvent,
 	ToolResultEventResult, TurnEndEvent,
-} from './events';
-import { bindCore, type ExtensionActions, type ExtensionContextActions, type ExtensionRuntime } from './runtime';
-import type { ToolDefinition } from './tool';
+} from './events.js';
+import { bindCore, type ExtensionActions, type ExtensionContextActions, type ExtensionRuntime } from './runtime.js';
+import type { ToolDefinition } from './tool.js';
 
 /** 上游 `ExtensionError` 逐字（`types.d.ts:1705`）。 */
 export interface ExtensionError {

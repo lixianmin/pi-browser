@@ -13,11 +13,11 @@
 import { type Static, Type } from 'typebox';
 import { ExecutionError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
-import type { ToolDefinition } from '../extensions/tool';
-import { OutputAccumulator, type OutputAccumulatorSpill } from '../shell/output-accumulator';
-import { sanitizeBinaryOutput } from '../shell/sanitize';
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult } from './truncate';
-import { throwIfAborted } from './fs-ops';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { OutputAccumulator, type OutputAccumulatorSpill } from '../shell/output-accumulator.js';
+import { sanitizeBinaryOutput } from '../shell/sanitize.js';
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult } from './truncate.js';
+import { throwIfAborted } from './fs-ops.js';
 
 const bashSchema = Type.Object({
 	command: Type.String({ description: 'Shell command to execute' }),

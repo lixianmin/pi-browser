@@ -2,15 +2,15 @@
 // 装配默认挂载表（'/'→lightning-fs/IDB 持久面、'/tmp'→内存临时面），fs 各方法全部委托 MountTable；
 // exec 默认装配 wasi-sh busybox（spec §3.2）：fs 之外的 exec 面在 src/shell/exec.ts。
 import { ExecutionError, err } from '@earendil-works/pi-durable/env';
-import type { ExecutionEnv } from './types';
+import type { ExecutionEnv } from './types.js';
 import type { WasmSource } from 'wasi-sh';
-import { createMountTable } from './mount';
-import type { MountEntry } from './types';
-import { createBrowserFileSystem } from './backend-idb';
-import { createMemoryFileSystem } from './backend-memory';
-import { createBusyboxShell } from '../shell/exec';
-import { RESERVED_COMMAND_NAMES, type HostCommandRegistry } from '../shell/host-commands';
-import { createDefaultHostCommands } from '../shell/host-commands/defaults';
+import { createMountTable } from './mount.js';
+import type { MountEntry } from './types.js';
+import { createBrowserFileSystem } from './backend-idb.js';
+import { createMemoryFileSystem } from './backend-memory.js';
+import { createBusyboxShell } from '../shell/exec.js';
+import { RESERVED_COMMAND_NAMES, type HostCommandRegistry } from '../shell/host-commands.js';
+import { createDefaultHostCommands } from '../shell/host-commands/defaults.js';
 
 export interface BrowserExecutionEnvOptions {
 	/** IndexedDB 库名（默认挂载 '/' 用）；默认 'spice-sessions'（沿用以减少漂移面，见 BrowserFileSystemOptions） */

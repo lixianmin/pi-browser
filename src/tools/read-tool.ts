@@ -11,11 +11,11 @@ import { type Static, Type } from 'typebox';
 import { FileError } from '@earendil-works/pi-durable/env';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
-import type { ToolDefinition } from '../extensions/tool';
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, utf8ByteLength, type TruncationResult } from './truncate';
-import { resolveReadPathAsync } from './path-utils';
-import { throwIfAborted } from './fs-ops';
-import { processImage, type ImagePhoton, type ImageResizeOptions } from './image-process';
+import type { ToolDefinition } from '../extensions/tool.js';
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead, utf8ByteLength, type TruncationResult } from './truncate.js';
+import { resolveReadPathAsync } from './path-utils.js';
+import { throwIfAborted } from './fs-ops.js';
+import { processImage, type ImagePhoton, type ImageResizeOptions } from './image-process.js';
 
 const readSchema = Type.Object({
 	path: Type.String({ description: 'Path to the file to read (relative or absolute)' }),

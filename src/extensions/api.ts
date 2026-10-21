@@ -13,9 +13,9 @@
 //      那一侧不再有 active 检查（仓内没有绕过 `call()` 直调 runtime 动作的用法，故不另设闸）。
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { ImageContent, Model, TextContent } from '@earendil-works/pi-ai';
-import { validateToolDefinition, type ToolDefinition } from './tool';
-import type { ExtensionContext } from './context';
-import type { ExtensionRuntime } from './runtime';
+import { validateToolDefinition, type ToolDefinition } from './tool.js';
+import type { ExtensionContext } from './context.js';
+import type { ExtensionRuntime } from './runtime.js';
 import type {
 	AfterProviderResponseEvent, AgentEndEvent, AgentStartEvent, BeforeAgentStartEvent,
 	BeforeAgentStartEventResult, BeforeProviderHeadersEvent, BeforeProviderRequestEvent,
@@ -25,7 +25,7 @@ import type {
 	SessionShutdownEvent, SessionStartEvent, SessionTreeEvent, ThinkingLevelSelectEvent, ToolCallEvent,
 	ToolCallEventResult, ToolExecutionEndEvent, ToolExecutionStartEvent, ToolExecutionUpdateEvent,
 	ToolResultEvent, ToolResultEventResult, TurnEndEvent, TurnEndEventResult, TurnStartEvent,
-} from './events';
+} from './events.js';
 
 /** 上游 `SourceInfo` 逐字段照抄；浏览器里 `path` 用合成的 `<extension:名字>`（无文件系统发现）。 */
 export interface SourceInfo {
