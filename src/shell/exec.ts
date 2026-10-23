@@ -18,6 +18,7 @@ import {
 	type HostCommandRegistry, type HostCommandSabMessage,
 } from './host-commands.js';
 import { applyChanges, createSyncSession } from './sync-session.js';
+import { logger, summarize } from '../logging.js';
 import {
 	PULL_CHANGES, PUSH_DIRS, bytesEqual, readMountTree,
 	type ChangesResponse, type PullChangesRequest, type PushDirsRequest, type ShellFsStore, type WasiFsChanges,
@@ -166,6 +167,22 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 	};
 
 	const exec = async (command: string | readonly string[], execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
+		// 打点（spec 2026-10-23 §4）：shell 的收口。早退分支（cleanup 后、argv 不支持、非法 timeout）
+		// 也在这一层被记到 —— 它们同样是「命令没跑起来」的事实。
+		const startedAt = Date.now();
+		const result = await runExec(command, execOptions, context);
+		logger.info('shell exec', {
+			command: summarize(typeof command === 'string' ? command : command.join(' ')),
+			cwd: execOptions?.cwd,
+			ok: result.ok,
+			...(result.ok ? { exitCode: result.value.exitCode } : { errorCode: result.error.code }),
+			durationMs: Date.now() - startedAt,
+		});
+		return result;
+	};
+
+	/** exec 的真实实现（打点在外层 `exec`：见上面的注释） */
+	const runExec = async (command: string | readonly string[], execOptions: ShellExecOptions | undefined, context: Context): Promise<Result<ShellExecResult, ExecutionError>> => {
 		if (closed) return err(new ExecutionError('shell_unavailable', 'shell 已 cleanup：不能再 exec'));
 		// pi-durable 1.0.3 起 Shell.exec 接 argv 数组（不走 shell，`command[0]` 直跑）。本仓 wasi-sh / busybox
 		// 不透出 argv（busybox applet 不是独立可执行文件），如实返 unknown 错。错误码与上游同走

@@ -39,6 +39,7 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { Context } from '../env/context.js';
 import { asDurableTool } from '../tools/durable-tool.js';
+import { logger } from '../logging.js';
 
 export interface OpenBrowserHarnessOptions {
 	/** pi-ai 模型访问（`HarnessOptions.models`）：宿主提供，本仓不认 provider。 */
@@ -73,19 +74,28 @@ export interface OpenBrowserHarnessOptions {
  * 只做转发：会话、调度、任务与恢复都在上游 `Harness.open` 里；本仓提供的是「浏览器那端的存储 + 工具面
  * + 参数形状」。返回的 `Harness` 已经是可跑的（`resume()` 由上游在需要进度时自调，也可显式调）。
  */
-export function openBrowserHarness(options: OpenBrowserHarnessOptions): Promise<Harness> {
+export async function openBrowserHarness(options: OpenBrowserHarnessOptions): Promise<Harness> {
 	const { models, registry, storage, context, env, settings, now, onReport } = options;
-	return Harness.open(storage, {
-		models,
-		registry,
-		...(env === undefined ? {} : { env }),
-		// 原样转发：durable 的 `resolveSettings` 已经在 `settings` 为空时补齐全部缺省
-		// （`compaction: { ...DEFAULT_COMPACTION_POLICY, ...settings?.compaction }`），装配层再 merge 一份
-		// 与它逐字相同的值，产出的对象与不 merge 完全一致。`resolveSettings` 不改调用方的对象，转发安全。
-		...(settings === undefined ? {} : { settings }),
-		...(now === undefined ? {} : { now }),
-		...(onReport === undefined ? {} : { onReport }),
-	}, context);
+	// 打点（spec 2026-10-23 §4）：会话装配的边界——起不来时第一眼能看到（而不是只在下游报“工具跑不起来”）。
+	const startedAt = Date.now();
+	try {
+		const harness = await Harness.open(storage, {
+			models,
+			registry,
+			...(env === undefined ? {} : { env }),
+			// 原样转发：durable 的 `resolveSettings` 已经在 `settings` 为空时补齐全部缺省
+			// （`compaction: { ...DEFAULT_COMPACTION_POLICY, ...settings?.compaction }`），装配层再 merge 一份
+			// 与它逐字相同的值，产出的对象与不 merge 完全一致。`resolveSettings` 不改调用方的对象，转发安全。
+			...(settings === undefined ? {} : { settings }),
+			...(now === undefined ? {} : { now }),
+			...(onReport === undefined ? {} : { onReport }),
+		}, context);
+		logger.info('harness opened', { durationMs: Date.now() - startedAt });
+		return harness;
+	} catch (error) {
+		logger.error('harness open failed', error, { durationMs: Date.now() - startedAt });
+		throw error;
+	}
 }
 
 /**

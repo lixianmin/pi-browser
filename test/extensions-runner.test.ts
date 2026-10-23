@@ -5,6 +5,8 @@
 // 宿主动作就是一组 spy。
 import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
+import type { LogRecord } from '@needle/logo';
+import { logger } from '../src/logging';
 import { ExtensionRunner } from '../src/extensions/runner';
 import { createExtensionRuntime, type ExtensionActions, type ExtensionContextActions } from '../src/extensions/runtime';
 import type { Extension, ExtensionAPI } from '../src/index';
@@ -90,20 +92,25 @@ describe('ExtensionRunner（宿主，注入模型）', () => {
 
 	it('同名：后写覆盖先写（对齐 pi 的 Map 语义），且只 warn 一次', async () => {
 		const f = fakes();
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+		// 告警走本仓日志面（needle），不再走裸 console.warn（spec 2026-10-23 §4）
+		const records: LogRecord[] = [];
+		const collect = (batch: readonly LogRecord[]): void => { records.push(...batch); };
+		logger.addSink(collect);
 		const { runner } = makeRunner([
 			ext('ext-a', (pi) => { pi.registerTool(tool('dup')); }),
 			ext('ext-b', (pi) => { pi.registerTool(tool('dup')); }),
 		], f);
 		runner.bindCore(f.actions, f.contextActions);
 		await runner.load();
+		logger.flush();
+		logger.removeSink(collect);
 
 		const registered = runner.getAllRegisteredTools();
 		expect(registered).toHaveLength(1);
 		expect(registered[0]!.sourceInfo.source).toBe('ext-b');
-		expect(warn).toHaveBeenCalledTimes(1);
-		expect(String((warn.mock.calls[0] as unknown[])[0])).toContain('dup');
-		warn.mockRestore();
+		const warns = records.filter((r) => r.level === 'warn');
+		expect(warns).toHaveLength(1);
+		expect(warns[0]!.tool).toBe('dup');
 	});
 
 	it('注册期（扩展工厂里）调用运行期成员 → 响亮抛错，不静默用旧 context', async () => {

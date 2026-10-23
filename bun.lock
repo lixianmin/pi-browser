@@ -10,6 +10,7 @@
         "@earendil-works/pi-ai": "1.4.0",
         "@earendil-works/pi-durable": "1.4.0",
         "@isomorphic-git/lightning-fs": "4.10.3",
+        "@needle/logo": "github:lixianmin/needle#main",
         "diff": "8.0.4",
         "ignore": "7.0.11",
         "picomatch": "^4.0.7",
@@ -152,6 +153,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@lixianmin/pi-browser-debugger": ["@lixianmin/pi-browser-debugger@workspace:debugger"],
+
+    "@needle/logo": ["@needle/logo@github:lixianmin/needle#9f25bb0", {}, "lixianmin-needle-9f25bb0", "sha512-23dq50meebokF7YwDbTn4IZ73z/lgUcUqmxc8+Af+fcWo/+d8AN3G4vMWDhg/NgOcBJjdcqoThzrG+QbNYcEQQ=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 
