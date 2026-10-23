@@ -32,7 +32,7 @@ const isolatedEnv = (): ExecutionEnv => createBrowserExecutionEnv({
 	],
 });
 
-describe('FileSystem 契约对照（vs pi-durable@1.3.0 NodeExecutionEnv）', () => {
+describe('FileSystem 契约对照（vs pi-durable@1.4.0 NodeExecutionEnv）', () => {
 	// 上游 `ExecutionEnv = FileSystem & Shell`，而 `cleanup` 两个接口都有——Shell 独有的只有 `exec`，
 	// 所以「FileSystem 面 = ExecutionEnv 减 exec」。裸 fs 后端不该有 exec（那是 env 装配的事）。
 	const shellOnly = new Set(['exec']);

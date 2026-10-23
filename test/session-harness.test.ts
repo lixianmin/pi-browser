@@ -74,6 +74,10 @@ const fauxModels = (turns: AssistantMessage[]): Models => {
 			stream.end(terminal);
 			return stream;
 		},
+		// pi-durable 1.4.0 起把宿主的 `models` 包一层 `withClientIdentity`（加 provider 归因头），
+		// 那层在构造时就读 `models.getAuth.bind(models)`——替身必须给出这个成员，否则 `Harness.open` 直接抛。
+		// 替身不认任何 provider，未配置即 `undefined`（与上游 `Models.getAuth()` 的语义一致）。
+		getAuth: async () => undefined,
 	} as unknown as Models;
 };
 

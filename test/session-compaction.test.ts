@@ -86,6 +86,9 @@ const fauxModels = (target: Model<'pi-messages'>): Models => {
 			return stream;
 		},
 		completeSimple: async () => message(SUMMARY_TEXT),
+		// pi-durable 1.4.0 起 `models` 会被 `withClientIdentity` 包一层，那层构造时就读
+		// `models.getAuth.bind(models)`——替身必须给出这个成员，否则 `Harness.open` 直接抛。
+		getAuth: async () => undefined,
 	} as unknown as Models;
 };
 

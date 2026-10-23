@@ -4,8 +4,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
 import { ExecutionError, FileError, type Result } from '@earendil-works/pi-durable/env';
-import type { Context } from '../src/env/context';
-import { BACKGROUND_CONTEXT } from '../src/env/context';
+import { BACKGROUND_CONTEXT, withAbortSignal } from '../src/env/context';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { ToolExecutionApi } from '@earendil-works/pi-durable';
 import type { BrowserFileSystem, ExecutionEnv } from '../src/env/types';
@@ -47,7 +46,10 @@ describe('tools 回归', () => {
 			},
 		} as unknown as AgentTool<any>;
 		const api = { callId: 'c1', output: () => {} } as unknown as ToolExecutionApi;
-		const context = { abortSignal: controller.signal, value: () => undefined, toString: () => 'ctx' } as Context;
+		// chord 1.4.0 起 `Context` 带必需的 `telemetry` 成员，自造字面量不再满足类型；
+		// 改用本仓公开的 `withAbortSignal` 从 `BACKGROUND_CONTEXT` 派生（父上下文无 abortSignal，
+		// 派生的 `abortSignal` 就是传入的那个 signal，身份不变）。
+		const context = withAbortSignal(controller.signal, BACKGROUND_CONTEXT);
 
 		await asDurableTool(tool).execute({}, api, context);
 		expect(seen).toBe(controller.signal);

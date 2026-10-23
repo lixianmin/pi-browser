@@ -14,7 +14,7 @@ import {
 	UNSUPPORTED_API_MEMBERS, UNSUPPORTED_CONTEXT_MEMBERS, UNSUPPORTED_EVENTS,
 } from '../src/extensions/contract';
 
-/** 上游 @earendil-works/pi-coding-agent@1.3.0 的 ExtensionAPI 成员（含 on；共 33） */
+/** 上游 @earendil-works/pi-coding-agent@1.4.0 的 ExtensionAPI 成员（含 on；共 33） */
 const PI_API_MEMBERS = [
 	'on', 'registerTool', 'registerCommand', 'registerShortcut', 'registerFlag', 'getFlag',
 	'registerMessageRenderer', 'registerMarkdownTransformer', 'registerEntryRenderer',
