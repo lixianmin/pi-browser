@@ -41,6 +41,11 @@ afterEach(() => { logger.flush(); });
 const first = (predicate: (r: LogRecord) => boolean): LogRecord | undefined => records.find(predicate);
 
 describe('日志面（needle）', () => {
+	it('`logger` 就是 needle 的全局实例本身（全应用唯一一个 logger）', async () => {
+		const { logo } = await import('@needle/logo');
+		expect(logger).toBe(logo);
+	});
+
 	it('工具调用：起一条（名 + 参数摘要）、收一条（耗时 + 成败）', async () => {
 		const tool = {
 			name: 'probe',

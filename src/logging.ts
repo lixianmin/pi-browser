@@ -5,32 +5,26 @@
 // （`/Users/xmli/me/code/needle`），零运行时依赖、浏览器可用，`video.downloader` 已在用同一套。
 // 设计依据见 `docs/superpowers/specs/2026-10-23-pi-browser-logging-design.md`。
 //
-// 为什么自己造实例、而不是用 needle 导出的全局 `logo`：三条，缺一不可。
+// **用 needle 导出的全局 `logo` 本身，不再另造实例。** 需求是「全应用唯一一个 logger」：宿主
+// `logo.addSink(createFileSink(...))` 一处挂载，本仓与宿主的日志一起落盘，级别也是同一个旋钮。
+// 之前一版另造了 `newLogger({ name: 'pi-browser' })`，理由是「怕出现两个 logo」——实测站不住：
 //
-//   ① **模块身份不等于包名。** ESM 的模块身份是解析后的**文件路径**，同一个包存在两份物理副本就有两个
-//      模块实例，模块顶层的 `export const logo = newLogger(...)` 就执行两次 → 两个 `logo`。bun 按
-//      「包名@spec」分副本，所以宿主写 `#main`、本仓写某个 sha 时就会各拿一份。后果是**静默丢日志**：
-//      宿主往它那份 `logo` 挂文件 sink，本仓的日志走另一份的 stdout，宿主永远收不到，也不报错。
-//      宿主装几份 needle、钉哪个 sha 是宿主的事，本仓控制不了；能控制的只有「把要用的 logger **对象**
-//      直接交给宿主」——所以从公开面导出 `logger`，宿主拿到的是同一个引用，不依赖模块同一性。
-//   ② **名字与级别要分开。** 全局 `logo` 没设 name（记录里就没有 `name` 字段，混在其它库的记录里分不出
-//      哪条是本仓的），且 `setLevel` 是共享状态（宿主调 debug 会把本仓 info 一起改，反之亦然）。
-//      自己造实例：每条记录带 `name: 'pi-browser'`，级别互不干扰。
-//   ③ **「用 `logo` 再派生 child」这条路本身不通。** `child()` 是 `sinks: [...sinks]`（`core/logo/logo.ts`）
-//      ——创建那一刻复制一份 sink **数组**，之后与父级解绑，宿主后挂的 sink 永远进不了已存在的 child。
-//      所以要么直接用 `logo` 本身（回到 ① ②），要么自己造实例。
+//   · bun 去重按**解析结果**，不按 spec 字符串。两方 spec 分别是 `#main` 与 `#7622cab`、而 main
+//     当时正好是 7622cab 时，只装一份物理副本，两个依赖方符号链接到同一个 store 目录
+//     → 一个模块实例 → 一个 `logo`。
+//   · 只有两方 lockfile 解析到**不同 sha**（升级窗口期的错配）才会出现两份副本；那两份各自都带
+//     `stdoutSink`，都往同一个 console 写，输出不丢。丢的只是「宿主挂在它那份上的 file sink 收不到
+//     本仓日志」——这是宿主侧配置问题，而且和「本仓另造实例」的结果一样（另造实例时宿主也必须
+//     单独往我们的实例上挂 sink），并不能靠分裂实例改善。
 //
-// 代价：宿主要多写一行 `import { logger } from '@lixianmin/pi-browser'` 再 `addSink`，
-// 而不是往自己那份 `logo` 上挂（README「日志」节写了这个用法）。
-//
-// 默认带 stdout sink：浏览器里落 `console`、Node 里落 stdout（needle 的 `hasStdout()` 能力探测），
-// 开箱就有可观测性；宿主要更安静就 `logger.setLevel('warn')`。
-import { newLogger, safeStringify, stdoutSink, type Logger } from '@needle/logo';
+// 代价（有意的，不是疏漏）：记录不带 `name` 字段；`setLevel` 是全局的（宿主调 warn，本仓 info 一起关）。
+// 这两条正是「唯一实例」想要的语义。需要单独档位时应由宿主的 sink 侧过滤，而不是再造一个 logger。
+import { logo, safeStringify, type Logger } from '@needle/logo';
+
+/** 本仓日志器 = needle 的全局实例（宿主 `addSink` / `setLevel` 即接管全部日志，含本仓的）。 */
+export const logger: Logger = logo;
 
 export type { Logger };
-
-/** 本仓日志器：宿主从公开面拿到它，`addSink` 挂自己的 sink 即接管本仓全部日志。 */
-export const logger: Logger = newLogger({ name: 'pi-browser', level: 'info', sinks: [stdoutSink] });
 
 /** 参数摘要的默认长度上限：工具入参可能含整个文件内容（write 的 content），原样进日志既刷屏又可能泄密。 */
 const DEFAULT_MAX_CHARS = 500;

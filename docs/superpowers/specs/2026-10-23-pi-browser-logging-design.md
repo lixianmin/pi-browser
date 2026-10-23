@@ -31,17 +31,21 @@
 ## 3. 日志面：`src/logging.ts`（全仓唯一入口）
 
 ```ts
-export const logger: Logger = newLogger({ name: 'pi-browser', level: 'info', sinks: [stdoutSink] });
+export const logger: Logger = logo;   // needle 导出的全局实例本身
 ```
 
-- **实例自己造，不复用 needle 的全局 `logo`**：`child()` 会**快照**父级 sink（needle 的实现如此），
-  模块加载时建好的 child 拿不到宿主后挂的 sink。自己造实例并从公开面导出，宿主挂 sink 才有的放矢。
-- **默认带 stdout sink**：浏览器里落 `console`、Node 里落 stdout——库开箱就有可观测性，宿主不必先接线。
-  `stdoutSink` 走 needle 自带的 `hasStdout()` 能力探测，浏览器里退化为逐条 `console.log`。
-- **默认级别 `info`**：`debug` 收细节（参数、路径），`info` 收关键动作（工具调用、命令执行、写盘），
-  `warn` / `error` 收失败。宿主要更安静就 `logger.setLevel('warn')`，要更吵就 `logger.setLevel('debug')`。
-- **公开面导出 `logger`**：宿主 `import { logger } from '@lixianmin/pi-browser'` 后
-  `logger.addSink(createFileSink({ dir: 'logs' }))` 即可接管本仓全部日志。
+- **用 needle 的全局 `logo`，不另造实例。** 需求是「全应用唯一一个 logger」：宿主一处 `addSink`
+  就能接管本仓与自己的全部日志，`setLevel` 也是同一个旋钮。
+- **不用 `logo.child({ name })` 派生子实例**：`child()` 是 `sinks: [...sinks]`，创建那一刻复制 sink
+  数组后与父级解绑，宿主后挂的 sink 进不了已存在的 child。要嘛直接用 `logo`，要嘛另造实例；
+  按上面的需求选前者。
+- **「会出现两个 logo」不足以成为另造实例的理由**（第一版据此另造，已推翻）：bun 按解析结果去重
+  ——两方 spec 分别写 `#main` 与某个 sha、而 main 当时正好是那个 sha 时只装一份物理副本，两个依赖方
+  符号链接到同一个 store 目录。只有两方 lockfile 解析到不同 sha（升级窗口期错配）才会两份副本，
+  而两份各自都带 `stdoutSink`，都往同一个 console 写，输出不丢；丢的只是宿主那份上的 file sink 收不到
+  本仓日志——而另造实例同样要求宿主单独往我们的实例上挂 sink，并不因此改善。
+- **有意的代价**：记录不带 `name` 字段；`setLevel` 全局共享（宿主调 `warn`，本仓 info 一起关）。
+  这正是「唯一实例」的语义；要单独档位由宿主在 sink 侧过滤。
 
 字段口径（needle 的 `buildRecord` 规则）：字符串拼进 `msg`，纯对象并入记录字段，`Error` 展开成
 `message` + `stack`；`time` / `level` / `msg` / `name` 是信封，业务字段不能覆盖。
