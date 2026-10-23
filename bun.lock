@@ -154,7 +154,7 @@
 
     "@lixianmin/pi-browser-debugger": ["@lixianmin/pi-browser-debugger@workspace:debugger"],
 
-    "@needle/logo": ["@needle/logo@github:lixianmin/needle#9f25bb0", {}, "lixianmin-needle-9f25bb0", "sha512-23dq50meebokF7YwDbTn4IZ73z/lgUcUqmxc8+Af+fcWo/+d8AN3G4vMWDhg/NgOcBJjdcqoThzrG+QbNYcEQQ=="],
+    "@needle/logo": ["@needle/logo@github:lixianmin/needle#7622cab", {}, "lixianmin-needle-7622cab", "sha512-hvkrN19PQAbBgr9fpeADicFqcNe5jfxViM7aRmvDgxXWIWcLnuHItQBObKoKSW9cq4uwXgvfwoZkhtaKo652CQ=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 
