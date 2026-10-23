@@ -39,7 +39,7 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { Context } from '../env/context.js';
 import { asDurableTool } from '../tools/durable-tool.js';
-import { logger } from '../logging.js';
+import { logo } from '@needle/logo';
 
 export interface OpenBrowserHarnessOptions {
 	/** pi-ai 模型访问（`HarnessOptions.models`）：宿主提供，本仓不认 provider。 */
@@ -90,10 +90,10 @@ export async function openBrowserHarness(options: OpenBrowserHarnessOptions): Pr
 			...(now === undefined ? {} : { now }),
 			...(onReport === undefined ? {} : { onReport }),
 		}, context);
-		logger.info('harness opened', { durationMs: Date.now() - startedAt });
+		logo.info('harness opened', { durationMs: Date.now() - startedAt });
 		return harness;
 	} catch (error) {
-		logger.error('harness open failed', error, { durationMs: Date.now() - startedAt });
+		logo.error('harness open failed', error, { durationMs: Date.now() - startedAt });
 		throw error;
 	}
 }

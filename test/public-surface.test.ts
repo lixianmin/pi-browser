@@ -75,8 +75,6 @@ const RUNTIME_CONSTANTS = [
 	'lsToolSystemPromptContribution',
 	'readToolSystemPromptContribution',
 	'writeToolSystemPromptContribution',
-	// 日志面（needle）：宿主挂 sink 的入口——非函数、非上游常量，单列一条
-	'logger',
 ];
 
 describe('公开面（src/index.ts）', () => {

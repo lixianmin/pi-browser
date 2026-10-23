@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
 import type { LogRecord } from '@needle/logo';
-import { logger } from '../src/logging';
+import { logo } from '@needle/logo';
 import { ExtensionRunner } from '../src/extensions/runner';
 import { createExtensionRuntime, type ExtensionActions, type ExtensionContextActions } from '../src/extensions/runtime';
 import type { Extension, ExtensionAPI } from '../src/index';
@@ -95,15 +95,15 @@ describe('ExtensionRunner（宿主，注入模型）', () => {
 		// 告警走本仓日志面（needle），不再走裸 console.warn（spec 2026-10-23 §4）
 		const records: LogRecord[] = [];
 		const collect = (batch: readonly LogRecord[]): void => { records.push(...batch); };
-		logger.addSink(collect);
+		logo.addSink(collect);
 		const { runner } = makeRunner([
 			ext('ext-a', (pi) => { pi.registerTool(tool('dup')); }),
 			ext('ext-b', (pi) => { pi.registerTool(tool('dup')); }),
 		], f);
 		runner.bindCore(f.actions, f.contextActions);
 		await runner.load();
-		logger.flush();
-		logger.removeSink(collect);
+		logo.flush();
+		logo.removeSink(collect);
 
 		const registered = runner.getAllRegisteredTools();
 		expect(registered).toHaveLength(1);

@@ -8,7 +8,7 @@ import { FileError, type FileInfo, type Result } from '@earendil-works/pi-durabl
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types.js';
 import { normalizePath } from '../env/path.js';
-import { logger } from '../logging.js';
+import { logo } from '@needle/logo';
 
 /** 工具结果包装：pi 的 content 是块数组，details 是给 UI/日志的结构化信息（缺省 {}） */
 export function textResult<TDetails extends object>(text: string, details?: TDetails): AgentToolResult<TDetails> {
@@ -39,7 +39,7 @@ export async function writeText(fs: BrowserFileSystem, absolutePath: string, con
 	unwrap(await fs.writeFile(absolutePath, content, context));
 	// 打点（spec 2026-10-23 §4）：本仓唯一的写文件收口（write / edit 两个工具都走它）——
 	// 写盘是副作用关键路径，事后要能回答「谁在什么时候写了哪个文件、多大」。
-	logger.info('file write', { path: absolutePath, bytes: new TextEncoder().encode(content).length });
+	logo.info('file write', { path: absolutePath, bytes: new TextEncoder().encode(content).length });
 }
 
 export async function statPath(fs: BrowserFileSystem, absolutePath: string, context: Context): Promise<FileInfo> {

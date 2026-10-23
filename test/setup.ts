@@ -1,8 +1,8 @@
 // 测试里把本仓日志面调到 'warn'：默认的 info 打点会把每一次工具调用 / shell 命令都打进测试输出，
 // 淹没断言信息。要测 info 级打点的用例自己调高（见 test/logging.test.ts）。
-import { logger } from '../src/logging';
+import { logo } from '@needle/logo';
 
-logger.setLevel('warn');
+logo.setLevel('warn');
 
 // Web Locks shim：LightningFS 的 DefaultBackend 需要 navigator.locks（Mutex2 分支），
 // 缺失时回退 Mutex（idb-keyval → 需要 indexedDB）——无 shim 的 Node 上首操作必抛

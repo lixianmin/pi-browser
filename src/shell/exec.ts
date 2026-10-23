@@ -18,7 +18,8 @@ import {
 	type HostCommandRegistry, type HostCommandSabMessage,
 } from './host-commands.js';
 import { applyChanges, createSyncSession } from './sync-session.js';
-import { logger, summarize } from '../logging.js';
+import { logo } from '@needle/logo';
+import { summarize } from '../logging.js';
 import {
 	PULL_CHANGES, PUSH_DIRS, bytesEqual, readMountTree,
 	type ChangesResponse, type PullChangesRequest, type PushDirsRequest, type ShellFsStore, type WasiFsChanges,
@@ -171,7 +172,7 @@ export function createBusyboxShell(store: ShellFsStore, options: BusyboxShellOpt
 		// 也在这一层被记到 —— 它们同样是「命令没跑起来」的事实。
 		const startedAt = Date.now();
 		const result = await runExec(command, execOptions, context);
-		logger.info('shell exec', {
+		logo.info('shell exec', {
 			command: summarize(typeof command === 'string' ? command : command.join(' ')),
 			cwd: execOptions?.cwd,
 			ok: result.ok,

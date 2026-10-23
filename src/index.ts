@@ -18,9 +18,6 @@
 export { createBrowserFileSystem, resetFsKernelRegistry, type BrowserFileSystemOptions } from './env/backend-idb.js';
 export type { BrowserFileSystem, MountEntry } from './env/types.js';
 export { normalizePath } from './env/path.js';
-// 日志面（needle）：宿主拿它挂自己的 sink（文件 / 飞书 / 调试控制台）即接管本仓全部日志
-export { logger } from './logging.js';
-export type { Logger } from './logging.js';
 export { createBrowserExecutionEnv } from './env/execution-env.js';
 export { createWasiFileSystem } from './shell/wasi-fs.js';
 // pi-durable 会话存储的浏览器侧装配（批 2 B-1）：fs 注入式存储，`BrowserFileSystem` 直接喂进去，无需 adapter

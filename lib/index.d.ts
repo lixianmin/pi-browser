@@ -1,8 +1,6 @@
 export { createBrowserFileSystem, resetFsKernelRegistry, type BrowserFileSystemOptions } from './env/backend-idb.js';
 export type { BrowserFileSystem, MountEntry } from './env/types.js';
 export { normalizePath } from './env/path.js';
-export { logger } from './logging.js';
-export type { Logger } from './logging.js';
 export { createBrowserExecutionEnv } from './env/execution-env.js';
 export { createWasiFileSystem } from './shell/wasi-fs.js';
 export { openBrowserSessionStorage } from './session/storage.js';

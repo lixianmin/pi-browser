@@ -8,7 +8,7 @@ import { stdoutSink, type LogRecord } from '@needle/logo';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { ToolExecutionApi } from '@earendil-works/pi-durable';
-import { logger } from '../src/logging';
+import { logo } from '@needle/logo';
 import { asDurableTool } from '../src/tools/durable-tool';
 import { writeText } from '../src/tools/fs-ops';
 import { createMemoryFileSystem } from '../src/env/backend-memory';
@@ -23,27 +23,28 @@ let records: LogRecord[] = [];
 const collect = (batch: readonly LogRecord[]): void => { records.push(...batch); };
 
 beforeAll(() => {
-	// 默认 logger 带 stdout sink（浏览器/Node 都能看见）；测试里摘掉，免得刷屏
-	logger.removeSink(stdoutSink);
-	logger.addSink(collect);
+	// 全局 logo 默认带 stdout sink（浏览器/Node 都能看见）；测试里摘掉，免得刷屏
+	logo.removeSink(stdoutSink);
+	logo.addSink(collect);
 	// test/setup.ts 把级别压到 'warn'（免得打点淹没断言输出）；本文件要测 info 级打点，自己调高
-	logger.setLevel('info');
+	logo.setLevel('info');
 });
 afterAll(() => {
-	logger.removeSink(collect);
-	logger.addSink(stdoutSink);
-	logger.setLevel('warn');
+	logo.removeSink(collect);
+	logo.addSink(stdoutSink);
+	logo.setLevel('warn');
 });
 beforeEach(() => { records = []; });
-afterEach(() => { logger.flush(); });
+afterEach(() => { logo.flush(); });
 
 /** 取第一条满足条件的记录 */
 const first = (predicate: (r: LogRecord) => boolean): LogRecord | undefined => records.find(predicate);
 
 describe('日志面（needle）', () => {
-	it('`logger` 就是 needle 的全局实例本身（全应用唯一一个 logger）', async () => {
-		const { logo } = await import('@needle/logo');
-		expect(logger).toBe(logo);
+	it('打点进的是 needle 的全局 logo（全应用唯一一个实例）', () => {
+		// 本仓不导出 logger 别名、也不另造实例：调用点直接 import { logo }，
+		// 所以下面「挂 sink 就能收到本仓日志」成立。
+		expect(typeof logo.info).toBe('function');
 	});
 
 	it('工具调用：起一条（名 + 参数摘要）、收一条（耗时 + 成败）', async () => {
@@ -56,7 +57,7 @@ describe('日志面（needle）', () => {
 		const api = { callId: 'c1', output: () => {} } as unknown as ToolExecutionApi;
 
 		await asDurableTool(tool).execute({ path: '/a.txt' }, api, CTX);
-		logger.flush();
+		logo.flush();
 
 		const started = first((r) => r.level === 'info' && r.msg === 'tool call');
 		expect(started?.tool).toBe('probe');
@@ -78,7 +79,7 @@ describe('日志面（needle）', () => {
 		const api = { callId: 'c1', output: () => {} } as unknown as ToolExecutionApi;
 
 		await expect(asDurableTool(tool).execute({}, api, CTX)).rejects.toBe(boom);
-		logger.flush();
+		logo.flush();
 
 		const failed = first((r) => r.level === 'error' && r.msg === 'tool failed');
 		expect(failed?.tool).toBe('probe');
@@ -95,7 +96,7 @@ describe('日志面（needle）', () => {
 		const api = { callId: 'c1', output: () => {} } as unknown as ToolExecutionApi;
 
 		await asDurableTool(tool).execute({ content: 'x'.repeat(5000) }, api, CTX);
-		logger.flush();
+		logo.flush();
 
 		const started = first((r) => r.msg === 'tool call');
 		expect(String(started?.args).length).toBeLessThan(1000);
@@ -106,7 +107,7 @@ describe('日志面（needle）', () => {
 		try {
 			const result = await env.exec('echo hi', { cwd: '/' }, CTX);
 			expect(result.ok).toBe(true);
-			logger.flush();
+			logo.flush();
 
 			const record = first((r) => r.msg === 'shell exec');
 			expect(record?.command).toBe('echo hi');
@@ -121,7 +122,7 @@ describe('日志面（needle）', () => {
 	it('写文件：记路径与字节数', async () => {
 		const fs = createMemoryFileSystem('/');
 		await writeText(fs, '/a.txt', 'hello', CTX);
-		logger.flush();
+		logo.flush();
 
 		const record = first((r) => r.msg === 'file write');
 		expect(record?.path).toBe('/a.txt');

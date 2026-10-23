@@ -35,7 +35,7 @@ import type {
 	ToolResultEventResult, TurnEndEvent,
 } from './events.js';
 import { bindCore, type ExtensionActions, type ExtensionContextActions, type ExtensionRuntime } from './runtime.js';
-import { logger } from '../logging.js';
+import { logo } from '@needle/logo';
 import type { ToolDefinition } from './tool.js';
 
 /** 上游 `ExtensionError` 逐字（`types.d.ts:1705`）。 */
@@ -216,7 +216,7 @@ export class ExtensionRunner {
 			try {
 				listener(error);
 			} catch (err) {
-				logger.warn('[extensions] onError listener 自身抛错', { detail: errText(err) });
+				logo.warn('[extensions] onError listener 自身抛错', { detail: errText(err) });
 			}
 		}
 	}
@@ -547,7 +547,7 @@ export class ExtensionRunner {
 		const previous = this.registered.get(definition.name);
 		if (previous) {
 			// 对齐 pi 宿主语义（Map.set：后写覆盖先写），差异只有这一行告警 —— spec §3.5
-			logger.warn('[extensions] 工具重名', {
+			logo.warn('[extensions] 工具重名', {
 				tool: definition.name,
 				previous: previous.sourceInfo.source,
 				current: source,

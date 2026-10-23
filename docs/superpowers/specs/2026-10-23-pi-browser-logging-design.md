@@ -30,12 +30,11 @@
 
 ## 3. 日志面：`src/logging.ts`（全仓唯一入口）
 
-```ts
-export const logger: Logger = logo;   // needle 导出的全局实例本身
-```
+各调用点：`import { logo } from '@needle/logo'` —— **不导出 logger 别名，也不另造实例**。
+`src/logging.ts` 只剩打点共用的 `summarize()`（参数摘要截断）与这份说明。
 
-- **用 needle 的全局 `logo`，不另造实例。** 需求是「全应用唯一一个 logger」：宿主一处 `addSink`
-  就能接管本仓与自己的全部日志，`setLevel` 也是同一个旋钮。
+- **用 needle 的全局 `logo`，不另造实例、不导别名。** 需求是「全应用唯一一个 logger」：宿主一处
+  `addSink` 就能接管本仓与自己的全部日志，`setLevel` 也是同一个旋钮。
 - **不用 `logo.child({ name })` 派生子实例**：`child()` 是 `sinks: [...sinks]`，创建那一刻复制 sink
   数组后与父级解绑，宿主后挂的 sink 进不了已存在的 child。要嘛直接用 `logo`，要嘛另造实例；
   按上面的需求选前者。
