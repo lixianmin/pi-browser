@@ -50,7 +50,7 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { ToolExecutionApi, ToolRegistration } from '@earendil-works/pi-durable';
 import type { TSchema } from '@earendil-works/pi-ai';
-import { logo } from '@needle/logo';
+import { logo } from '@needle/needle';
 import { summarize } from '../logging.js';
 
 /**

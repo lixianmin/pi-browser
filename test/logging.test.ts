@@ -1,14 +1,14 @@
 // @vitest-environment node
-// 日志面（needle `@needle/logo`）：本仓关键路径的打点契约（spec 2026-10-23 §4）。
+// 日志面（needle `@needle/needle`）：本仓关键路径的打点契约（spec 2026-10-23 §4）。
 //
 // 为什么单独一个文件：打点是**可观察契约**——级别或字段名一改，宿主侧按字段做的看板/告警就跟着坏。
 // 与扩展面那份硬编码名单同理：把它钉成测试，升级 needle 或改打点时这里先红。
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { stdoutSink, type LogRecord } from '@needle/logo';
+import { stdoutSink, type LogRecord } from '@needle/needle';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { ToolExecutionApi } from '@earendil-works/pi-durable';
-import { logo } from '@needle/logo';
+import { logo } from '@needle/needle';
 import { asDurableTool } from '../src/tools/durable-tool';
 import { writeText } from '../src/tools/fs-ops';
 import { createMemoryFileSystem } from '../src/env/backend-memory';

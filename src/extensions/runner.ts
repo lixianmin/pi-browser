@@ -35,7 +35,7 @@ import type {
 	ToolResultEventResult, TurnEndEvent,
 } from './events.js';
 import { bindCore, type ExtensionActions, type ExtensionContextActions, type ExtensionRuntime } from './runtime.js';
-import { logo } from '@needle/logo';
+import { logo } from '@needle/needle';
 import type { ToolDefinition } from './tool.js';
 
 /** 上游 `ExtensionError` 逐字（`types.d.ts:1705`）。 */

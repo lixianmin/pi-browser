@@ -8,7 +8,7 @@ import { FileError, type FileInfo, type Result } from '@earendil-works/pi-durabl
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { BrowserFileSystem } from '../env/types.js';
 import { normalizePath } from '../env/path.js';
-import { logo } from '@needle/logo';
+import { logo } from '@needle/needle';
 
 /** 工具结果包装：pi 的 content 是块数组，details 是给 UI/日志的结构化信息（缺省 {}） */
 export function textResult<TDetails extends object>(text: string, details?: TDetails): AgentToolResult<TDetails> {

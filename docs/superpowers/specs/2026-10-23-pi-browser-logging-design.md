@@ -11,11 +11,11 @@
 目标：给本仓一条**结构化、可被宿主接管**的日志通道——库自己写日志，宿主决定日志去哪（控制台 / 文件 /
 飞书 / 自己的 sink），两边用同一套库（needle），不各自造轮子。
 
-## 2. 选型：needle（`@needle/logo`）
+## 2. 选型：needle（`@needle/needle`）
 
-用同机已有的 `needle` 仓（`/Users/xmli/me/code/needle`，包名 `@needle/logo`）：
+用同机已有的 `needle` 仓（`/Users/xmli/me/code/needle`，包名 `@needle/needle`）：
 
-- **零运行时依赖**：core 入口不拉 `node:fs`（file sink 只从 `@needle/logo/node` 导出），浏览器可用。
+- **零运行时依赖**：core 入口不拉 `node:fs`（file sink 只从 `@needle/needle/node` 导出），浏览器可用。
 - **sink 可插**：`logo.addSink(sink)` 挂文件 / 飞书 / 自定义；宿主想接管本仓日志，挂到本仓导出的
   logger 上即可，不必改本仓代码。
 - **结构化记录**：`LogRecord` 是 JSON 安全的（循环引用、BigInt、抛异常的 getter 都被 sanitize 过），
@@ -25,12 +25,12 @@
 
 不用 `console.*` 直接写：没有级别、没有结构化字段、宿主接不走。
 
-依赖写法与 `video.downloader` 同口径：`"@needle/logo": "github:lixianmin/needle#main"`（lockfile 钉到
+依赖写法与 `video.downloader` 同口径：`"@needle/needle": "github:lixianmin/needle#main"`（lockfile 钉到
 具体 sha）。needle 的 `dist/` 随源码提交进仓（needle 侧的决定），所以 git 依赖不需要消费者构建。
 
 ## 3. 日志面：`src/logging.ts`（全仓唯一入口）
 
-各调用点：`import { logo } from '@needle/logo'` —— **不导出 logger 别名，也不另造实例**。
+各调用点：`import { logo } from '@needle/needle'` —— **不导出 logger 别名，也不另造实例**。
 `src/logging.ts` 只剩打点共用的 `summarize()`（参数摘要截断）与这份说明。
 
 - **用 needle 的全局 `logo`，不另造实例、不导别名。** 需求是「全应用唯一一个 logger」：宿主一处
@@ -65,7 +65,7 @@
 ## 5. 不做的事
 
 - 不做采样、不做脱敏、不做远程上报——宿主要的话自己挂 sink 处理。
-- 不引 node 侧 file sink（浏览器库，`@needle/logo/node` 依赖 `node:fs`）；宿主在 node 侧自行挂。
+- 不引 node 侧 file sink（浏览器库，`@needle/needle/node` 依赖 `node:fs`）；宿主在 node 侧自行挂。
 - 不改公开面以外的 API：`logger` 是**新增**导出，其余导出不动（`test/public-surface.test.ts` 的
   运行时导出表同步加一条）。
 

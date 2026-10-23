@@ -5,8 +5,8 @@
 // 宿主动作就是一组 spy。
 import { describe, it, expect, vi } from 'vitest';
 import { Type } from 'typebox';
-import type { LogRecord } from '@needle/logo';
-import { logo } from '@needle/logo';
+import type { LogRecord } from '@needle/needle';
+import { logo } from '@needle/needle';
 import { ExtensionRunner } from '../src/extensions/runner';
 import { createExtensionRuntime, type ExtensionActions, type ExtensionContextActions } from '../src/extensions/runtime';
 import type { Extension, ExtensionAPI } from '../src/index';
