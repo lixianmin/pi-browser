@@ -39,7 +39,7 @@ import type { TSchema } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { Context } from '../env/context.js';
 import { asDurableTool } from '../tools/durable-tool.js';
-import { logo } from '@needle/needle';
+import { logo } from '@needle/logo';
 
 export interface OpenBrowserHarnessOptions {
 	/** pi-ai 模型访问（`HarnessOptions.models`）：宿主提供，本仓不认 provider。 */

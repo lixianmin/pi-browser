@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-M13（2026-10-23，包版本仍 v1.0.0）：**日志面接上 needle（`@needle/needle`）**——本仓的打点从裸 `console.*` 换成 needle 的结构化记录：新增 `src/logging.ts`（打点辅助：参数摘要 + 口径说明），打点收口在五处（工具执行 / shell 执行 / 写文件 / 扩展宿主告警 / 会话装配），`ExtensionRunner` 的两处 `console.warn` 一并收进同一条通道。日志统一用 needle 的全局 `logo`（全应用唯一一个实例）：**不在公开面导 logger 别名**，调用点直接 `import { logo } from '@needle/needle'`；宿主同一处 `logo.addSink(...)` 即接管本仓全部日志（文件 / 飞书 / needle 调试控制台），`setLevel` 也是同一个旋钮。选型与取舍见 `docs/superpowers/specs/2026-10-23-pi-browser-logging-design.md`；打点是可观察契约，字段与级别由 `test/logging.test.ts` 钉住。**公开面新增**：`logger`（运行时）+ `Logger`（类型）。
+M13（2026-10-23，包版本仍 v1.0.0）：**日志面接上 needle（`@needle/logo`）**——本仓的打点从裸 `console.*` 换成 needle 的结构化记录：新增 `src/logging.ts`（打点辅助：参数摘要 + 口径说明），打点收口在五处（工具执行 / shell 执行 / 写文件 / 扩展宿主告警 / 会话装配），`ExtensionRunner` 的两处 `console.warn` 一并收进同一条通道。日志统一用 needle 的全局 `logo`（全应用唯一一个实例）：**不在公开面导 logger 别名**，调用点直接 `import { logo } from '@needle/logo'`；宿主同一处 `logo.addSink(...)` 即接管本仓全部日志（文件 / 飞书 / needle 调试控制台），`setLevel` 也是同一个旋钮。选型与取舍见 `docs/superpowers/specs/2026-10-23-pi-browser-logging-design.md`；打点是可观察契约，字段与级别由 `test/logging.test.ts` 钉住。**公开面新增**：`logger`（运行时）+ `Logger`（类型）。
 M12（2026-10-23，包版本仍 v1.0.0）：**上游家族整体升到 1.4.0**——`chord` / `pi-agent-core` / `pi-ai` / `pi-durable`（运行时）与 `pi-coding-agent`（devDep，对照基线）从 1.3.0 升到 1.4.0。**本批公开面零变更**（`src/` 的导出与签名一字未动），只有两处测试/注解跟着上游契约走：`pi-coding-agent@1.4.0` 的 `dist/core/extensions/types.d.ts` 与 1.3.0 **逐字节相同**，扩展三张名单仍为 33 / 18 / 41；`pi-durable@1.4.0` 的 `dist/env/*.d.ts`（`FileSystem` / `Shell` / `ExecutionEnv`）逐字未变，env 契约面零漂移。两处**必须跟**的上游改动：`chord@1.4.0` 的 `Context` 多了必需成员 `telemetry: TelemetrySpan`（本仓不自造 `Context`，只用 `BACKGROUND_CONTEXT` / `withAbortSignal`，故 src 零改动；自造 `Context` 的测试改用 `withAbortSignal` 派生）；`pi-durable@1.4.0` 把宿主的 `models` 包一层 `withClientIdentity`（构造时读 `models.getAuth.bind(models)`），所以**宿主传的 `Models` 必须是完整的 pi-ai `Models`**（本仓测试替身补了 `getAuth`）。行为变化一处（上游默认）：Harness 默认带上 pi 的 client identity（`User-Agent: pi/…` + OpenRouter / NVIDIA / OpenCode 归因头，`PI_ATTRIBUTION`），宿主可用 `HarnessOptions.identity` 覆盖或关掉归因（`attribution: null`）。上游 1.4.0 的其余大改（durable 任务 `sleeping` 状态、`defineDoc` 强制 `checkpointWhen`、SQLite 存储迁到 `chord/sqlite`、`HarnessOptions.telemetry`）本仓未触及。
 M11（2026-10-15，包版本仍 v1.0.0）：**上游家族整体升到 1.3.0**——`chord` / `pi-agent-core` / `pi-ai` / `pi-durable`（运行时）与 `pi-coding-agent`（devDep，对照基线）从 1.2.0 升到 1.3.0。**本批零代码变更，纯版本 bump**：`pi-durable@1.3.0` 的 CHANGELOG 只有 SqliteStorage namespace、Cloudflare Durable Object 协调与两个 bug fix，env 契约面逐字未变；`chord@1.3.0` 虽是超大 breaking change（`Handle`→`Ref`、`epoch`→`codeVersion`、`kind`→`variant`、`serve` lifetime 重写），但本仓只从 chord 取 `Context` / `BACKGROUND_CONTEXT` / `withAbortSignal` 三个符号，这三个在 1.3.0 里形状不变；`pi-coding-agent@1.3.0` 的扩展三张名单仍为 33 / 18 / 41。`tsc --noEmit` 0 错、主包 618 测试 + debugger 30 测试全绿。M10（2026-10-04，包版本仍 v1.0.0）：**上游家族整体升到 1.0.2**——`chord` / `pi-agent-core` / `pi-ai` / `pi-durable`（运行时）与 `pi-coding-agent`（devDep，对照基线）从 1.0.0 升到 1.0.2。契约面逐文件比对上游产物后的漂移只有一条：`ExtensionAPI.registerToolRenderer`（1.0.1 新增，入参是 TUI 渲染器解析链）——本仓无 TUI，列入不支持（见「扩展」节）；事件名 41 / `ExtensionContext` 18 成员 / 七工具 / compaction / 会话 v3 JSONL 全部逐字未变，既有转写件无需改形状。M9（v1.0.0）：**pi-coding-agent 1.0.0 对齐完成**——依赖从 0.99.1 升到 1.0.0（`pi-agent-core` 在 1.0.0 只剩 agent / agent-loop / proxy / stream-fn / types 五个模块，`harness/`、`JsonlSessionRepo`、`harness/compaction` 整块消失）；七工具换成上游的「两导出 + operations 缝」并逐字对齐静态契约面（schema / description / snippet / guidelines 由测试直接 import 上游 `createXToolDefinition` 比对）；共享件 `truncate` / `path-utils` / `edit-diff` 逐字转写；扩展宿主换注入模型（`createExtensionRuntime` + `runner.bindCore(actions, contextActions)`，事件由宿主在对应时机调 runner 的 `emit` / 具名 `emitXxx`，25 条事件各有逐路由触发测试）；skills 改名 `formatSkillsForPrompt` + compaction 自持（1.0.0 把它搬进 CLI 仓）；会话格式对照落到 v3 JSONL + 上游纯函数（1.0.0 的 `SessionManager` 是 node:fs 绑定 + 私有构造，喂不进浏览器 fs）。**破坏性变更清单**见「公开面 API」表与「平台偏差」节（D1–D8）——其中 `createCompactionSummaryMessage` 的 `timestamp` 从 `string | number` 收窄为 `string`，扩展 handler 的载荷类型从 core 的形状换成上游 pi 事件的形状（`tool_call` 的 `args` → `input`、`session_start` 多必填 `reason`）。M8（v0.5.0）：S6 完成——**扩展面接口级对齐**：宿主类 `ExtensionRunner`（pi 同名）+ 扩展工厂 `(pi: ExtensionAPI) => void`，成员名/事件名逐字对齐 pi（支持面与不支持项清单见「扩展」节）；S5 自造的 `defineExtension`/`composeToolset`/`toHarnessTool` 已删（适配器降为内部件）。M7（v0.4.0）：S5 完成——扩展「工具注册」兼容面（已被 S6 取代）。M5（v0.3.0）：S4 完成（skills 加载/渲染 + compaction 接线与集成验证）+ S2.1 完成（通用宿主命令 seam：SAB 双端协议 + inline 同步路径）。M2 的七工具（`read`/`write`/`edit`/`grep`/`ls`/`find`/`bash`，fs 背书；名字 1:1 对齐上游 pi-coding-agent `core/tools/`，wire-level `name`/`label` 与公开 export 名全部一致）+ `createWasiFileSystem` + exec 接线 wasi-sh busybox（浏览器 worker / node inline 双轨，单写者同步）与 M1 的 S1+S3 基座（虚拟 FS + mount 路由 + 会话持久化）不变。
 
@@ -318,23 +318,23 @@ busybox 只有一个进程，**无 fork**（后台任务 `&`、需 fork 的子 s
 
 TS/jiti 加载、`~/.pi` 与 `.pi` 目录发现、项目信任门、`/reload` 热重载、终端 UI（见上文「不支持」清单的理由）。
 
-## 日志（needle `@needle/needle`）
+## 日志（needle `@needle/logo`）
 
-本仓的打点走同机已有的 needle 日志库（`@needle/needle`，零运行时依赖、浏览器可用），不直接写 `console.*`：
+本仓的打点走同机已有的 needle 日志库（`@needle/logo`，零运行时依赖、浏览器可用），不直接写 `console.*`：
 库自己写日志，**宿主决定日志去哪**。
 
 日志统一用 needle 导出的**全局 `logo`**（全应用唯一一个实例），本仓不另造 logger、也不导出别名——
-调用点直接 `import { logo } from '@needle/needle'`：
+调用点直接 `import { logo } from '@needle/logo'`：
 
 ```ts
-import { logo } from '@needle/needle';
-import { createFileSink } from '@needle/needle/node';
+import { logo } from '@needle/logo';
+import { createFileSink } from '@needle/logo/node';
 
 logo.addSink(createFileSink({ dir: 'logs' }));   // 之后本仓与宿主的所有日志都落盘
 logo.setLevel('warn');                            // 默认 'info'：debug=细节、info=关键动作、warn/error=失败
 ```
 
-宿主 `import { logo } from '@needle/needle'` 拿到的是**同一个对象**（bun/npm 按解析结果去重：两方 spec
+宿主 `import { logo } from '@needle/logo'` 拿到的是**同一个对象**（bun/npm 按解析结果去重：两方 spec
 分别写 `#main` 与某个 sha、而 main 当时正好是那个 sha 时，只装一份物理副本，两边符号链接到同一个
 store 目录）。只有两方 lockfile 解析到**不同 sha**（升级窗口期的错配）才会有两份副本，那两份各自都带
 `stdoutSink`，都往同一个 console 写——输出不丢，丢的只是「宿主那份上的 file sink 收不到本仓日志」。
@@ -356,7 +356,23 @@ store 目录）。只有两方 lockfile 解析到**不同 sha**（升级窗口�
 `setLevel` 也是全局的（宿主调 `warn`，本仓 info 一起关）——这是「唯一实例」有意换来的语义；需要单独档位
 时由宿主在 sink 侧过滤，不另造 logger。
 
-设计与取舍见 `docs/superpowers/specs/2026-10-23-pi-browser-logging-design.md`。依赖写法与同机 `video.downloader` 同口径：`"@needle/needle": "github:lixianmin/needle#main"`（lockfile 钉到具体 sha；`bun install` 按 lockfile 复现，跟上游要显式 `bun update @needle/needle`；needle 的 `dist/` 随源码进仓，所以装它不需要消费者构建）。
+设计与取舍见 `docs/superpowers/specs/2026-10-23-pi-browser-logging-design.md`。
+
+**依赖是本地 link**：`"@needle/logo": "link:@needle/logo"`。needle 已拆成 `@needle/core` / `@needle/logo` /
+`@needle/shell` 三个 workspace 包，根包 `private: true` 且没有 exports——`github:lixianmin/needle` 只能装到那个
+私有根包（实测 `import '@needle/logo'` 直接 `ERR_MODULE_NOT_FOUND`），git 子目录语法 bun 也不支持；npm 上还
+没发布。所以只走 needle README 写的本地 link：
+
+```bash
+cd ~/needle && bun install && bun run build
+cd packages/logo && bun link            # 注册 @needle/logo（三个包各一次）
+# 回到本仓
+bun install
+```
+
+**代价（下游要提前知道）**：`link:` 会被写进 `bun.lock`（`@needle/logo@link:@needle/logo`）并指向本机绝对路径。
+任何用 `github:<sha>` 装本仓的消费者（如 spice），其环境里也必须先 `bun link` 那三个包，否则解析失败。
+needle 发布 npm 后应把这一行换回版本号（`"@needle/logo": "^0.3.9"`）。
 
 ## 开发
 

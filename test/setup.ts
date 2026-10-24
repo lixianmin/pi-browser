@@ -1,6 +1,6 @@
 // 测试里把本仓日志面调到 'warn'：默认的 info 打点会把每一次工具调用 / shell 命令都打进测试输出，
 // 淹没断言信息。要测 info 级打点的用例自己调高（见 test/logging.test.ts）。
-import { logo } from '@needle/needle';
+import { logo } from '@needle/logo';
 
 logo.setLevel('warn');
 

@@ -18,7 +18,7 @@ import {
 	type HostCommandRegistry, type HostCommandSabMessage,
 } from './host-commands.js';
 import { applyChanges, createSyncSession } from './sync-session.js';
-import { logo } from '@needle/needle';
+import { logo } from '@needle/logo';
 import { summarize } from '../logging.js';
 import {
 	PULL_CHANGES, PUSH_DIRS, bytesEqual, readMountTree,
